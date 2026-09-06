@@ -1,6 +1,6 @@
 import Foundation
 import AVFoundation
-import Combine
+import Observation
 import QuartzCore
 import UIKit
 
@@ -9,8 +9,13 @@ import UIKit
 /// CADisplayLink をマスタークロックとして共通時刻を進め、各動画は
 /// 現在の区間（バックスイング / ダウンスイング / フォロー）ごとの速度倍率で再生する。
 /// 区間の切り替わりでレートを更新し、ドリフトが閾値を超えたらシークで補正する。
+///
+/// NOTE: `ObservableObject` ではなく `@Observable` にしている。`commonTime` は再生中に毎 tick（最大 60Hz）変わるので、
+/// `ObservableObject` だと比較画面の View がすべて毎 tick 再描画され、再生中はループ範囲の Menu の項目が押せなくなる
+/// （基準の Picker が再生中に効かないのも同じ原因とみている）。`@Observable` なら `commonTime` を読む View（シークバー）だけが再描画される。
 @MainActor
-final class PlaybackController: NSObject, ObservableObject {
+@Observable
+final class PlaybackController: NSObject {
 
     /// ループ範囲
     enum LoopMode: Hashable {
@@ -35,23 +40,24 @@ final class PlaybackController: NSObject, ObservableObject {
     let minePlayer = AVPlayer()
     let modelPlayer = AVPlayer()
 
-    @Published private(set) var commonTime: Double = 0
-    @Published private(set) var isPlaying = false
+    private(set) var commonTime: Double = 0
+    private(set) var isPlaying = false
     /// 再生速度（実時間に対する倍率）
-    @Published var speed: Double = 0.3 {
+    var speed: Double = 0.3 {
         didSet {
             if isPlaying { applyRates() }
         }
     }
-    @Published var loop: LoopMode = .all {
+    var loop: LoopMode = .all {
         didSet { clampIntoLoop() }
     }
-    @Published private(set) var sync: SyncEngine
+    private(set) var sync: SyncEngine
 
-    private var displayLink: CADisplayLink?
-    private var lastTimestamp: CFTimeInterval?
-    private var currentSegment: SwingSegment?
-    private var wasPlayingBeforeScrub = false
+    // 再生機構の内部状態。View は読まないので観測対象から外す
+    @ObservationIgnored private var displayLink: CADisplayLink?
+    @ObservationIgnored private var lastTimestamp: CFTimeInterval?
+    @ObservationIgnored private var currentSegment: SwingSegment?
+    @ObservationIgnored private var wasPlayingBeforeScrub = false
 
     init(mineURL: URL, modelURL: URL, sync: SyncEngine) {
         self.sync = sync

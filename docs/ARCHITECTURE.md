@@ -51,7 +51,7 @@ SwingDuet/
 拡大率・位置に自動フィットする（縮小はしない。映像の端がペインに入って黒帯が出る手前で止める）。
 拡大率・位置は自動フィットからの相対値として `VideoConfig.scale / offsetX / offsetY`（pt）に保存する（1 と 0 で自動フィットどおり）。
 ジェスチャー中は `@GestureState` の一時値で描画し、
-指を離した時点で `config` に確定 → `ComparisonView.onChange(of: project)` → `ProjectStore.update` で JSON に書く
+指を離した時点で `config` に確定 → `ComparisonContent.onChange(of: project)` → `ProjectStore.update` で JSON に書く
 （ジェスチャーの途中でディスクに書かないため）。ピンチ中はドラッグを無視する（2 本指の 1 本目がドラッグとして拾われ、ピンチ中心がずれるのを防ぐ）。
 
 ## 3. 同期の仕組み（SyncEngine）
@@ -71,6 +71,11 @@ SwingDuet/
   一時停止・ジャンプ・コマ送り・スクラブ終了時は許容ゼロの精密シーク
 - ループ範囲は `loop`（`LoopMode`：スイング全体 / 1 区間 / ループしない）。範囲を出たら先頭へ戻る（ループしないなら停止）
 - フェーズ修正・基準切替時は `updateSync` で相対位置（進捗率）を保って追従する
+- `PlaybackController` は `@Observable`（`ObservableObject` ではない）。`commonTime` が毎 tick 変わるので、
+  `ObservableObject` だと比較画面の View 全体が 60Hz で再描画され、再生中はループ範囲の Menu の項目が押せなくなる。
+  `@Observable` なら `commonTime` を読むシークバーだけが再描画される（`ProjectStore` は更新頻度が低いので `ObservableObject` のまま）。
+  `ComparisonView` は controller を `task` で 1 度だけ作る薄いラッパーで、本体は `ComparisonContent`
+  （`@State` の初期値は View の作り直しごとに評価されるため、init で作ると保存のたびに使い捨ての AVPlayer ができる）
 
 ## 5. フェーズ検出の仕組み（SwingAnalyzer）
 

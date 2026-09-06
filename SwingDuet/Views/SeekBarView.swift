@@ -3,7 +3,7 @@ import SwiftUI
 /// 共通タイムラインの1本のシークバー。
 /// バックスイング / ダウンスイング / フォローを色分けし、ドラッグで2本を同時にシークする。
 struct SeekBarView: View {
-    @ObservedObject var controller: PlaybackController
+    let controller: PlaybackController
 
     @State private var isScrubbing = false
 

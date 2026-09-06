@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 再生操作パネル：フェーズジャンプ / コマ送り / 再生・停止 / 速度 / ループ
 struct TransportControlsView: View {
-    @ObservedObject var controller: PlaybackController
+    @Bindable var controller: PlaybackController
 
     var body: some View {
         VStack(spacing: 10) {
@@ -85,5 +85,9 @@ struct TransportControlsView: View {
                 .font(.title3)
                 .foregroundStyle(controller.loop == .off ? Color.secondary : Color.accentColor)
         }
+        // NOTE: 画面下端のボタンからメニューが上に開くと iOS は項目を逆順（先頭がボタン側）に並べる。
+        //       スイング全体 → 各区間 → ループしない の宣言順で見せたいので固定する
+        .menuOrder(.fixed)
+        .accessibilityLabel("ループ範囲")
     }
 }

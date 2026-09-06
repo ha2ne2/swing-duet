@@ -182,11 +182,34 @@ final class FlowTests: XCTestCase {
         guard createProject() else { return }
         log("buttons: \(app.buttons.allElementsBoundByIndex.map { "\($0.label)|\($0.identifier)" })")
 
-        // 再生 → 2 秒後に停止（進みはスクリーンショットの再生ヘッドで確認する）
+        // 再生 → 再生中に基準とループ範囲を変える（再生中でも操作が効き、再生が止まらないこと）→ 停止
+        // 進みはスクリーンショットの再生ヘッドで確認する
         let play = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'play' OR label CONTAINS '再生'")).firstMatch
+        let loop = app.buttons.matching(NSPredicate(
+            format: "label CONTAINS 'ループ範囲' OR label CONTAINS[c] 'repeat' OR label CONTAINS 'リピート' OR label CONTAINS '繰り返し'")).firstMatch
         if tapIfExists(play, "play") {
-            sleep(2)
+            sleep(1)
             shot("playing")
+
+            let modelRef = app.buttons["お手本基準"]
+            if tapIfExists(modelRef, "reference=model (playing)", timeout: 3) {
+                usleep(500_000)
+                log("reference=model while playing: selected=\(modelRef.isSelected) stillPlaying=\(pauseButton().exists)")
+                XCTAssertTrue(modelRef.isSelected, "再生中に基準を切り替えられない")
+                XCTAssertTrue(pauseButton().exists, "基準切替で再生が止まった")
+                shot("reference_model_playing")
+            }
+
+            if tapIfExists(loop, "loop menu (playing)", timeout: 3) {
+                shot("loop_menu_playing"); dump("05_loop_menu_playing")
+                let picked = tapIfExists(app.buttons["フォローのみ"], "loop=follow (playing)", timeout: 3)
+                    || tapIfExists(app.menuItems["フォローのみ"], "loop=follow (playing, menuItem)", timeout: 2)
+                XCTAssertTrue(picked, "再生中にループ範囲のメニュー項目を選べない")
+                sleep(1)
+                log("loop=follow while playing: stillPlaying=\(pauseButton().exists)")
+                XCTAssertTrue(pauseButton().exists, "ループ範囲の変更で再生が止まった")
+                shot("playing_follow_loop")
+            }
             tapIfExists(pauseButton(), "pause")
         }
 
@@ -204,11 +227,9 @@ final class FlowTests: XCTestCase {
         tapIfExists(backward, "step -1", timeout: 3); usleep(300_000)
         shot("after_steps")
 
-        // 基準切り替え
-        tapIfExists(app.buttons["お手本基準"], "reference=model", timeout: 3)
-        usleep(500_000); shot("reference_model")
+        // 基準切り替え（停止中）
         tapIfExists(app.buttons["自分基準"], "reference=mine", timeout: 3)
-        usleep(300_000)
+        usleep(500_000); shot("reference_mine")
 
         // 再生速度（表示をタップすると 0.1 / 0.2 / 0.3 / 0.5 / 1.0 を巡回する）
         let speed = app.buttons["再生速度"]
@@ -221,8 +242,7 @@ final class FlowTests: XCTestCase {
             XCTAssertNotEqual(before, after, "速度表示をタップしても速度が変わらない")
         }
 
-        // ループメニュー → ダウンスイングのみ → 区間ループ再生
-        let loop = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'repeat' OR label CONTAINS 'リピート' OR label CONTAINS '繰り返し'")).firstMatch
+        // ループメニュー（停止中）→ ダウンスイングのみ → 区間ループ再生
         if tapIfExists(loop, "loop menu", timeout: 3) {
             shot("loop_menu"); dump("05_loop_menu")
             if !tapIfExists(app.buttons["ダウンスイングのみ"], "loop=downswing", timeout: 3) {

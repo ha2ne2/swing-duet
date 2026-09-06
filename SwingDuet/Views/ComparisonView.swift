@@ -1,21 +1,46 @@
 import SwiftUI
 
-/// 比較画面：2本の動画を共通タイムラインで同時再生する
+/// 比較画面：2本の動画を共通タイムラインで同時再生する。
+///
+/// PlaybackController は表示時に 1 度だけ作り、本体（ComparisonContent）に渡す。
+/// NOTE: `@State` の初期値は View が作り直されるたびに評価されるので、init で作ると一覧の再描画（プロジェクト保存時）ごとに
+///       AVPlayer 2 つを持つ使い捨ての PlaybackController ができる。`State` のドキュメントが勧めるとおり `task` で遅延生成する
 struct ComparisonView: View {
+    let project: ComparisonProject
+    let store: ProjectStore
+
+    @State private var controller: PlaybackController?
+
+    var body: some View {
+        Group {
+            if let controller {
+                ComparisonContent(project: project, store: store, controller: controller)
+            } else {
+                Color.black.task {
+                    controller = PlaybackController(
+                        mineURL: store.videoURL(for: project.mine.fileName),
+                        modelURL: store.videoURL(for: project.model.fileName),
+                        sync: SyncEngine(project: project))
+                }
+            }
+        }
+        .navigationTitle(project.name)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// 比較画面の本体。project の編集（基準・フェーズ・表示変換）を保存し、同期設定の変更を controller に反映する
+private struct ComparisonContent: View {
     @State private var project: ComparisonProject
-    @StateObject private var controller: PlaybackController
     private let store: ProjectStore
+    private let controller: PlaybackController
 
     @State private var editingSide: ReferenceSide?
 
-    @MainActor
-    init(project: ComparisonProject, store: ProjectStore) {
-        self.store = store
+    init(project: ComparisonProject, store: ProjectStore, controller: PlaybackController) {
         _project = State(initialValue: project)
-        _controller = StateObject(wrappedValue: PlaybackController(
-            mineURL: store.videoURL(for: project.mine.fileName),
-            modelURL: store.videoURL(for: project.model.fileName),
-            sync: SyncEngine(project: project)))
+        self.store = store
+        self.controller = controller
     }
 
     var body: some View {
@@ -68,8 +93,6 @@ struct ComparisonView: View {
                 .padding(.horizontal)
                 .padding(.bottom, 6)
         }
-        .navigationTitle(project.name)
-        .navigationBarTitleDisplayMode(.inline)
         .onChange(of: project) { _, newValue in
             store.update(newValue)
             controller.updateSync(SyncEngine(project: newValue))

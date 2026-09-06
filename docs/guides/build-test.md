@@ -86,7 +86,7 @@ xcrun devicectl device install app --device <DEVICE_ID> \
 - 初回は iPhone の 設定 → 一般 → VPNとデバイス管理 で開発者を「信頼」する必要がある
 - 無料 Apple ID の署名は **7 日で切れる**。切れたら再ビルド + 再インストール
 - Wi-Fi 経由は不安定なことがある（`unavailable` のまま）。**ケーブル接続が確実**
-- 手順は DriveMemory の iOS 版と同じ。本リポジトリでの実機インストールは 2026-09-06 時点で未実施
+- 手順は DriveMemory の iOS 版と同じ。上記コマンドで iPhone 15（iOS 26）へのインストールを確認済み（2026-09-06）
 
 ## 補足
 
