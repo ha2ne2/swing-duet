@@ -1,6 +1,6 @@
 ---
 name: e2e-simulator
-description: iOS シミュレータで SwingDuet をビルド・起動し、動画 2 本の選択 → 解析 → 同期再生 → 保存 / 復元までを XCUITest で自動操作して動作確認する手順（テスト動画の投入・ハーネス生成・スクリーンショット検証）。「エミュレータで動作確認」「シミュレータで E2E」「通しで動かして」と言われたら使う。
+description: iOS シミュレータで SwingDuet をビルド・起動し、空のステージ → 動画 2 本の選択 → 解析 → 同期再生 → 履歴からの復元までを XCUITest で自動操作して動作確認する手順（テスト動画の投入・ハーネス生成・スクリーンショット検証）。「エミュレータで動作確認」「シミュレータで E2E」「通しで動かして」と言われたら使う。
 ---
 
 # iOS シミュレータ E2E 動作確認手順
@@ -60,13 +60,18 @@ build/e2e-harness/run.sh                               # 起動中のシミュ�
   - `<テスト名>_NN_*.png` … 各段階のスクリーンショット（例 `FullFlow_09_playing.png`。目視で確認する）
   - `*.txt` … 画面の要素階層ダンプ（ボタンのラベルを調べるときに読む）
   - `../xcodebuild.log` … xcodebuild の全出力
-- テスト内容は [FlowTests.swift](./FlowTests.swift):
-  - `testFullFlow`: 起動 → ＋ → 動画 2 本選択 → 解析 → 比較画面 → 再生（再生中に基準切替・ループ範囲変更が効くこと）→ 停止 →
-    フェーズジャンプ → コマ送り → 基準切替 → 速度切替 → ループ設定 → 区間ループ再生 → フェーズ調整シート → 一覧 → 再起動で復元 → 再オープン
-  - `testZoomPanPersistence`: ペインをピンチで拡大 / 縮小・ドラッグで移動 → 一覧に戻って開き直す → 再起動、で状態が残ること → リセット。
+- テスト内容は [FlowTests.swift](./FlowTests.swift)。アプリは起動時に空のステージ（左右のペインに +）で、右（お手本）→ 左（自分）の順に入れると比較になる:
+  - `testFullFlow`: 起動 → 右ペインの + →「ライブラリから選ぶ」→ 名前を確定（解析）→ 左ペインの + → ライブラリ → 比較 →
+    再生（再生中に基準切替・ループ範囲変更が効くこと）→ 停止 → フェーズジャンプ → コマ送り → 基準切替 → 速度切替 → ループ設定 →
+    区間ループ再生 → フェーズ調整シート → 「履歴」から開き直し → 再起動（ステージは空）→ 履歴から開き直し
+  - `testModelLibrary`: お手本に名前を付けて登録 → 比較中に右ペインのラベルから登録済みを選んで入れ替え（解析なし）→ 履歴が 2 件 →
+    ピッカーのカードを長押しして名前を変更 → ペインのラベルに反映
+  - `testZoomPanPersistence`: ペインをピンチで拡大 / 縮小・ドラッグで移動 → 履歴から開き直す → 再起動、で状態が残ること → リセット。
     ペインの状態は `accessibilityValue`（`x1.50 (12, -30)` = 自動フィットに対する拡大率と位置）で読む
-  - `testPhaseEditCandidates`: 保存済みプロジェクトを開き、フェーズ調整の「スイング候補」を切り替える。Vision が動かないので
+  - `testPhaseEditCandidates`: 履歴から保存済みの比較を開き、フェーズ調整の「スイング候補」を切り替える。Vision が動かないので
     候補は `projects.json` に直接入れる（下記）。`E2E_KEEP_DATA=1` で回す（アンインストールしない）
+  - 主な識別子: 空ペインの + は `slot.mine.add` / `slot.model.add`、解析中の表示は `slot.model.analyzing`、
+    比較中のペインのラベルは「自分の動画を選び直す」/「お手本の動画を選び直す」（`value` に登録名）、名前欄は `modelName`
 - 1 テストだけ回す: `E2E_ONLY="SwingDuetUITests/FlowTests/testZoomPanPersistence" build/e2e-harness/run.sh`
 - 候補 UI の確認手順: `testFullFlow` を回した後、
   `python3 - <<'EOF'` 等で `$(xcrun simctl get_app_container booted com.ha2ne2.SwingDuet data)/Documents/projects.json` の

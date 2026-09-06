@@ -58,19 +58,7 @@ struct SeekBarView: View {
             }
             .frame(height: 28)
 
-            // 区間ラベル（凡例）
-            HStack(spacing: 14) {
-                ForEach(SwingSegment.allCases) { segment in
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(segment.color)
-                            .frame(width: 7, height: 7)
-                        Text(segment.label)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
+            SegmentLegend()
         }
     }
 
@@ -83,5 +71,23 @@ struct SeekBarView: View {
     private func x(for time: Double, width: CGFloat) -> CGFloat {
         let fraction = min(max(time / sync.commonDuration, 0), 1)
         return width * CGFloat(fraction)
+    }
+}
+
+/// 区間の色の凡例（バックスイング / ダウンスイング / フォロー）
+struct SegmentLegend: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            ForEach(SwingSegment.allCases) { segment in
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(segment.color)
+                        .frame(width: 7, height: 7)
+                    Text(segment.label)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 }

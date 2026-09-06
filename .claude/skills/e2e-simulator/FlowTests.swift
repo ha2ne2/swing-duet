@@ -1,6 +1,6 @@
 import XCTest
 
-/// SwingDuet の主要フローをシミュレータで通しで操作する E2E テスト。
+/// SwingDuet の主要フロー（空のステージ → 動画 2 本 → 比較 → 履歴）をシミュレータで通しで操作する E2E テスト。
 /// make-harness.py が生成する別プロジェクト（build/e2e-harness/）から実行する。使い方は SKILL.md。
 ///
 /// 環境変数（run.sh が TEST_RUNNER_ 接頭辞で渡す）:
@@ -94,14 +94,19 @@ final class FlowTests: XCTestCase {
 
     /// PhotosPicker を開いて動画セルをタップする。match があればラベルに含む最初のセル、無ければ index 番目。
     /// セルは表示アニメーション中 hittable にならないので、待っても駄目なら座標タップで押す
-    private func pickVideo(rowTitle: String, index: Int, match: String?) {
-        XCTAssertTrue(tapIfExists(app.staticTexts[rowTitle], rowTitle))
+    private func pickVideo(via opener: XCUIElement, what: String, index: Int, match: String?) {
+        XCTAssertTrue(tapIfExists(opener, "open photos (\(what))"))
         let pred = NSPredicate(format: "label BEGINSWITH[c] 'video' OR label CONTAINS 'ビデオ' OR label CONTAINS '動画'")
         let cells = app.images.matching(pred)
+        // PhotosPicker は別プロセスの UI で、シート表示直後のタップを取りこぼすことがあるので 1 回だけ押し直す
+        if !cells.firstMatch.waitForExistence(timeout: 8) {
+            log("picker did not open for \(what); retrying tap")
+            tapIfExists(opener, "open photos (\(what), retry)", timeout: 3)
+        }
         guard cells.firstMatch.waitForExistence(timeout: 15) else {
             dump("picker_fail_\(index)")
             shot("picker_fail")
-            XCTFail("picker cells not found for \(rowTitle)")
+            XCTFail("picker cells not found for \(what)")
             return
         }
         let n = cells.count
@@ -111,7 +116,7 @@ final class FlowTests: XCTestCase {
         var chosen = min(index, n - 1)
         if let match {
             guard let found = labels.firstIndex(where: { $0.contains(match) }) else {
-                XCTFail("picker: no cell matches '\(match)' for \(rowTitle): \(labels)")
+                XCTFail("picker: no cell matches '\(match)' for \(what): \(labels)")
                 return
             }
             chosen = found
@@ -126,60 +131,105 @@ final class FlowTests: XCTestCase {
         }
     }
 
-    /// ＋ → 動画 2 本を選択 → 解析 → 比較画面が出るまで。比較画面が出たら true
-    private func createProject() -> Bool {
-        log("empty state visible: \(app.staticTexts["比較プロジェクトがありません"].waitForExistence(timeout: 10))")
-        dump("01_list")
+    /// ピッカーの「ライブラリから選ぶ」ボタン
+    private var libraryButton: XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label CONTAINS 'ライブラリから選ぶ'")).firstMatch
+    }
 
-        // ＋ ボタン（SF Symbol "plus" のラベルはロケール依存なので候補を並べる）
-        let nav = app.navigationBars.firstMatch
-        XCTAssertTrue(nav.waitForExistence(timeout: 5))
-        let add = nav.buttons.matching(NSPredicate(format: "label IN {'Add','追加','plus','+'} OR identifier IN {'Add','plus'}")).firstMatch
-        if !tapIfExists(add, "+ (by label)") {
-            nav.buttons.element(boundBy: nav.buttons.count - 1).tap()
-            log("TAP + (last nav button)")
+    /// ペインのピッカーを開く。空なら + を、比較中ならラベル（選び直す）を押す
+    private func openPicker(side: String) {
+        let add = app.buttons["slot.\(side).add"]
+        if add.waitForExistence(timeout: 3) {
+            add.tap()
+            log("TAP slot.\(side).add")
+            return
         }
-        XCTAssertTrue(app.navigationBars["新しい比較"].waitForExistence(timeout: 5), "sheet did not open")
-        shot("new_sheet")
-        dump("02_new_sheet")
+        let relabel = app.buttons[side == "mine" ? "自分の動画を選び直す" : "お手本の動画を選び直す"]
+        XCTAssertTrue(tapIfExists(relabel, "pane label (\(side))", timeout: 5))
+    }
 
-        pickVideo(rowTitle: "自分のスイング", index: mineIndex, match: mineMatch)
-        XCTAssertTrue(app.navigationBars["新しい比較"].waitForExistence(timeout: 20), "picker did not dismiss (mine)")
-        shot("after_pick_mine")
-        pickVideo(rowTitle: "お手本のスイング", index: modelIndex, match: modelMatch)
-        XCTAssertTrue(app.navigationBars["新しい比較"].waitForExistence(timeout: 20), "picker did not dismiss (model)")
+    /// シートが閉じ終わるまで待つ（閉じるアニメーション中のタップは吸われる）
+    private func waitForSheetToClose(_ title: String) {
+        let bar = app.navigationBars[title]
+        _ = XCTWaiter().wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: bar)], timeout: 5)
+        usleep(300_000)
+    }
 
-        // 2 本とも読み込めると解析ボタンが有効になる
-        let analyze = app.buttons["解析して比較を開始"]
-        XCTAssertTrue(analyze.waitForExistence(timeout: 10))
-        let enabled = XCTWaiter().wait(for: [expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: analyze)], timeout: 60)
-        log("analyze button enabled: \(enabled == .completed) texts=\(texts())")
-        shot("both_picked")
-        dump("03_both_picked")
-        if enabled != .completed {
-            XCTFail("videos did not load: \(texts())")
-            return false
+    /// ペインのラベルに添えられた名前（登録済みお手本の名前）。無ければ空文字
+    private func paneTitle(side: String) -> String {
+        app.buttons[side == "mine" ? "自分の動画を選び直す" : "お手本の動画を選び直す"].value as? String ?? ""
+    }
+
+    /// 右ペイン（お手本）→ 左ペイン（自分）の順に動画を入れ、比較になるまで。比較が出たら true。
+    /// - modelName: ライブラリから選んだお手本に付ける名前（nil なら空のまま確定し、日時の名前が付く）
+    /// - registeredModel: ライブラリではなく、登録済みのこの名前のお手本を選ぶ
+    /// - pickMine: false なら左ペインは触らない（比較中に右だけ入れ替えるとき）
+    private func createComparison(modelName: String? = nil, registeredModel: String? = nil, pickMine: Bool = true) -> Bool {
+        openPicker(side: "model")
+        XCTAssertTrue(app.navigationBars["お手本を選ぶ"].waitForExistence(timeout: 5), "picker did not open (model)")
+        shot("picker_model"); dump("02_picker_model")
+        if let registeredModel {
+            XCTAssertTrue(tapIfExists(app.buttons[registeredModel], "registered '\(registeredModel)'", timeout: 5))
+        } else {
+            pickVideo(via: libraryButton, what: "お手本", index: modelIndex, match: modelMatch)
+            let field = app.textFields["modelName"]
+            XCTAssertTrue(field.waitForExistence(timeout: 30), "name step did not appear; texts=\(texts())")
+            if let modelName {
+                field.tap()
+                field.typeText(modelName)
+                log("typed model name: \(field.value ?? "nil")")
+            }
+            shot("name_step")
+            XCTAssertTrue(tapIfExists(app.buttons["この名前で使う"], "confirm name", timeout: 3))
         }
-        analyze.tap()
-        shot("analyzing")
+        // 右ペインの解析が終わるまで（登録済みなら解析は無い）
+        let analyzing = app.otherElements["slot.model.analyzing"]
+        if analyzing.waitForExistence(timeout: 5) {
+            shot("model_analyzing")
+            let done = XCTWaiter().wait(for: [expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: analyzing)], timeout: 240)
+            XCTAssertEqual(done, .completed, "model analysis did not finish")
+        }
+        shot("model_ready")
 
-        // 解析完了 → 比較画面（基準切替のセグメントが出たら遷移完了とみなす）
+        if pickMine {
+            openPicker(side: "mine")
+            XCTAssertTrue(app.navigationBars["自分のスイングを選ぶ"].waitForExistence(timeout: 5), "picker did not open (mine)")
+            pickVideo(via: libraryButton, what: "自分", index: mineIndex, match: mineMatch)
+        }
+
+        // 両方そろうと比較になる（基準切替のセグメントが出たら遷移完了とみなす）
         let appeared = app.buttons["自分基準"].waitForExistence(timeout: 240)
-        sleep(2)   // シートの閉じアニメーションと初期シークが落ち着くのを待つ
-        shot("after_analyze")
-        dump("04_after_analyze")
+        sleep(2)   // 初期シークが落ち着くのを待つ
+        shot("comparison")
+        dump("04_comparison")
         log("comparison appeared: \(appeared) texts=\(texts())")
-        XCTAssertTrue(appeared, "comparison view did not appear; texts=\(texts())")
+        XCTAssertTrue(appeared, "comparison did not appear; texts=\(texts())")
         return appeared
+    }
+
+    /// 「履歴」を開いて最初の行をタップし、比較が開くまで
+    @discardableResult
+    private func reopenFromHistory() -> Bool {
+        XCTAssertTrue(tapIfExists(app.buttons["履歴"], "history", timeout: 5))
+        let listed = projectRow.waitForExistence(timeout: 10)
+        log("history row visible: \(listed) texts=\(texts())")
+        shot("history"); dump("07_history")
+        XCTAssertTrue(listed, "history has no row")
+        guard listed else { return false }
+        projectRow.tap()
+        let reopened = app.buttons["自分基準"].waitForExistence(timeout: 15)
+        log("reopened comparison: \(reopened)")
+        return reopened
     }
 
     // MARK: - テスト本体
 
-    /// 起動 → プロジェクト作成 → 再生操作一式 → フェーズ調整 → 一覧 → 再起動で復元
+    /// 起動（空のステージ）→ お手本・自分の順に動画を入れて比較 → 再生操作一式 → フェーズ調整 → 履歴から開き直し → 再起動で復元
     func testFullFlow() throws {
         app.launch()
-        shot("launch")
-        guard createProject() else { return }
+        log("empty stage: \(app.buttons["slot.mine.add"].waitForExistence(timeout: 10))")
+        shot("launch"); dump("01_stage")
+        guard createComparison() else { return }
         log("buttons: \(app.buttons.allElementsBoundByIndex.map { "\($0.label)|\($0.identifier)" })")
 
         // 再生 → 再生中に基準とループ範囲を変える（再生中でも操作が効き、再生が止まらないこと）→ 停止
@@ -266,28 +316,65 @@ final class FlowTests: XCTestCase {
         usleep(500_000)
         shot("comparison_end")
 
-        // 一覧へ戻る → 行がある
-        tapIfExists(app.navigationBars.buttons.firstMatch, "back", timeout: 5)
-        log("project row visible: \(projectRow.waitForExistence(timeout: 10)) texts=\(texts())")
-        shot("list_with_project"); dump("07_list_with_project")
+        // 履歴から開き直す
+        XCTAssertTrue(reopenFromHistory())
 
-        // 再起動 → 永続化を確認 → 再オープン
+        // 再起動 → ステージは空 → 履歴に残っている → 開き直す
         app.terminate(); app.launch()
-        let persisted = projectRow.waitForExistence(timeout: 10)
-        log("persisted after relaunch: \(persisted)")
-        XCTAssertTrue(persisted)
+        XCTAssertTrue(app.buttons["slot.mine.add"].waitForExistence(timeout: 10), "stage should be empty after relaunch")
         shot("relaunch")
-        if persisted {
-            projectRow.tap()
-            log("reopened comparison: \(app.buttons["自分基準"].waitForExistence(timeout: 15))")
-            sleep(1); shot("reopened")
-        }
+        XCTAssertTrue(reopenFromHistory())
+        sleep(1); shot("reopened")
+    }
+
+    /// ライブラリから選んだお手本に名前を付けると登録済みに入り、次はピッカーで選ぶだけで（解析なしで）入れ替わること。
+    /// 長押しで名前を変えるとペインのラベルにも反映されること
+    func testModelLibrary() throws {
+        let name = "McIlroy iron"
+        app.launch()
+        guard createComparison(modelName: name) else { return }
+        XCTAssertEqual(paneTitle(side: "model"), name, "registered name not shown on pane; texts=\(texts())")
+        shot("registered")
+
+        // 比較中に右ペインだけ登録済みから入れ替える（前回バッジ付きで並ぶ）
+        guard createComparison(registeredModel: name, pickMine: false) else { return }
+        XCTAssertEqual(paneTitle(side: "model"), name, "library model name not shown on pane")
+        shot("reused")
+
+        // 履歴に 2 件
+        XCTAssertTrue(tapIfExists(app.buttons["履歴"], "history", timeout: 5))
+        let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '比較 '"))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10))
+        log("history rows: \(rows.count)")
+        XCTAssertEqual(rows.count, 2, "two comparisons expected in history")
+        shot("history_two"); dump("08_history")
+        tapIfExists(app.buttons["閉じる"], "close history", timeout: 3)
+        waitForSheetToClose("履歴")
+
+        // 長押し → 名前を変更
+        openPicker(side: "model")
+        XCTAssertTrue(app.navigationBars["お手本を選ぶ"].waitForExistence(timeout: 5), "picker did not open for rename")
+        let card = app.buttons[name]
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        card.press(forDuration: 1.0)
+        XCTAssertTrue(tapIfExists(app.buttons["名前を変更"], "rename (context menu)", timeout: 5))
+        let field = app.alerts.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "rename alert not shown")
+        field.tap()
+        field.typeText(" v2")
+        XCTAssertTrue(tapIfExists(app.alerts.buttons["保存"], "save rename", timeout: 3))
+        XCTAssertTrue(app.buttons["\(name) v2"].waitForExistence(timeout: 5), "renamed card not shown")
+        shot("renamed")
+        tapIfExists(app.buttons["閉じる"], "close picker", timeout: 3)
+        waitForSheetToClose("お手本を選ぶ")
+        XCTAssertEqual(paneTitle(side: "model"), "\(name) v2", "pane label did not follow the rename")
     }
 
     /// 保存済みプロジェクト（E2E_KEEP_DATA=1 で残したもの。お手本側に candidates を入れておく）を開き、
     /// フェーズ調整画面でスイング候補を切り替えられること。シミュレータでは Vision が動かないので候補は projects.json に直接入れる
     func testPhaseEditCandidates() throws {
         app.launch()
+        XCTAssertTrue(tapIfExists(app.buttons["履歴"], "history", timeout: 10))
         XCTAssertTrue(projectRow.waitForExistence(timeout: 10), "保存済みプロジェクトがない（先に testFullFlow を回し、projects.json に candidates を入れる）")
         projectRow.tap()
         XCTAssertTrue(app.buttons["自分基準"].waitForExistence(timeout: 15))
@@ -323,10 +410,10 @@ final class FlowTests: XCTestCase {
         shot("after_candidate_cancel")
     }
 
-    /// ピンチで拡大・縮小、ドラッグで移動したペインの状態が、一覧に戻って開き直しても、再起動しても残ること
+    /// ピンチで拡大・縮小、ドラッグで移動したペインの状態が、履歴から開き直しても、再起動しても残ること
     func testZoomPanPersistence() throws {
         app.launch()
-        guard createProject() else { return }
+        guard createComparison() else { return }
 
         let mine = app.otherElements["pane.mine"]
         let model = app.otherElements["pane.model"]
@@ -353,10 +440,8 @@ final class FlowTests: XCTestCase {
         XCTAssertFalse(mineState.hasSuffix("(0, 0)"), "mine offset unchanged: \(mineState)")
         XCTAssertFalse(modelState.hasPrefix("x1.00"), "model scale unchanged: \(modelState)")
 
-        // 一覧へ戻って開き直す
-        tapIfExists(app.navigationBars.buttons.firstMatch, "back", timeout: 5)
-        XCTAssertTrue(projectRow.waitForExistence(timeout: 10))
-        projectRow.tap()
+        // 履歴から開き直す
+        XCTAssertTrue(reopenFromHistory())
         XCTAssertTrue(mine.waitForExistence(timeout: 15))
         sleep(1)
         log("after reopen: mine=\(mine.value ?? "nil") model=\(model.value ?? "nil")")
@@ -364,10 +449,9 @@ final class FlowTests: XCTestCase {
         XCTAssertEqual(model.value as? String, modelState, "model state lost after reopen")
         shot("zoom_pan_reopened")
 
-        // 再起動
+        // 再起動 → 履歴から開き直す
         app.terminate(); app.launch()
-        XCTAssertTrue(projectRow.waitForExistence(timeout: 10))
-        projectRow.tap()
+        XCTAssertTrue(reopenFromHistory())
         XCTAssertTrue(mine.waitForExistence(timeout: 15))
         sleep(1)
         log("after relaunch: mine=\(mine.value ?? "nil") model=\(model.value ?? "nil")")

@@ -17,7 +17,7 @@ SwingDuet は、以下の 4 つのフェーズで進める：
 
 | タスク     | 内容                                                        | 関連ファイル                                                  | ステータス            |
 | ---------- | ----------------------------------------------------------- | ------------------------------------------------------------- | --------------------- |
-| 入力       | PhotosPicker で 2 本読み込み、自動フィット、拡大・位置合わせ | `Views/NewComparisonView.swift`、`Views/VideoPaneView.swift`  | ✅ 完了（2026-09-06） |
+| 入力       | PhotosPicker で 2 本読み込み、自動フィット、拡大・位置合わせ | `Views/StageView.swift`、`Views/VideoPickerSheet.swift`、`Views/VideoPaneView.swift` | ✅ 完了（2026-09-06） |
 | 自動検出   | Vision 手首追跡 + スイング区間の検出と 4 フェーズ決定、手動修正 | `Services/SwingAnalyzer.swift`、`Views/PhaseEditView.swift`   | ✅ 完了（2026-09-06） |
 | 同期       | インパクト基準・区間別倍率、基準側の切替                    | `Models/SyncEngine.swift`                                     | ✅ 完了（2026-09-06） |
 | 再生 UI    | 共通シークバー、テンポ比、ジャンプ、速度、コマ送り、ループ  | `Playback/PlaybackController.swift`、`Views/*`                | ✅ 完了（2026-09-06） |
@@ -61,6 +61,7 @@ SwingDuet は、以下の 4 つのフェーズで進める：
 - [ ] 動画の書き出し
 - [ ] YouTube 連携
 - [ ] クラブヘッド追跡による検出精度の向上
+- [x] お手本の登録（名前付き・解析結果つき）とピッカーでの再利用。画面を比較画面 1 枚（ステージ）に統合（2026-09-06、[design/260906_2010](./design/260906_2010-model-picker-directions.md) の D 案）
 
 ---
 

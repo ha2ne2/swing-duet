@@ -19,7 +19,7 @@
   写真アプリは 240fps 動画を「スローモーション」として扱い、`FileRepresentation(contentType: .movie)` は編集適用済みの現行バージョンを返すため。
   README / [SPEC.md](./SPEC.md) §2.1 の「実フレームレート単位でコマ送り」が成り立たず、スロー区間の伸縮でフェーズ時間・テンポ比も歪む。
   シミュレータの写真アプリでの再現が根拠で、実機の PhotosPicker でも同じ挙動と見込んでいるが未確認。
-- **対象**: `SwingDuet/Services/VideoImporter.swift`（`ImportedMovie`）、`SwingDuet/Views/NewComparisonView.swift`（`PhotosPicker` / `loadMovie`）
+- **対象**: `SwingDuet/Services/VideoImporter.swift`（`ImportedMovie`）、`SwingDuet/Views/VideoPickerSheet.swift`（`PhotosPicker` / `loadMovie`）
 - **やること**: `PhotosPicker(..., photoLibrary: .shared())` にして `PhotosPickerItem.itemIdentifier` を取得 →
   `PHAsset.fetchAssets(withLocalIdentifiers:)` → `PHImageManager.requestAVAsset(forVideo:options:)`（`version = .original`）で
   元の 240fps ファイルを取り出す。写真ライブラリの読み取り権限（`NSPhotoLibraryUsageDescription` は設定済み）が必要になるので、

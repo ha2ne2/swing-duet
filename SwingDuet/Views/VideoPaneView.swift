@@ -8,6 +8,10 @@ struct VideoPaneView: View {
     let player: AVPlayer
     @Binding var config: VideoConfig
     let side: ReferenceSide
+    /// ラベルに添える名前（登録済みお手本の名前など）
+    var title: String? = nil
+    /// ラベルをタップしたとき（動画を選び直す）
+    let onTapTitle: () -> Void
 
     /// 進行中のジェスチャーを反映した表示用の変換（指を離すと nil に戻り、確定値 config に従う）
     @GestureState private var live: Transform? = nil
@@ -35,13 +39,25 @@ struct VideoPaneView: View {
         .accessibilityValue(transformText)
         .accessibilityIdentifier("pane.\(side.rawValue)")
         .overlay(alignment: .topLeading) {
-            Text(side.label)
+            Button(action: onTapTitle) {
+                HStack(spacing: 4) {
+                    Text(title.map { "\(side.label) · \($0)" } ?? side.label)
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .bold))
+                }
                 .font(.caption.bold())
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(.black.opacity(0.55), in: Capsule())
                 .foregroundStyle(.white)
-                .padding(6)
+                .frame(minHeight: 44)   // タッチ領域
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(side.label)の動画を選び直す")
+            .accessibilityValue(title ?? "")
+            .padding(.horizontal, 6)
+            .padding(.trailing, 50)   // 右上のリセットボタンと重ねない
         }
         .overlay(alignment: .topTrailing) {
             Button {

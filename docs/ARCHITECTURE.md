@@ -12,7 +12,7 @@ SwingDuet の技術スタック・モジュール構成・主要な仕組み（�
 | フレーム読み出し | AVFoundation `AVAssetReader`（解析用に 30fps 相当へ間引き）                                    |
 | 姿勢推定         | Vision `VNDetectHumanBodyPoseRequest`（左右手首の平均位置を追跡）                             |
 | 動画の取り込み   | PhotosUI `PhotosPicker` + CoreTransferable `FileRepresentation(contentType: .movie)`          |
-| 永続化           | JSON（`Documents/projects.json`）+ 動画ファイル（`Documents/Videos/`）。**外部依存なし**       |
+| 永続化           | JSON（`Documents/projects.json`・`models.json`）+ 動画ファイル（`Documents/Videos/`）。**外部依存なし** |
 | 言語 / 最低 OS   | Swift 5 言語モード / iOS 17                                                                    |
 | プロジェクト     | `SwingDuet.xcodeproj`（手書き。`PBXFileSystemSynchronizedRootGroup` で `SwingDuet/` 配下を自動収集） |
 
@@ -20,7 +20,7 @@ SwingDuet の技術スタック・モジュール構成・主要な仕組み（�
 
 ```
 SwingDuet/
-├── SwingDuetApp.swift            # エントリ。ProjectStore を環境に注入、ダーク固定
+├── SwingDuetApp.swift            # エントリ。ProjectStore を環境に注入、ダーク固定。ルートは StageView
 ├── Models/
 │   ├── SwingModels.swift         # SwingPhase / SwingSegment / PhaseSet / VideoConfig / ComparisonProject
 │   ├── SyncEngine.swift          # 共通タイムライン ⇔ 各動画時刻の区間別線形写像（§3）
@@ -30,13 +30,15 @@ SwingDuet/
 │   ├── PoseTracker.swift         # Vision の姿勢推定で人物を追跡（手首位置・関節の外接矩形）
 │   ├── SwingDetector.swift       # 手首の動きからスイング区間・4 フェーズを検出し候補を採点（純粋計算）
 │   ├── VideoImporter.swift       # PhotosPicker 用 Transferable（ImportedMovie）・メタデータ取得
-│   └── ProjectStore.swift        # プロジェクト永続化（JSON + 動画ファイル管理）
+│   └── ProjectStore.swift        # 比較の履歴と登録済みお手本の永続化（JSON + 動画ファイル管理）
 ├── Playback/
 │   └── PlaybackController.swift  # CADisplayLink マスタークロック + 区間別レート再生（§4）
 └── Views/
-    ├── ProjectListView.swift     # プロジェクト一覧（NavigationStack のルート）
-    ├── NewComparisonView.swift   # 動画選択 + 解析 → プロジェクト作成
-    ├── ComparisonView.swift      # 比較画面本体（ペイン・テンポ・基準切替・シークバー・操作）
+    ├── StageView.swift           # 唯一の画面。空 / 解析中 / 準備済みのペイン → 両方そろうと ComparisonView。履歴・ピッカーのシート
+    ├── VideoPickerSheet.swift    # ペインに入れる動画を選ぶ（登録済みお手本のカード + ライブラリから選ぶ + 名前付け）
+    ├── HistoryView.swift         # 比較の履歴（開き直し・削除）
+    ├── VideoThumbnail.swift      # 動画の 1 コマを非同期に描くサムネイル
+    ├── ComparisonView.swift      # 比較（ペイン・テンポ・基準切替・シークバー・操作）
     ├── VideoPaneView.swift       # 動画ペイン（人物が収まる自動フィット・ピンチ位置を中心にした拡大縮小・位置合わせ）
     ├── SeekBarView.swift         # 区間色分きの共通シークバー
     ├── TransportControlsView.swift # フェーズジャンプ / コマ送り / 再生 / 速度 / ループ
@@ -53,6 +55,17 @@ SwingDuet/
 ジェスチャー中は `@GestureState` の一時値で描画し、
 指を離した時点で `config` に確定 → `ComparisonContent.onChange(of: project)` → `ProjectStore.update` で JSON に書く
 （ジェスチャーの途中でディスクに書かないため）。ピンチ中はドラッグを無視する（2 本指の 1 本目がドラッグとして拾われ、ピンチ中心がずれるのを防ぐ）。
+
+**ステージ**（`StageView`）は左右のペインの状態（`Slot`：空 / 解析中 / 準備済み）を持ち、両方が準備済みになった時点で
+`ComparisonProject` を作って履歴（`ProjectStore.projects`）に入れ、`ComparisonView` に切り替える。ペインに入る動画の出どころは
+`SlotSource`（取り込んだばかり = プロジェクトが引き取る / 登録済みお手本や開いている比較のもの = 使うとき複製）で、他の持ち主のファイルは
+`ProjectStore.duplicate` で複製する（APFS ではクローンなので実容量は増えない。参照の数え上げが不要になり、登録や履歴を消しても
+互いに壊れない）。比較中に片方を選び直すと、もう片方を複製して引き継いだ新しい比較になる。
+
+**登録済みお手本**（`ModelVideo`、`Documents/models.json`）は名前 + 解析結果つきの `VideoConfig` で、右ペインでライブラリから選んだ
+動画が解析後にそのまま登録される（ファイルは登録側が持つ）。プロジェクトは `modelID` で登録元と紐付き、お手本のフェーズを修正すると
+`ProjectStore.update` が登録元の `phases` にも反映する（フェーズは動画そのものの性質なので比較ごとに違わない）。
+拡大率と位置は比較相手で変わるので登録には持たない（自動フィットどおりの初期値に戻す）。
 
 ## 3. 同期の仕組み（SyncEngine）
 

@@ -3,18 +3,20 @@ import SwiftUI
 /// 比較画面：2本の動画を共通タイムラインで同時再生する。
 ///
 /// PlaybackController は表示時に 1 度だけ作り、本体（ComparisonContent）に渡す。
-/// NOTE: `@State` の初期値は View が作り直されるたびに評価されるので、init で作ると一覧の再描画（プロジェクト保存時）ごとに
+/// NOTE: `@State` の初期値は View が作り直されるたびに評価されるので、init で作ると親（StageView）の再描画（履歴の保存時）ごとに
 ///       AVPlayer 2 つを持つ使い捨ての PlaybackController ができる。`State` のドキュメントが勧めるとおり `task` で遅延生成する
 struct ComparisonView: View {
     let project: ComparisonProject
     let store: ProjectStore
+    /// ペインのラベルをタップしたとき（その側の動画を選び直す）
+    let onSelectVideo: (ReferenceSide) -> Void
 
     @State private var controller: PlaybackController?
 
     var body: some View {
         Group {
             if let controller {
-                ComparisonContent(project: project, store: store, controller: controller)
+                ComparisonContent(project: project, store: store, controller: controller, onSelectVideo: onSelectVideo)
             } else {
                 Color.black.task {
                     controller = PlaybackController(
@@ -24,24 +26,27 @@ struct ComparisonView: View {
                 }
             }
         }
-        .navigationTitle(project.name)
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
 /// 比較画面の本体。project の編集（基準・フェーズ・表示変換）を保存し、同期設定の変更を controller に反映する
 private struct ComparisonContent: View {
     @State private var project: ComparisonProject
-    private let store: ProjectStore
+    @ObservedObject private var store: ProjectStore
     private let controller: PlaybackController
+    private let onSelectVideo: (ReferenceSide) -> Void
 
     @State private var editingSide: ReferenceSide?
 
-    init(project: ComparisonProject, store: ProjectStore, controller: PlaybackController) {
+    init(project: ComparisonProject, store: ProjectStore, controller: PlaybackController, onSelectVideo: @escaping (ReferenceSide) -> Void) {
         _project = State(initialValue: project)
         self.store = store
         self.controller = controller
+        self.onSelectVideo = onSelectVideo
     }
+
+    /// 紐付いている登録済みお手本（登録を消していれば nil）
+    private var linkedModel: ModelVideo? { store.model(id: project.modelID) }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -50,11 +55,14 @@ private struct ComparisonContent: View {
                 VideoPaneView(
                     player: controller.minePlayer,
                     config: $project.mine,
-                    side: .mine)
+                    side: .mine,
+                    onTapTitle: { onSelectVideo(.mine) })
                 VideoPaneView(
                     player: controller.modelPlayer,
                     config: $project.model,
-                    side: .model)
+                    side: .model,
+                    title: linkedModel?.name,
+                    onTapTitle: { onSelectVideo(.model) })
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)

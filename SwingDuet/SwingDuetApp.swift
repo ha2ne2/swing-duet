@@ -6,7 +6,7 @@ struct SwingDuetApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ProjectListView()
+            StageView()
                 .environmentObject(store)
                 .preferredColorScheme(.dark)
         }

@@ -180,6 +180,15 @@ extension VideoConfig {
     }
 }
 
+/// 登録済みのお手本動画。名前を付けて保存し、ピッカーで選ぶだけで使える（解析結果ごと持つので再解析しない）
+struct ModelVideo: Codable, Identifiable, Equatable {
+    var id: UUID = UUID()
+    var name: String
+    var createdAt: Date = Date()
+    /// 解析結果を含む動画設定。拡大率と位置は解析直後の初期値（自動フィットどおり）のまま。比較ごとの位置合わせはプロジェクト側が持つ
+    var config: VideoConfig
+}
+
 /// 比較ペア = プロジェクト
 struct ComparisonProject: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
@@ -188,8 +197,20 @@ struct ComparisonProject: Codable, Identifiable, Equatable {
     var mine: VideoConfig
     var model: VideoConfig
     var reference: ReferenceSide = .model
+    /// 右ペインに入れた登録済みお手本との紐付け。お手本のフェーズ修正を登録元へ反映するのに使う。
+    /// 動画ファイルは登録側と別に複製して持つので、登録を消してもプロジェクトは壊れない（紐付けが外れるだけ）
+    var modelID: UUID? = nil
 
     func config(for side: ReferenceSide) -> VideoConfig {
         side == .mine ? mine : model
+    }
+}
+
+extension Date {
+    /// 「9/6 20:15」のような短い表記。比較やお手本の既定の名前に使う
+    var compactLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M/d HH:mm"
+        return formatter.string(from: self)
     }
 }
