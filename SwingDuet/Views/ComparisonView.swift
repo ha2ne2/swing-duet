@@ -39,6 +39,11 @@ struct ComparisonView: View {
                     .font(.caption2)
                     .foregroundStyle(.orange)
                     .padding(.horizontal)
+            } else if project.mine.candidates.count > 1 || project.model.candidates.count > 1 {
+                Text("複数のスイングを検出し、振り切ったものを選びました。「フェーズ調整」で他の候補に切り替えられます。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
             }
 
             // テンポ比 + フェーズ調整 + 基準切り替え

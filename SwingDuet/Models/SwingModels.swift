@@ -158,6 +158,29 @@ struct VideoConfig: Codable, Equatable {
     var offsetY: Double = 0
     var phases: PhaseSet
     var lowConfidence: Bool = false
+    /// 自動検出で見つかったスイング候補（時系列順）。素振りなど複数のスイングが写る動画で、フェーズ調整画面から選び直せる
+    var candidates: [PhaseSet] = []
+}
+
+extension VideoConfig {
+    private enum CodingKeys: String, CodingKey {
+        case fileName, duration, frameRate, mirrored, scale, offsetX, offsetY, phases, lowConfidence, candidates
+    }
+
+    /// candidates は後から追加したキーなので、無い保存データも読めるようにする
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fileName = try c.decode(String.self, forKey: .fileName)
+        duration = try c.decode(Double.self, forKey: .duration)
+        frameRate = try c.decode(Double.self, forKey: .frameRate)
+        mirrored = try c.decodeIfPresent(Bool.self, forKey: .mirrored) ?? false
+        scale = try c.decodeIfPresent(Double.self, forKey: .scale) ?? 1.0
+        offsetX = try c.decodeIfPresent(Double.self, forKey: .offsetX) ?? 0
+        offsetY = try c.decodeIfPresent(Double.self, forKey: .offsetY) ?? 0
+        phases = try c.decode(PhaseSet.self, forKey: .phases)
+        lowConfidence = try c.decodeIfPresent(Bool.self, forKey: .lowConfidence) ?? false
+        candidates = try c.decodeIfPresent([PhaseSet].self, forKey: .candidates) ?? []
+    }
 }
 
 /// 比較ペア = プロジェクト

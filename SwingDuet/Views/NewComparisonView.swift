@@ -143,18 +143,8 @@ struct NewComparisonView: View {
                 formatter.dateFormat = "M/d HH:mm"
                 let project = ComparisonProject(
                     name: "比較 \(formatter.string(from: Date()))",
-                    mine: VideoConfig(
-                        fileName: mineFile,
-                        duration: mineResult.duration,
-                        frameRate: mineResult.frameRate,
-                        phases: mineResult.phases,
-                        lowConfidence: mineResult.lowConfidence),
-                    model: VideoConfig(
-                        fileName: modelFile,
-                        duration: modelResult.duration,
-                        frameRate: modelResult.frameRate,
-                        phases: modelResult.phases,
-                        lowConfidence: modelResult.lowConfidence))
+                    mine: mineResult.videoConfig(fileName: mineFile),
+                    model: modelResult.videoConfig(fileName: modelFile))
                 store.add(project)
                 isAnalyzing = false
                 dismiss()

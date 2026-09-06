@@ -43,6 +43,10 @@ struct PhaseEditView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if config.candidates.count > 1 {
+                    candidateRow
+                }
+
                 Picker("フェーズ", selection: $selectedPhase) {
                     ForEach(SwingPhase.allCases) { phase in
                         Text(phase.label).tag(phase)
@@ -174,6 +178,37 @@ struct PhaseEditView: View {
 
     private func time(atX x: CGFloat, width: CGFloat) -> Double {
         Double(min(max(x / max(width, 1), 0), 1)) * config.duration
+    }
+
+    // MARK: - スイング候補
+
+    /// 動画に複数のスイング（素振りなど）が写っているとき、どれを使うか選ぶ。ボタンの数字は候補の順番、カッコ内はインパクト時刻
+    private var candidateRow: some View {
+        HStack(spacing: 8) {
+            Text("スイング候補")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            ForEach(Array(config.candidates.enumerated()), id: \.offset) { index, candidate in
+                // マーカーを微調整しても選択中の候補が分かるように、インパクト時刻が近ければ同じ候補とみなす
+                let isCurrent = abs(candidate.impact - phases.impact) < 0.03
+                Button {
+                    phases = candidate
+                    seek(to: phases.time(of: selectedPhase))
+                } label: {
+                    Text(String(format: "%d (%.1f秒)", index + 1, candidate.impact))
+                        .font(.caption.monospacedDigit())
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(
+                            isCurrent ? AnyShapeStyle(Color.accentColor.opacity(0.4)) : AnyShapeStyle(.quaternary),
+                            in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("candidate.\(index)")
+            }
+            Spacer()
+        }
+        .padding(.horizontal)
     }
 
     // MARK: - 操作
