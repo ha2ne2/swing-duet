@@ -38,8 +38,8 @@ SwingDuet/
     ├── VideoPickerSheet.swift    # ペインに入れる動画を選ぶ（登録済みお手本のカード + ライブラリから選ぶ + 名前付け）
     ├── HistoryView.swift         # 比較の履歴（開き直し・削除）
     ├── VideoThumbnail.swift      # 動画の 1 コマを非同期に描くサムネイル
-    ├── ComparisonView.swift      # 比較（ペイン・テンポ・基準切替・シークバー・操作）
-    ├── VideoPaneView.swift       # 動画ペイン（人物が収まる自動フィット・ピンチ位置を中心にした拡大縮小・位置合わせ）
+    ├── ComparisonView.swift      # 比較（ペイン・基準切替・シークバー・操作）
+    ├── VideoPaneView.swift       # 動画ペイン（自動フィット・拡大縮小・位置合わせ。上端に選び直しのラベル、下端中央にフェーズ調整）
     ├── SeekBarView.swift         # 区間色分きの共通シークバー
     ├── TransportControlsView.swift # フェーズジャンプ / コマ送り / 再生 / 速度 / ループ
     ├── PhaseEditView.swift       # フェーズ手動修正（マーカードラッグ・±コマ・スイング候補の切り替え）
@@ -115,7 +115,7 @@ Vision の手首座標による先行検証の実装（クラブヘッド追跡�
 6. `PhaseSet.sanitize` で順序と範囲を強制
 
 検出に失敗した場合は `PhaseSet.fallback`（動画長の 15% / 45% / 55% / 85%）を設定する。
-`lowConfidence`（警告表示）になるのは、検出失敗・手首の検出率 40% 未満・採用スイングのトップ〜インパクトに 0.2 秒以上の欠測があるとき。
+`lowConfidence`（記録のみ。画面には出さない）になるのは、検出失敗・手首の検出率 40% 未満・採用スイングのトップ〜インパクトに 0.2 秒以上の欠測があるとき。
 
 実機なしで検出を確認するには macOS 用 CLI `scripts/analyze-swing/` を使う（[guides/build-test.md](./guides/build-test.md)）。
 閾値の根拠になった実データの系列は [research/260906_1641-multi-swing-detection.md](./research/260906_1641-multi-swing-detection.md)。

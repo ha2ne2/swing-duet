@@ -11,7 +11,7 @@ description: iOS シミュレータで SwingDuet をビルド・起動し、空�
 
 - Bundle ID は `com.ha2ne2.SwingDuet`。外部依存なし。ビルドの基本は [docs/guides/build-test.md](../../../docs/guides/build-test.md)
 - 動作確認済みデバイス: iPhone 16e（iOS 26.2）。UDID は `xcrun simctl list devices available` で確認
-- **Vision の姿勢推定はシミュレータで動かない**。解析は常にフォールバック位相（テンポ 3.0 : 1）＋「信頼度が低い」警告になる。
+- **Vision の姿勢推定はシミュレータで動かない**。解析は常にフォールバック位相（テンポ 3.0 : 1）になる（`lowConfidence` は記録のみで画面には出ない）。
   E2E で検証できるのは「フロー・UI・再生同期・永続化」であって検出精度ではない（精度は実機で確認）
 - 240fps の動画は PhotosPicker から 30fps のレンダリング版で渡る（[docs/TODO.md](../../../docs/TODO.md) A）
 
@@ -66,12 +66,13 @@ build/e2e-harness/run.sh                               # 起動中のシミュ�
     区間ループ再生 → フェーズ調整シート → 「履歴」から開き直し → 再起動（ステージは空）→ 履歴から開き直し
   - `testModelLibrary`: お手本に名前を付けて登録 → 比較中に右ペインのラベルから登録済みを選んで入れ替え（解析なし）→ 履歴が 2 件 →
     ピッカーのカードを長押しして名前を変更 → ペインのラベルに反映
-  - `testZoomPanPersistence`: ペインをピンチで拡大 / 縮小・ドラッグで移動 → 履歴から開き直す → 再起動、で状態が残ること → リセット。
+  - `testZoomPanPersistence`: ペインをピンチで拡大 / 縮小・ドラッグで移動 → 履歴から開き直す → 再起動、で状態が残ること。
     ペインの状態は `accessibilityValue`（`x1.50 (12, -30)` = 自動フィットに対する拡大率と位置）で読む
   - `testPhaseEditCandidates`: 履歴から保存済みの比較を開き、フェーズ調整の「スイング候補」を切り替える。Vision が動かないので
     候補は `projects.json` に直接入れる（下記）。`E2E_KEEP_DATA=1` で回す（アンインストールしない）
   - 主な識別子: 空ペインの + は `slot.mine.add` / `slot.model.add`、解析中の表示は `slot.model.analyzing`、
-    比較中のペインのラベルは「自分の動画を選び直す」/「お手本の動画を選び直す」（`value` に登録名）、名前欄は `modelName`
+    比較中のペインのラベルは「自分の動画を選び直す」/「お手本の動画を選び直す」（`value` に登録名）、
+    ペイン下端のフェーズ調整は `pane.mine.editPhases` / `pane.model.editPhases`、名前欄は `modelName`
 - 1 テストだけ回す: `E2E_ONLY="SwingDuetUITests/FlowTests/testZoomPanPersistence" build/e2e-harness/run.sh`
 - 候補 UI の確認手順: `testFullFlow` を回した後、
   `python3 - <<'EOF'` 等で `$(xcrun simctl get_app_container booted com.ha2ne2.SwingDuet data)/Documents/projects.json` の

@@ -45,7 +45,7 @@ xcrun simctl addmedia booted docs/data/*.mp4     # docs/data/ はサンプル動
 ### シミュレータの制約
 
 - Vision の姿勢推定はシミュレータでは動作しない（ログに `Missing weights path cnn_human_pose.espresso.weights`）。
-  解析は常にフォールバック位相（テンポ 3.0 : 1）＋「信頼度が低い」警告になる。**検出精度の確認は実機で行う**
+  解析は常にフォールバック位相（テンポ 3.0 : 1）になる（`lowConfidence` は記録のみで画面には出ない）。**検出精度の確認は実機で行う**
 
 ### ログ・データの確認
 

@@ -56,43 +56,21 @@ private struct ComparisonContent: View {
                     player: controller.minePlayer,
                     config: $project.mine,
                     side: .mine,
-                    onTapTitle: { onSelectVideo(.mine) })
+                    onTapTitle: { onSelectVideo(.mine) },
+                    onEditPhases: { editPhases(.mine) })
                 VideoPaneView(
                     player: controller.modelPlayer,
                     config: $project.model,
                     side: .model,
                     title: linkedModel?.name,
-                    onTapTitle: { onSelectVideo(.model) })
+                    onTapTitle: { onSelectVideo(.model) },
+                    onEditPhases: { editPhases(.model) })
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
 
-            if project.mine.lowConfidence || project.model.lowConfidence {
-                Text("フェーズの自動検出の信頼度が低い動画があります。「フェーズ調整」で確認してください。")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-                    .padding(.horizontal)
-            } else if project.mine.candidates.count > 1 || project.model.candidates.count > 1 {
-                Text("複数のスイングを検出し、振り切ったものを選びました。「フェーズ調整」で他の候補に切り替えられます。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal)
-            }
-
-            // テンポ比 + フェーズ調整 + 基準切り替え
-            HStack(spacing: 10) {
-                tempoBadge(side: .mine)
-                tempoBadge(side: .model)
-                Spacer()
-                Picker("基準", selection: $project.reference) {
-                    ForEach(ReferenceSide.allCases) { side in
-                        Text("\(side.label)基準").tag(side)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 170)
-            }
-            .padding(.horizontal)
+            ReferencePicker(reference: $project.reference)
+                .padding(.horizontal)
 
             SeekBarView(controller: controller)
                 .padding(.horizontal)
@@ -116,21 +94,24 @@ private struct ComparisonContent: View {
         }
     }
 
-    private func tempoBadge(side: ReferenceSide) -> some View {
-        Button {
-            controller.pause()
-            editingSide = side
-        } label: {
-            HStack(spacing: 4) {
-                Text("\(side.label) \(project.config(for: side).phases.tempoText)")
-                    .font(.caption.monospacedDigit())
-                Image(systemName: "slider.horizontal.3")
-                    .font(.caption2)
+    private func editPhases(_ side: ReferenceSide) {
+        controller.pause()
+        editingSide = side
+    }
+}
+
+/// 同期の基準（自分基準 / お手本基準）の切り替え。操作パネルの行の右端に置く
+struct ReferencePicker: View {
+    @Binding var reference: ReferenceSide
+
+    var body: some View {
+        Picker("基準", selection: $reference) {
+            ForEach(ReferenceSide.allCases) { side in
+                Text("\(side.label)基準").tag(side)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(.quaternary, in: Capsule())
         }
-        .buttonStyle(.plain)
+        .pickerStyle(.segmented)
+        .frame(width: 170)
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }

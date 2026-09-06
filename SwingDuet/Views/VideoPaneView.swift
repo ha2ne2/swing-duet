@@ -4,6 +4,7 @@ import AVFoundation
 /// 1本の動画の表示ペイン。
 /// 初期表示は検出した人物（`config.focusRect`）が収まるように自動で拡大する。ピンチで拡大縮小（ピンチした位置を中心に）、
 /// ドラッグで位置合わせでき、拡大率と位置は自動フィットからの相対値として、指を離した時点で config に確定・保存される。
+/// この動画への操作（選び直す・フェーズ調整）は動画の上に重ねる。上端がラベル、下端中央が「フェーズ調整」
 struct VideoPaneView: View {
     let player: AVPlayer
     @Binding var config: VideoConfig
@@ -12,6 +13,8 @@ struct VideoPaneView: View {
     var title: String? = nil
     /// ラベルをタップしたとき（動画を選び直す）
     let onTapTitle: () -> Void
+    /// 「フェーズ調整」をタップしたとき
+    let onEditPhases: () -> Void
 
     /// 進行中のジェスチャーを反映した表示用の変換（指を離すと nil に戻り、確定値 config に従う）
     @GestureState private var live: Transform? = nil
@@ -41,38 +44,29 @@ struct VideoPaneView: View {
         .overlay(alignment: .topLeading) {
             Button(action: onTapTitle) {
                 HStack(spacing: 4) {
-                    Text(title.map { "\(side.label) · \($0)" } ?? side.label)
+                    Text(side.paneTitle(title))
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
                         .font(.system(size: 9, weight: .bold))
                 }
-                .font(.caption.bold())
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.black.opacity(0.55), in: Capsule())
-                .foregroundStyle(.white)
-                .frame(minHeight: 44)   // タッチ領域
+                .paneChip()
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(side.label)の動画を選び直す")
             .accessibilityValue(title ?? "")
             .padding(.horizontal, 6)
-            .padding(.trailing, 50)   // 右上のリセットボタンと重ねない
         }
-        .overlay(alignment: .topTrailing) {
-            Button {
-                config.scale = 1
-                config.offsetX = 0
-                config.offsetY = 0
-            } label: {
-                Image(systemName: "arrow.counterclockwise")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(.black.opacity(0.55), in: Circle())
+        .overlay(alignment: .bottom) {
+            Button(action: onEditPhases) {
+                HStack(spacing: 4) {
+                    Image(systemName: "slider.horizontal.3")
+                    Text("フェーズ調整")
+                }
+                .paneChip(bordered: true)
             }
-            .accessibilityLabel("拡大と位置を自動フィットに戻す")
-            .padding(6)
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(side.label)のフェーズ調整")
+            .accessibilityIdentifier("pane.\(side.rawValue).editPhases")
         }
     }
 
@@ -178,5 +172,27 @@ struct VideoPaneView: View {
             return base.translated(by: drag.translation)
         }
         return base
+    }
+}
+
+// MARK: - ペインに重ねる部品（比較前の SlotPane と共通）
+
+extension ReferenceSide {
+    /// ペインのラベル。「お手本 · 名前」のように登録済みお手本の名前を添える
+    func paneTitle(_ name: String?) -> String {
+        name.map { "\(label) · \($0)" } ?? label
+    }
+}
+
+extension View {
+    /// 動画の上に重ねる半透明のカプセル。高さ 44pt でタッチ領域を確保し、ボタンには枠を付けてラベルと見分ける
+    func paneChip(bordered: Bool = false) -> some View {
+        font(.caption.bold())
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.black.opacity(0.55), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(bordered ? 0.35 : 0)))
+            .foregroundStyle(.white)
+            .frame(minHeight: 44)
     }
 }

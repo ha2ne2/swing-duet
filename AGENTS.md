@@ -202,8 +202,17 @@ SPM パッケージ・CocoaPods は使っていない。
 | `.github/prompts/`          | Copilot / Codex 用のプロンプト                             |
 | `build/`                    | `xcodebuild -derivedDataPath build` の出力先（gitignore） |
 
-- 現在は単一の作業ディレクトリで運用している。DriveMemory と同様に atelier worktree を併設する場合は、
-  **修正は起動時の作業ディレクトリ配下のみ**（他 worktree は参照のみ）とし、gitignore された `docs/data/` は手動でコピーする
+**Git worktree 構成（atelier ワークフロー）**：DriveMemory と同じく 2 つの worktree に分かれ、それぞれで別のエージェントが並行作業する。
+
+| worktree                                          | ブランチ                                  | 用途                         |
+| ------------------------------------------------- | ----------------------------------------- | ---------------------------- |
+| `/Users/ha2ne2/Documents/GitRepo/swing-duet`         | 作業ブランチ（人間が `main` へ反映する）   | 本流                         |
+| `/Users/ha2ne2/Documents/GitRepo/swing-duet-atelier` | `atelier`                                 | 実験・並行開発用の常設作業場 |
+
+- **修正は起動時の作業ディレクトリ配下のみ**。他 worktree は参照（読み取り）のみ（セクション 7.1 参照）
+- gitignore された `docs/data/`（サンプル動画）は worktree 間で共有されない。新しい worktree を作ったら本流側からコピーする
+- `build/`（DerivedData・E2E ハーネス）は worktree ごとに別になる。シミュレータ端末は共有なので、2 つの worktree で同時に E2E を回すと衝突する
+  （[docs/TODO.md](./docs/TODO.md) F。当面は `pgrep -f "xcodebuild tes[t]"` で相手の実行中を確認してから回す）
 - 他リポジトリ（`../drive-memory` 等）は参照してよいが、書き込みは禁止（セクション 7.1 参照）
 
 ### 4.4 技術スタックと開発の前提
@@ -212,7 +221,7 @@ SPM パッケージ・CocoaPods は使っていない。
   + PhotosUI（`PhotosPicker`）。iOS 17 以降 / Swift 5 言語モード。詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 - **ビルド・動作確認手順**: [docs/guides/build-test.md](./docs/guides/build-test.md)。
   シミュレータで通しの自動 E2E を回すときは [.claude/skills/e2e-simulator/SKILL.md](./.claude/skills/e2e-simulator/SKILL.md)
-- **シミュレータの制約**: Vision の姿勢推定はシミュレータでは動作しない（常にフォールバック位相＋信頼度低の警告になる）。
+- **シミュレータの制約**: Vision の姿勢推定はシミュレータでは動作しない（常にフォールバック位相＋ `lowConfidence` になる）。
   検出精度に関わる変更は実機で確認する
 - **署名**: `DEVELOPMENT_TEAM` は pbxproj に設定済み（自動署名）
 - **テスト**: テストターゲットは未作成（[docs/TODO.md](./docs/TODO.md) B）。整備する際は Swift Testing を用い、
@@ -326,7 +335,7 @@ SPM パッケージ・CocoaPods は使っていない。
 **エラーハンドリングの基本方針**：
 
 - すべてのエラーは適切にキャッチし、ユーザーフレンドリーなメッセージを表示
-- フェーズ検出に失敗したときは、フォールバック位相を設定して警告を出し、手動修正へ誘導する（現行方針）
+- フェーズ検出に失敗したときは、フォールバック位相を設定して `lowConfidence` を記録し、手動修正（フェーズ調整）に委ねる（現行方針。警告文は出さない）
 - 開発時には詳細なエラー情報をログに出力（ただし個人情報は除く）
 - クリティカルなエラーは、アプリがクラッシュしないように防御的にコーディング
 

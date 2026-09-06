@@ -101,17 +101,14 @@ struct VideoPickerSheet: View {
         Task { @MainActor in
             defer { loading = false }
             do {
-                guard let movie = try await item.loadTransferable(type: ImportedMovie.self) else {
-                    errorMessage = "動画を読み込めませんでした。別の動画を選択してください。"
-                    return
-                }
+                let url = try await item.loadMovieURL()
                 if side == .model {
-                    naming = movie.url
+                    naming = url
                 } else {
-                    finish(.library(movie.url, name: nil))
+                    finish(.library(url, name: nil))
                 }
             } catch {
-                errorMessage = "動画の読み込みに失敗しました：\(error.localizedDescription)"
+                errorMessage = error.localizedDescription
             }
         }
     }

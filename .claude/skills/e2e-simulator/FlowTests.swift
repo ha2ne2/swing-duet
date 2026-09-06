@@ -304,9 +304,8 @@ final class FlowTests: XCTestCase {
             tapIfExists(pauseButton(), "pause", timeout: 3)
         }
 
-        // フェーズ調整シート（テンポバッジをタップして開き、保存で閉じる）
-        let badge = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '自分 '")).firstMatch
-        if tapIfExists(badge, "tempo badge (mine)", timeout: 3) {
+        // フェーズ調整シート（自分ペイン下端の「フェーズ調整」をタップして開き、保存で閉じる）
+        if tapIfExists(app.buttons["pane.mine.editPhases"], "edit phases (mine)", timeout: 3) {
             let title = app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS 'フェーズ調整'")).firstMatch
             log("phase edit appeared: \(title.waitForExistence(timeout: 10)) texts=\(texts())")
             shot("phase_edit"); dump("06_phase_edit")
@@ -382,8 +381,7 @@ final class FlowTests: XCTestCase {
         shot("comparison")
         log("comparison texts: \(texts())")
 
-        let badge = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'お手本 '")).firstMatch
-        XCTAssertTrue(tapIfExists(badge, "tempo badge (model)"))
+        XCTAssertTrue(tapIfExists(app.buttons["pane.model.editPhases"], "edit phases (model)"))
         let title = app.navigationBars.matching(NSPredicate(format: "identifier CONTAINS 'フェーズ調整'")).firstMatch
         XCTAssertTrue(title.waitForExistence(timeout: 10))
         sleep(1)
@@ -458,13 +456,5 @@ final class FlowTests: XCTestCase {
         XCTAssertEqual(mine.value as? String, mineState, "mine state lost after relaunch")
         XCTAssertEqual(model.value as? String, modelState, "model state lost after relaunch")
         shot("zoom_pan_relaunched")
-
-        // リセットボタンで既定に戻る（自分ペイン側の 2 つ目のボタン）
-        let reset = app.buttons.matching(identifier: "arrow.counterclockwise").firstMatch
-        if tapIfExists(reset, "reset (mine)", timeout: 3) {
-            usleep(500_000)
-            log("mine after reset: \(mine.value ?? "nil")")
-            XCTAssertEqual(mine.value as? String, "x1.00 (0, 0)")
-        }
     }
 }

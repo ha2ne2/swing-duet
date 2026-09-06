@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 /// ペインに入る動画の出どころ
 enum SlotSource {
@@ -35,7 +36,8 @@ enum PickedVideo {
 }
 
 /// アプリの唯一の画面。起動時は 2 つのペインが空で、それぞれの + から動画を選ぶ。
-/// 両方そろうと比較（`ComparisonView`）になり、履歴に自動で残る。ツールバーは「履歴」と「お手本を選ぶ」
+/// 両方そろうと比較（`ComparisonView`）になり、履歴に自動で残る。
+/// ツールバーは「履歴」と「新しいスイング」（ライブラリを直接開いて左ペインに入れる。一番多い操作なのでツールバーに置く）
 struct StageView: View {
     @EnvironmentObject private var store: ProjectStore
 
@@ -46,6 +48,9 @@ struct StageView: View {
     @State private var picking: ReferenceSide?
     @State private var showingHistory = false
     @State private var errorMessage: String?
+    /// ツールバーの「新しいスイング」で選んだライブラリの項目と、その取り出し中フラグ
+    @State private var newSwingItem: PhotosPickerItem?
+    @State private var importingNewSwing = false
 
     private var project: ComparisonProject? {
         store.projects.first { $0.id == projectID }
@@ -80,16 +85,23 @@ struct StageView: View {
                     .accessibilityLabel("履歴")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        picking = .model
-                    } label: {
+                    PhotosPicker(selection: $newSwingItem, matching: .videos) {
                         HStack(spacing: 5) {
-                            Image(systemName: "figure.golf")
-                            Text("お手本を選ぶ")
+                            if importingNewSwing {
+                                ProgressView()
+                            } else {
+                                Image(systemName: "plus")
+                            }
+                            Text("新しいスイング")
                         }
                     }
-                    .accessibilityLabel("お手本を選ぶ")
+                    .disabled(importingNewSwing)
+                    .accessibilityLabel("新しいスイング")
+                    .accessibilityIdentifier("toolbar.newSwing")
                 }
+            }
+            .onChange(of: newSwingItem) { _, item in
+                if let item { importNewSwing(item) }
             }
             .sheet(item: $picking) { side in
                 VideoPickerSheet(side: side) { picked in
@@ -140,6 +152,23 @@ struct StageView: View {
     private func fill(from project: ComparisonProject) {
         mine = .ready(.shared(project.mine, modelID: nil))
         model = .ready(.shared(project.model, modelID: project.modelID))
+    }
+
+    /// ツールバーの「新しいスイング」：選んだ動画を左ペイン（自分）に入れる。お手本はそのまま
+    private func importNewSwing(_ item: PhotosPickerItem) {
+        importingNewSwing = true
+        Task { @MainActor in
+            defer {
+                importingNewSwing = false
+                newSwingItem = nil   // 同じ動画をもう一度選んでも onChange が走るように
+            }
+            do {
+                let url = try await item.loadMovieURL()
+                load(.library(url, name: nil), into: .mine)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
     }
 
     private func load(_ picked: PickedVideo, into side: ReferenceSide) {
@@ -235,25 +264,8 @@ private struct SetupStageView: View {
     /// 比較画面の操作パネルと同じ形の飾り（高さをそろえて、そろった瞬間にペインが動かないようにする）
     private var placeholderControls: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 10) {
-                ForEach(ReferenceSide.allCases) { side in
-                    Text("\(side.label) — : 1")
-                        .font(.caption.monospacedDigit())
-                        .fixedSize()
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(.quaternary, in: Capsule())
-                }
-                Spacer()
-                Picker("基準", selection: .constant(ReferenceSide.model)) {
-                    ForEach(ReferenceSide.allCases) { side in
-                        Text("\(side.label)基準").tag(side)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 170)
-            }
-            .padding(.horizontal)
+            ReferencePicker(reference: .constant(.model))
+                .padding(.horizontal)
 
             VStack(spacing: 3) {
                 RoundedRectangle(cornerRadius: 6)
@@ -334,25 +346,20 @@ private struct SlotPane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)   // 左右のペインは常に同じ幅
         .overlay(alignment: .topLeading) {
-            Text(title)
-                .font(.caption.bold())
+            // 比較画面（VideoPaneView）のラベルと同じ位置・見た目にして、そろった瞬間にラベルが動かないようにする
+            Text(side.paneTitle(modelName))
                 .lineLimit(1)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(.black.opacity(0.55), in: Capsule())
-                .foregroundStyle(.white)
-                .padding(6)
+                .paneChip()
+                .padding(.horizontal, 6)
         }
     }
 
-    /// 「お手本 · 名前」のように、登録済みお手本の名前を添える
-    private var title: String {
-        let name: String?
+    /// ラベルに添える登録済みお手本の名前（右ペインで名前を付けた直後は解析中でも出す）
+    private var modelName: String? {
         switch slot {
-        case .empty, .ready(.imported): name = nil
-        case .analyzing(_, let title): name = title
-        case .ready(.shared(_, let modelID)): name = store.model(id: modelID)?.name
+        case .empty, .ready(.imported): return nil
+        case .analyzing(_, let title): return title
+        case .ready(.shared(_, let modelID)): return store.model(id: modelID)?.name
         }
-        return name.map { "\(side.label) · \($0)" } ?? side.label
     }
 }

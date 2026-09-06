@@ -1,0 +1,432 @@
+<title>比較画面の入口</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F2F4F1; --surface: #FFFFFF; --ink: #171B18; --ink-2: #4E5751; --ink-3: #7B857E; --line: #D8DDD8;
+    --accent: #1F6FEB; --accent-soft: #E4EDFB; --warn: #B8460A; --warn-soft: #FBE9DD; --pick: #1B7A3E; --pick-soft: #E1F2E6;
+    --seg-b: #0A7EF2; --seg-d: #C86F24; --seg-f: #2BA553; --mark: #4DA3FF;
+    --font-jp: "Zen Kaku Gothic New", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --font-ios: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Helvetica Neue", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101311; --surface: #181C19; --ink: #E8ECE8; --ink-2: #AEB6AF; --ink-3: #7F8881; --line: #2A302B;
+      --accent: #6AA9FF; --accent-soft: #17304F; --warn: #F2A06A; --warn-soft: #3A2415; --pick: #6CCB8A; --pick-soft: #16301F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #101311; --surface: #181C19; --ink: #E8ECE8; --ink-2: #AEB6AF; --ink-3: #7F8881; --line: #2A302B;
+    --accent: #6AA9FF; --accent-soft: #17304F; --warn: #F2A06A; --warn-soft: #3A2415; --pick: #6CCB8A; --pick-soft: #16301F;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-jp); font-size: 15px; line-height: 1.85; -webkit-font-smoothing: antialiased; }
+  main { max-width: 1040px; margin: 0 auto; padding: 40px 24px 96px; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.35; margin: 0; font-weight: 700; }
+  h1 { font-size: 30px; letter-spacing: .01em; }
+  h2 { font-size: 21px; }
+  h3 { font-size: 16px; }
+  p { margin: 0; }
+  a { color: var(--accent); }
+  code { font-family: var(--font-mono); font-size: .88em; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 .35em; }
+  .eyebrow { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); font-family: var(--font-mono); }
+  .lead { font-size: 16px; color: var(--ink-2); max-width: 40em; margin-top: 14px; }
+  .prose { max-width: 40em; }
+  ul { margin: 0; padding-left: 1.2em; }
+  li { margin: 4px 0; }
+  li::marker { color: var(--ink-3); }
+  header { display: grid; gap: 10px; padding-bottom: 32px; border-bottom: 1px solid var(--line); }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13px; color: var(--ink-3); font-family: var(--font-mono); margin-top: 6px; }
+  .verdict { margin-top: 28px; display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; align-items: baseline; background: var(--pick-soft); border-left: 3px solid var(--pick); padding: 16px 20px; border-radius: 0 10px 10px 0; }
+  .verdict .k { font-size: 12px; letter-spacing: .1em; color: var(--pick); font-weight: 700; }
+  .verdict .v { font-size: 15px; }
+  section { padding: 44px 0 0; }
+  section + section { margin-top: 44px; border-top: 1px solid var(--line); }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 22px; flex-wrap: wrap; }
+  .sec-head .tag { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); letter-spacing: .08em; }
+  .sec-head .pick { font-size: 11px; font-weight: 700; color: var(--pick); background: var(--pick-soft); border-radius: 999px; padding: 2px 10px; letter-spacing: .06em; }
+  .case { display: grid; grid-template-columns: 356px minmax(0, 1fr); gap: 36px; align-items: start; }
+  .mock { display: grid; gap: 10px; justify-items: center; margin: 0; }
+  .mock figcaption { font-size: 12px; color: var(--ink-3); font-family: var(--font-mono); letter-spacing: .04em; text-align: center; }
+  .notes { display: grid; gap: 18px; }
+  .notes h3 { display: flex; align-items: center; gap: 10px; }
+  .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--mark); color: #fff; font-size: 12px; font-weight: 700; font-family: var(--font-mono); flex: none; }
+  .n.bad { background: #f0883e; }
+  .kv { display: grid; grid-template-columns: 5.5em 1fr; gap: 6px 14px; font-size: 14px; }
+  .kv dt { color: var(--ink-3); font-size: 12px; letter-spacing: .08em; padding-top: .25em; }
+  .kv dd { margin: 0; }
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px 36px; margin-top: 26px; }
+  .qa { display: grid; gap: 4px; max-width: 46em; }
+  .qa > div { display: grid; grid-template-columns: 2.4em 1fr; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .qa > div:last-child { border-bottom: 0; }
+  .qa .q { font-family: var(--font-mono); font-size: 13px; color: var(--accent); padding-top: .3em; }
+  .qa b { display: block; font-size: 16px; margin-bottom: 2px; }
+  .qa p { color: var(--ink-2); font-size: 14.5px; }
+  .table-wrap { overflow-x: auto; margin-top: 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 820px; font-size: 13.5px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.6; }
+  th { font-size: 12px; letter-spacing: .08em; color: var(--ink-3); font-weight: 500; background: color-mix(in srgb, var(--bg) 60%, var(--surface)); }
+  tr:last-child td { border-bottom: 0; }
+  td.g { font-weight: 700; color: var(--pick); }
+  td.y { font-weight: 700; color: var(--warn); }
+  tr.rec td { background: var(--pick-soft); }
+
+  /* ---- iPhone モック（アプリはダーク固定） ---- */
+  .phone { width: 340px; flex: none; background: #0b0b0c; border: 1.5px solid #3a3a3d; border-radius: 46px; padding: 8px; box-shadow: 0 24px 48px -28px rgba(0, 0, 0, .55); }
+  .screen { background: #000; border-radius: 39px; overflow: hidden; color: #fff; font-family: var(--font-ios); font-size: 11px; line-height: 1.3; display: flex; flex-direction: column; }
+  .screen svg { width: 1em; height: 1em; vertical-align: -.12em; }
+  .st { display: flex; justify-content: space-between; align-items: center; padding: 14px 28px 4px; font-size: 13px; font-weight: 600; }
+  .st .batt { width: 22px; height: 11px; border: 1.5px solid #fff; border-radius: 4px; padding: 1.5px; }
+  .st .batt i { display: block; height: 100%; width: 86%; background: #fff; border-radius: 1.5px; }
+  .nav { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px 10px; }
+  .nav .title { font-weight: 700; font-size: 14px; }
+  .pill { background: #1c1c1e; border-radius: 999px; padding: 7px 12px; font-size: 12px; font-weight: 600; display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .pill svg { font-size: 13px; }
+  .pill.primary { background: #0A84FF; color: #fff; }
+  .pill.text { background: none; color: #0A84FF; padding: 7px 4px; }
+  .panes { display: flex; gap: 2px; background: #000; height: 222px; }
+  .pane { flex: 1; min-width: 0; position: relative; display: flex; align-items: center; background: #000; }
+  .video { width: 100%; height: 178px; background: linear-gradient(#abd5f2 0 62%, #98c477 62% 100%); position: relative; overflow: hidden; }
+  .fig { position: absolute; width: 74px; height: 118px; left: 50%; top: 34px; transform: translateX(-50%); }
+  .pane-top { position: absolute; top: 6px; left: 6px; right: 6px; display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+  .chip { background: rgba(0, 0, 0, .55); border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 122px; }
+  .chip svg { font-size: 8px; flex: none; }
+  .chip.num { font-weight: 500; font-variant-numeric: tabular-nums; color: #d7d7db; }
+  .chip.ctl { background: rgba(28, 28, 30, .92); border: 1px solid rgba(255, 255, 255, .28); }
+  .chip.ctl svg { font-size: 9px; color: #cfcfd2; }
+  .round { width: 30px; height: 30px; flex: none; border-radius: 50%; background: rgba(0, 0, 0, .55); display: grid; place-items: center; font-size: 13px; }
+  .acts { position: absolute; bottom: 5px; left: 6px; right: 6px; display: flex; gap: 5px; }
+  .act { flex: 1; text-align: center; background: rgba(28, 28, 30, .94); border: 1px solid rgba(255, 255, 255, .24); border-radius: 999px; padding: 5px 4px; font-size: 9.5px; font-weight: 600; white-space: nowrap; }
+  .act.on { background: #0A84FF; border-color: #0A84FF; }
+  .sheet { position: absolute; left: 8px; right: 8px; top: 40px; background: rgba(28, 28, 30, .97); border-radius: 14px; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); overflow: hidden; font-size: 10.5px; z-index: 2; }
+  .sheet h4 { margin: 0; padding: 9px 12px 7px; font-size: 10px; color: #9a9a9e; font-weight: 600; }
+  .sheet div { padding: 9px 12px; border-top: 1px solid rgba(255, 255, 255, .1); display: flex; justify-content: space-between; align-items: center; font-weight: 500; }
+  .sheet div svg { color: #cfcfd2; font-size: 11px; }
+  .dim { opacity: .45; }
+
+  .ctrl { padding: 8px 14px 16px; display: flex; flex-direction: column; gap: 9px; }
+  .warn { color: #f0883e; font-size: 9.5px; line-height: 1.45; }
+  .warn.btn { display: flex; align-items: center; gap: 8px; background: rgba(240, 136, 62, .14); border-radius: 9px; padding: 7px 10px; color: #f5a05f; }
+  .warn.btn .go { margin-left: auto; font-weight: 700; white-space: nowrap; display: inline-flex; align-items: center; gap: 3px; }
+  .row { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+  .badge { background: #2c2c2e; border-radius: 999px; padding: 5px 9px; font-size: 10.5px; display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .badge .t { display: flex; flex-direction: column; line-height: 1.25; }
+  .badge svg { font-size: 10px; color: #cfcfd2; }
+  .tempo-text { font-size: 10px; color: #9a9a9e; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .seg { margin-left: auto; background: #2c2c2e; border-radius: 9px; padding: 2px; display: flex; font-size: 10.5px; flex: none; }
+  .seg span { padding: 4px 8px; border-radius: 7px; white-space: nowrap; }
+  .seg .on { background: #636366; font-weight: 600; }
+  .bar { flex: 1; height: 24px; border-radius: 6px; display: flex; overflow: hidden; position: relative; }
+  .bar i { display: block; height: 100%; }
+  .bar .b { background: var(--seg-b); width: 42%; }
+  .bar .d { background: var(--seg-d); width: 14%; }
+  .bar .f { background: var(--seg-f); width: 44%; }
+  .bar .head { position: absolute; left: 2px; top: 0; width: 4px; height: 100%; background: #fff; border-radius: 2px; box-shadow: 0 0 3px rgba(0, 0, 0, .6); }
+  .bar .line { position: absolute; top: 0; width: 1.5px; height: 100%; background: rgba(255, 255, 255, .9); }
+  .legend { display: flex; justify-content: center; align-items: center; gap: 12px; font-size: 9px; color: #9a9a9e; }
+  .legend i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; }
+  .jumps { display: flex; justify-content: center; align-items: center; gap: 7px; }
+  .jumps span { background: #2c2c2e; border-radius: 999px; padding: 5px 9px; font-size: 10.5px; white-space: nowrap; }
+  .transport { display: flex; justify-content: center; align-items: center; gap: 18px; font-size: 16px; }
+  .transport .loop { color: #0A84FF; }
+  .play { width: 40px; height: 40px; border-radius: 50%; background: #fff; color: #000; display: grid; place-items: center; font-size: 18px; }
+  .play svg { margin-left: 2px; }
+  .speed { background: #2c2c2e; border-radius: 999px; padding: 6px 10px; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+
+  /* 確認画面（案4） */
+  .single { height: 320px; background: linear-gradient(#abd5f2 0 62%, #98c477 62% 100%); position: relative; margin: 0 12px; border-radius: 12px; overflow: hidden; }
+  .single .fig { width: 120px; height: 190px; top: 60px; }
+  .single .stamp { position: absolute; left: 8px; top: 8px; }
+  .q { padding: 14px 16px 0; font-size: 17px; font-weight: 700; text-align: center; }
+  .sub { padding: 3px 16px 0; font-size: 10.5px; color: #9a9a9e; text-align: center; }
+  .mini { position: relative; height: 40px; margin: 10px 24px 0; }
+  .mini .track { position: absolute; left: 0; right: 0; bottom: 6px; height: 8px; border-radius: 4px; background: #3a3a3c; }
+  .mini .sb, .mini .sd, .mini .sf { position: absolute; bottom: 6px; height: 8px; }
+  .mini .sb { left: 18%; width: 32%; background: var(--seg-b); }
+  .mini .sd { left: 50%; width: 10%; background: var(--seg-d); }
+  .mini .sf { left: 60%; width: 24%; background: var(--seg-f); }
+  .mini .m { position: absolute; bottom: 0; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 1px; }
+  .mini .m b { width: 14px; height: 14px; border-radius: 50%; background: #48484a; font-size: 8px; display: grid; place-items: center; font-weight: 700; }
+  .mini .m i { width: 2px; height: 18px; background: #8e8e93; }
+  .mini .m.on b, .mini .m.on i { background: #0A84FF; }
+  .btns { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 22px; }
+  .btn-p { background: #0A84FF; border-radius: 12px; padding: 12px; text-align: center; font-weight: 700; font-size: 13px; }
+  .btn-s { background: #2c2c2e; border-radius: 12px; padding: 12px; text-align: center; font-weight: 600; font-size: 13px; }
+
+  .new { position: relative; box-shadow: 0 0 0 2px #000, 0 0 0 4px var(--mark); }
+  .new::after { content: attr(data-n); position: absolute; top: -9px; right: -9px; width: 16px; height: 16px; border-radius: 50%; background: var(--mark); color: #fff; font-size: 10px; font-weight: 700; font-family: var(--font-mono); display: grid; place-items: center; box-shadow: 0 0 0 2px #000; z-index: 3; }
+  .new.bad { box-shadow: 0 0 0 2px #000, 0 0 0 4px #f0883e; }
+  .new.bad::after { background: #f0883e; }
+
+  @media (max-width: 860px) { .case { grid-template-columns: 1fr; } h1 { font-size: 26px; } }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<svg hidden aria-hidden="true">
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="6" r="2.6" fill="currentColor"/><circle cx="15.5" cy="12" r="2.6" fill="currentColor"/><circle cx="8" cy="18" r="2.6" fill="currentColor"/></symbol>
+  <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M5 12a7.5 7.5 0 1 0 2.2-5.3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M4.5 4.5v5h5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z" fill="currentColor"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M5 4v16" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M20 4L8 12l12 8z" fill="currentColor"/></symbol>
+  <symbol id="i-fwd" viewBox="0 0 24 24"><path d="M19 4v16" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M4 4l12 8-12 8z" fill="currentColor"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-golfer" viewBox="0 0 24 24"><circle cx="14" cy="4" r="2.3" fill="currentColor"/><path d="M13.5 7.5l-2.5 6.5 3 2.5 1 6M11 14l-3 6M13 8.5l-5 2 1.5 4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3L2 20h20z" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/><path d="M12 9v5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="17" r="1.3" fill="currentColor"/></symbol>
+  <symbol id="i-photo" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M3 16l5-5 4 4 3-3 6 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/></symbol>
+  <symbol id="fig" viewBox="0 0 100 160"><circle cx="50" cy="30" r="12" fill="#f0c9a0"/><path d="M50 42v52M50 94l-16 48M50 94l16 48" fill="none" stroke="#1c1c1c" stroke-width="6" stroke-linecap="round"/><path d="M50 50L24 42 2 22" fill="none" stroke="#1c1c1c" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="fig-impact" viewBox="0 0 100 160"><circle cx="50" cy="30" r="12" fill="#f0c9a0"/><path d="M50 42v52M50 94l-16 48M50 94l16 48" fill="none" stroke="#1c1c1c" stroke-width="6" stroke-linecap="round"/><path d="M50 52l-4 40-14 44" fill="none" stroke="#1c1c1c" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<main>
+  <header>
+    <div class="eyebrow">SwingDuet / 設計メモ / 第 2 稿</div>
+    <h1>比較画面の入口</h1>
+    <p class="lead">「別の動画を比較したい」と「インパクトの位置を直したい」。この 2 つの入口が見つからない問題を、ボタンの置き場所ではなく画面全体の役割から考え直す。第 1 稿（フェーズ調整の入口）の 5 案を含めて組み直した。コードは変えていない。</p>
+    <div class="meta"><span>2026-09-07</span><span>対象: StageView / ComparisonView / VideoPaneView</span><span>第 1 稿: 260907_0144-phase-edit-entry</span></div>
+    <div class="verdict">
+      <span class="k">推し</span>
+      <p class="v"><b>案3「一番多い操作を主役に」</b>を骨格に、動画ごとの操作は<b>案1「言葉で呼ぶ」</b>で動画の上にそろえ、フェーズ調整は<b>案4「取り込んだ直後に確かめる」</b>で上流に移す。ツールバーの「お手本を選ぶ」は消える。</p>
+    </div>
+  </header>
+
+  <!-- ================= ジョブズ ================= -->
+  <section id="jobs">
+    <div class="sec-head"><span class="tag">視点</span><h2>ジョブズ流に問うなら</h2></div>
+    <div class="qa">
+      <div><span class="q">Q1</span><div><b>この画面は何のためにある？</b><p>2 本のスイングを同期で見るため。動画が主役で、操作は動画の邪魔をしない最少に。いまの操作パネルは 5 段（警告・テンポと基準・シークバー・ジャンプ・再生）で、画面の 4 割を占める。</p></div></div>
+      <div><span class="q">Q2</span><div><b>一番多い操作は何か？</b><p>「同じお手本に、撮ったばかりの自分のスイングをぶつける」。これが毎回の操作なのに、いまは一番目立たない場所（ペイン左上のラベルの ⌄）にある。ツールバーの目立つ位置には「お手本を選ぶ」があるが、これは頻度の低いほうの操作。一番多い操作に一番目立つボタンを与える。</p></div></div>
+      <div><span class="q">Q3</span><div><b>触りたいものに触れるか？</b><p>動画を替えたければ動画に触る。フェーズを直したければタイムラインに触る。「操作パネルのどこかに設定がある」という探し方をさせない。</p></div></div>
+      <div><span class="q">Q4</span><div><b>説明が要るなら失敗</b><p>「⌄」や小さなアイコンで察してもらうのをやめ、動詞で呼ぶ。「替える」「直す」「新規」。ボタンは押せるものに見え、押すと何が起きるかが読める。</p></div></div>
+      <div><span class="q">Q5</span><div><b>そもそも直させるな</b><p>フェーズ調整は例外処理であって機能ではない。検出が怪しいなら、比較を始める前にその場で 1 回だけ「ここがインパクト？」と確かめる。比較画面に「調整」を常設して、毎回目に入れる必要はない。</p></div></div>
+      <div><span class="q">Q6</span><div><b>削れ</b><p>「お手本を選ぶ」は片側だけを替える半端な入口で、動画の上の入口と重複している。消す。拡大のリセットは拡大しているときだけ出す。凡例と基準の切り替えも常設の価値を問い直す（今回は残す）。</p></div></div>
+    </div>
+  </section>
+
+  <!-- ================= 現状 ================= -->
+  <section id="now">
+    <div class="sec-head"><span class="tag">現状</span><h2>入口は 3 つあるのに、どれも見えない</h2></div>
+    <div class="case">
+      <figure class="mock">
+        <div class="phone"><div class="screen">
+          <div class="st"><span>1:17</span><span class="batt"><i></i></span></div>
+          <div class="nav"><span class="pill"><svg><use href="#i-clock"/></svg>履歴</span><span class="pill new bad" data-n="2"><svg><use href="#i-golfer"/></svg>お手本を選ぶ</span></div>
+          <div class="panes">
+            <div class="pane"><div class="video"><svg class="fig"><use href="#fig"/></svg></div>
+              <div class="pane-top"><span class="chip new bad" data-n="1">自分 <svg><use href="#i-chev-down"/></svg></span><span class="round"><svg><use href="#i-reset"/></svg></span></div></div>
+            <div class="pane"><div class="video"><svg class="fig"><use href="#fig"/></svg></div>
+              <div class="pane-top"><span class="chip">お手本 · 正面ドライバー <svg><use href="#i-chev-down"/></svg></span><span class="round"><svg><use href="#i-reset"/></svg></span></div></div>
+          </div>
+          <div class="ctrl">
+            <p class="warn">フェーズの自動検出の信頼度が低い動画があります。「フェーズ調整」で確認してください。</p>
+            <div class="row">
+              <span class="badge new bad" data-n="3"><span class="t"><span>自分</span><span>3.0 : 1</span></span><svg><use href="#i-sliders"/></svg></span>
+              <span class="badge"><span class="t"><span>お手本</span><span>3.0 : 1</span></span><svg><use href="#i-sliders"/></svg></span>
+              <span class="seg"><span>自分基準</span><span class="on">お手本基準</span></span>
+            </div>
+            <div class="bar"><i class="b"></i><i class="d"></i><i class="f"></i><span class="line" style="left:42%"></span><span class="line" style="left:56%"></span><span class="head"></span></div>
+            <div class="legend"><span><i style="background:var(--seg-b)"></i>バックスイング</span><span><i style="background:var(--seg-d)"></i>ダウンスイング</span><span><i style="background:var(--seg-f)"></i>フォロー</span></div>
+            <div class="jumps"><span>アドレス</span><span>トップ</span><span>インパクト</span></div>
+            <div class="transport"><svg class="loop"><use href="#i-repeat"/></svg><svg><use href="#i-back"/></svg><span class="play"><svg><use href="#i-play"/></svg></span><svg><use href="#i-fwd"/></svg><span class="speed">x0.30</span></div>
+          </div>
+        </div></div>
+        <figcaption>現在の比較画面</figcaption>
+      </figure>
+      <div class="notes">
+        <div><h3><span class="n bad">1</span>動画を替える：ラベルの ⌄</h3><p class="prose">左上の「自分 ⌄」をタップするとピッカーが開く。だがこれはラベルに見える。「⌄」は 9pt で、押せる印としては弱すぎる。</p></div>
+        <div><h3><span class="n bad">2</span>「お手本を選ぶ」はお手本しか替えられない</h3><p class="prose">ツールバーで一番目立つボタンなのに、一番多い操作（自分の新しいスイング）には使えない。押した人は「自分の動画はどこで替えるのか」と探すことになる。</p></div>
+        <div><h3><span class="n bad">3</span>フェーズを直す：テンポ表示の中</h3><p class="prose">数字の横の小さなアイコン。警告文は「フェーズ調整」と言うが、画面にその言葉はない。</p></div>
+        <div><h3>共通する原因</h3><p class="prose">3 つとも「本来の役割を持つ部品（ラベル・数字）に、ついでに操作を載せた」形。役割が 2 つある部品は、どちらにも見えない。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 案1 ================= -->
+  <section id="p1">
+    <div class="sec-head"><span class="tag">案1</span><h2>言葉で呼ぶ</h2></div>
+    <div class="case">
+      <figure class="mock">
+        <div class="phone"><div class="screen">
+          <div class="st"><span>1:17</span><span class="batt"><i></i></span></div>
+          <div class="nav"><span class="pill"><svg><use href="#i-clock"/></svg>履歴</span><span class="pill new" data-n="1"><svg><use href="#i-plus"/></svg>新規</span></div>
+          <div class="panes">
+            <div class="pane"><div class="video"><svg class="fig"><use href="#fig"/></svg></div>
+              <div class="pane-top"><span class="chip">自分</span><span class="chip num">3.0 : 1</span></div>
+              <div class="acts new" data-n="2"><span class="act">動画を替える</span><span class="act">フェーズを直す</span></div></div>
+            <div class="pane"><div class="video" style="transform:scale(1.25)"><svg class="fig"><use href="#fig"/></svg></div>
+              <div class="pane-top"><span class="chip">お手本 · 正面ドライバー</span><span class="chip num">3.0 : 1</span><span class="round new" data-n="3"><svg><use href="#i-reset"/></svg></span></div>
+              <div class="acts"><span class="act">動画を替える</span><span class="act">フェーズを直す</span></div></div>
+          </div>
+          <div class="ctrl">
+            <div class="row" style="padding:0 4px"><span class="tempo-text">同期の基準</span><span class="seg"><span>自分</span><span class="on">お手本</span></span></div>
+            <div class="bar"><i class="b"></i><i class="d"></i><i class="f"></i><span class="line" style="left:42%"></span><span class="line" style="left:56%"></span><span class="head"></span></div>
+            <div class="legend"><span><i style="background:var(--seg-b)"></i>バックスイング</span><span><i style="background:var(--seg-d)"></i>ダウンスイング</span><span><i style="background:var(--seg-f)"></i>フォロー</span></div>
+            <div class="jumps"><span>アドレス</span><span>トップ</span><span>インパクト</span></div>
+            <div class="transport"><svg class="loop"><use href="#i-repeat"/></svg><svg><use href="#i-back"/></svg><span class="play"><svg><use href="#i-play"/></svg></span><svg><use href="#i-fwd"/></svg><span class="speed">x0.30</span></div>
+          </div>
+        </div></div>
+        <figcaption>案1 / すべての操作に動詞を付ける</figcaption>
+      </figure>
+      <div class="notes">
+        <div><h3><span class="n">1</span>ツールバー右は「＋ 新規」</h3><p class="prose">両方のペインを空にして、起動直後のステージ（大きな ○+ が 2 つ）に戻る。この空ステージは既に分かりやすいので、そこへ戻る道を 1 つ作るだけでよい。「お手本を選ぶ」は消す。</p></div>
+        <div><h3><span class="n">2</span>ペインの下端に「動画を替える」「フェーズを直す」</h3><p class="prose">その動画への操作は、その動画の上にそろえる。左上のラベルは名前だけの表示に戻し、⌄ を外す。テンポは右上に数字だけ。</p></div>
+        <div><h3><span class="n">3</span>拡大のリセットは拡大したときだけ</h3><p class="prose">自動フィットのままなら出さない。常設の部品が 1 つ減る。</p></div>
+        <dl class="kv">
+          <dt>長所</dt><dd>読めば分かる。学ぶことがない。操作パネルはテンポの行がなくなり 1 段減る。</dd>
+          <dt>懸念</dt><dd>動画の下端に 2 つのボタンが常に載る。縦動画なら黒帯に収まるが、横動画や拡大時は映像に被る。再生中は薄くする。</dd>
+          <dt>変更</dt><dd><code>VideoPaneView</code>（下端の行、ラベル、リセットの出し分け）、<code>StageView</code>（ツールバー）、<code>ComparisonView</code>（テンポの行）。</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 案2 ================= -->
+  <section id="p2">
+    <div class="sec-head"><span class="tag">案2</span><h2>触れば出てくる</h2></div>
+    <div class="case">
+      <figure class="mock">
+        <div class="phone"><div class="screen">
+          <div class="st"><span>1:17</span><span class="batt"><i></i></span></div>
+          <div class="nav"><span class="pill"><svg><use href="#i-clock"/></svg>履歴</span><span class="pill"><svg><use href="#i-plus"/></svg>新規</span></div>
+          <div class="panes">
+            <div class="pane"><div class="video dim"><svg class="fig"><use href="#fig"/></svg></div>
+              <div class="pane-top"><span class="chip">自分</span></div>
+              <div class="sheet new" data-n="1"><h4>自分 · テンポ 3.0 : 1</h4><div>動画を替える <svg><use href="#i-photo"/></svg></div><div>フェーズを直す <svg><use href="#i-sliders"/></svg></div><div>拡大を戻す <svg><use href="#i-reset"/></svg></div></div></div>
+            <div class="pane new" data-n="2"><div class="video"><svg class="fig"><use href="#fig"/></svg></div>
+              <div class="pane-top"><span class="chip">お手本 · 正面ドライバー</span></div></div>
+          </div>
+          <div class="ctrl">
+            <div class="row" style="padding:0 4px"><span class="tempo-text">同期の基準</span><span class="seg"><span>自分</span><span class="on">お手本</span></span></div>
+            <div class="bar"><i class="b"></i><i class="d"></i><i class="f"></i><span class="line" style="left:42%"></span><span class="line" style="left:56%"></span><span class="head"></span></div>
+            <div class="legend"><span><i style="background:var(--seg-b)"></i>バックスイング</span><span><i style="background:var(--seg-d)"></i>ダウンスイング</span><span><i style="background:var(--seg-f)"></i>フォロー</span></div>
+            <div class="jumps"><span>アドレス</span><span>トップ</span><span>インパクト</span></div>
+            <div class="transport"><svg class="loop"><use href="#i-repeat"/></svg><svg><use href="#i-back"/></svg><span class="play"><svg><use href="#i-play"/></svg></span><svg><use href="#i-fwd"/></svg><span class="speed">x0.30</span></div>
+          </div>
+        </div></div>
+        <figcaption>案2 / 左のペインをタップした直後</figcaption>
+      </figure>
+      <div class="notes">
+        <div><h3><span class="n">1</span>動画をタップすると、その動画のメニュー</h3><p class="prose">初代 iPhone の動画プレイヤーと同じ。触ると操作が出て、もう一度触ると消える。「動画を替える」「フェーズを直す」「拡大を戻す」の 3 つだけ。テンポは見出しに添える。</p></div>
+        <div><h3><span class="n">2</span>普段のペインは名前だけ</h3><p class="prose">ボタンが 1 つも載らない。動画が一番きれいに見える案。</p></div>
+        <dl class="kv">
+          <dt>長所</dt><dd>画面が最も静か。動画への操作が 1 か所に集まる。</dd>
+          <dt>懸念</dt><dd>「動画をタップする」を知らないと、今回と同じ「見つからない」が起きる。対策として、比較を開いた直後の 2 秒だけメニューを出してから消す。ドラッグ（位置合わせ）との誤爆はタップとドラッグを区別すれば防げる。</dd>
+          <dt>変更</dt><dd><code>VideoPaneView</code>（タップでメニュー、ラベル）、<code>StageView</code>（ツールバー）。</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 案3 ================= -->
+  <section id="p3">
+    <div class="sec-head"><span class="tag">案3</span><h2>一番多い操作を主役に</h2><span class="pick">推し</span></div>
+    <div class="case">
+      <figure class="mock">
+        <div class="phone"><div class="screen">
+          <div class="st"><span>1:17</span><span class="batt"><i></i></span></div>
+          <div class="nav"><span class="pill"><svg><use href="#i-clock"/></svg>履歴</span><span class="pill primary new" data-n="1"><svg><use href="#i-plus"/></svg>新しいスイング</span></div>
+          <div class="panes">
+            <div class="pane"><div class="video"><svg class="fig"><use href="#fig"/></svg></div>
+              <div class="pane-top"><span class="chip">自分</span><span class="chip num">3.0 : 1</span></div>
+              <div class="acts"><span class="act">動画を替える</span><span class="act">フェーズを直す</span></div></div>
+            <div class="pane"><div class="video"><svg class="fig"><use href="#fig"/></svg></div>
+              <div class="pane-top"><span class="chip">お手本 · 正面ドライバー</span><span class="chip num">3.0 : 1</span></div>
+              <div class="acts new" data-n="2"><span class="act">お手本を替える</span><span class="act">フェーズを直す</span></div></div>
+          </div>
+          <div class="ctrl">
+            <div class="warn btn new" data-n="3"><svg><use href="#i-warn"/></svg><span>お手本の検出の信頼度が低い</span><span class="go">直す <svg><use href="#i-chev-right"/></svg></span></div>
+            <div class="row" style="padding:0 4px"><span class="tempo-text">同期の基準</span><span class="seg"><span>自分</span><span class="on">お手本</span></span></div>
+            <div class="bar"><i class="b"></i><i class="d"></i><i class="f"></i><span class="line" style="left:42%"></span><span class="line" style="left:56%"></span><span class="head"></span></div>
+            <div class="legend"><span><i style="background:var(--seg-b)"></i>バックスイング</span><span><i style="background:var(--seg-d)"></i>ダウンスイング</span><span><i style="background:var(--seg-f)"></i>フォロー</span></div>
+            <div class="jumps"><span>アドレス</span><span>トップ</span><span>インパクト</span></div>
+            <div class="transport"><svg class="loop"><use href="#i-repeat"/></svg><svg><use href="#i-back"/></svg><span class="play"><svg><use href="#i-play"/></svg></span><svg><use href="#i-fwd"/></svg><span class="speed">x0.30</span></div>
+          </div>
+        </div></div>
+        <figcaption>案3 / 「新しいスイング」が画面で一番目立つ</figcaption>
+      </figure>
+      <div class="notes">
+        <div><h3><span class="n">1</span>ツールバー右は「＋ 新しいスイング」（塗り）</h3><p class="prose">押すとライブラリが開き、選んだ動画が左（自分）に入る。お手本はいまのまま。毎回の操作が、画面で一番目立つボタン 1 つで済む。「お手本を選ぶ」は消す。空のステージに戻す「新規」は履歴シートの中に置く（頻度が低い）。</p></div>
+        <div><h3><span class="n">2</span>動画ごとの操作は案1 と同じ</h3><p class="prose">左は「動画を替える」、右は「お手本を替える」。ツールバーの「新しいスイング」と左の「動画を替える」は同じ結果になる重複だが、一番多い操作に一番目立つ場所を与えるための意図した重複。</p></div>
+        <div><h3><span class="n">3</span>警告はそのまま入口に</h3><p class="prose">どちらの動画が怪しいかを書き、「直す」でその動画のフェーズ調整へ。保存したら警告は消える。</p></div>
+        <dl class="kv">
+          <dt>長所</dt><dd>最頻の操作がタップ 1 ＋ ピッカー。頻度の順に目立ち方が決まる（新しいスイング ＞ 動画ごとの操作 ＞ 新規）。</dd>
+          <dt>懸念</dt><dd>案1 と同じ「動画の下端に被る」。ツールバー右が塗りボタンになるので、ダーク基調の中で唯一の色になる。それが狙い。</dd>
+          <dt>変更</dt><dd>案1 ＋ <code>StageView</code>（ツールバー、履歴シートに新規）＋ <code>ComparisonView</code>（警告）＋ <code>PhaseEditView</code>（保存で <code>lowConfidence</code> を解除）。</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 案4 ================= -->
+  <section id="p4">
+    <div class="sec-head"><span class="tag">案4</span><h2>取り込んだ直後に確かめる</h2><span class="pick">フェーズ調整を上流へ</span></div>
+    <div class="case">
+      <figure class="mock">
+        <div class="phone"><div class="screen">
+          <div class="st"><span>1:17</span><span class="batt"><i></i></span></div>
+          <div class="nav"><span class="pill text">キャンセル</span><span class="title">自分のスイング</span><span class="pill text" style="visibility:hidden">＿＿</span></div>
+          <div class="single"><svg class="fig"><use href="#fig-impact"/></svg><span class="chip stamp">インパクト · 8.067 秒</span></div>
+          <p class="q new" data-n="1">インパクトはここ？</p>
+          <p class="sub">自動で見つけた位置です。コマ送りで確かめられます。</p>
+          <div class="mini"><div class="track"></div><div class="sb"></div><div class="sd"></div><div class="sf"></div>
+            <span class="m" style="left:18%"><b>A</b><i></i></span><span class="m" style="left:50%"><b>T</b><i></i></span><span class="m on" style="left:60%"><b>I</b><i></i></span><span class="m" style="left:84%"><b>F</b><i></i></span></div>
+          <div class="transport" style="padding:6px 0 0; font-size:14px"><svg><use href="#i-back"/></svg><span class="tempo-text" style="color:#d7d7db">8.067 秒</span><svg><use href="#i-fwd"/></svg></div>
+          <div class="btns new" data-n="2"><span class="btn-p">はい、比較する</span><span class="btn-s">ずれている（直す）</span></div>
+        </div></div>
+        <figcaption>案4 / 解析が終わった直後に 1 回だけ出る</figcaption>
+      </figure>
+      <div class="notes">
+        <div><h3><span class="n">1</span>「インパクトはここ？」と 1 回だけ聞く</h3><p class="prose">解析が終わったら、見つけたインパクトのコマを大きく見せる。ゴルファーはインパクトの絵を見れば、合っているかどうかを一瞬で判断できる。4 つのフェーズを全部見せる必要はない。インパクトが合っていれば残りはほぼ合う。</p></div>
+        <div><h3><span class="n">2</span>答えは 2 つ</h3><p class="prose">「はい、比較する」で比較へ。「ずれている」でフェーズ調整（いまのシート）へ。確かめてから比較に入るので、比較画面に「信頼度が低い」警告を出す必要がなくなる。</p></div>
+        <dl class="kv">
+          <dt>いつ出す</dt><dd>信頼度が低いときは必ず。高いときは出さず、比較画面の「フェーズを直す」に任せる（毎回出すと最頻の操作に 1 タップ増える）。</dd>
+          <dt>長所</dt><dd>フェーズ調整が「探して直す設定」から「聞かれて答える確認」に変わる。警告文で「フェーズ調整」を探させる状況が消える。</dd>
+          <dt>懸念</dt><dd>画面が 1 枚増える。<code>StageView</code> の解析完了 → 比較の間に確認ステップを挟む。登録済みお手本を選んだときは出さない（既に確かめてある）。</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 比較 ================= -->
+  <section id="compare">
+    <div class="sec-head"><span class="tag">比較</span><h2>4 案の並べ比べ</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>案</th><th>動画を替える入口</th><th>フェーズを直す入口</th><th>見つけやすさ</th><th>画面の静かさ</th><th>変更</th><th>主な懸念</th></tr></thead>
+        <tbody>
+          <tr><td><b>1</b> 言葉で呼ぶ</td><td>ペイン下端「動画を替える」＋ ツールバー「新規」</td><td>ペイン下端「フェーズを直す」</td><td class="g">◎ 読めば分かる</td><td>△ ボタンが常に 4 つ</td><td class="g">小〜中</td><td>横動画・拡大時に被る</td></tr>
+          <tr><td><b>2</b> 触れば出てくる</td><td>動画タップ → メニュー</td><td>動画タップ → メニュー</td><td class="y">△ タップを知る必要</td><td class="g">◎ 何も載らない</td><td class="g">小〜中</td><td>今回と同じ「見つからない」が再発しうる</td></tr>
+          <tr class="rec"><td><b>3</b> 最頻を主役に</td><td>ツールバー「＋ 新しいスイング」（塗り）＋ ペイン下端</td><td>ペイン下端 ＋ 警告から</td><td class="g">◎ 一番多い操作が一番目立つ</td><td>△ 案1 と同じ</td><td class="g">中</td><td>意図した重複が 1 つ</td></tr>
+          <tr><td><b>4</b> 上流で確かめる</td><td>（他案と組む）</td><td>解析直後の「インパクトはここ？」</td><td class="g">◎ 聞かれる</td><td class="g">○ 警告が消える</td><td>中</td><td>画面が 1 枚増える</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================= 推し ================= -->
+  <section id="rec">
+    <div class="sec-head"><span class="tag">結論</span><h2>推しと段階</h2></div>
+    <div class="cols">
+      <div class="prose">
+        <h3>骨格は案3、部品は案1</h3>
+        <p>「一番多い操作に一番目立つボタン」がこの画面の背骨になる。ツールバー右は「＋ 新しいスイング」の塗りボタン 1 つ。動画ごとの操作（替える・直す）は動画の上に言葉で置く。「お手本を選ぶ」と「⌄」と、テンポの中のアイコンは消える。第 1 稿の案B（動画の中に置く）と案E（警告から直す）はここに吸収される。</p>
+      </div>
+      <div class="prose">
+        <h3>次に案4</h3>
+        <p>フェーズ調整を比較画面の中で探させるのではなく、取り込んだ直後に「インパクトはここ？」と聞く。信頼度が低いときだけ出せば、最頻の操作は速いまま。これで比較画面の警告は不要になる。</p>
+      </div>
+    </div>
+    <div class="prose" style="margin-top:28px">
+      <h3>ジョブズなら、さらに削るところ</h3>
+      <ul>
+        <li><b>凡例</b>（バックスイング / ダウンスイング / フォロー）：シークバーの中に文字を入れれば凡例は要らない。幅が足りないときだけ省く。</li>
+        <li><b>同期の基準</b>：既定（お手本基準）で困る人がどれだけいるかを見てから、常設をやめるか決める。再生中の切り替えを残すなら今の場所でよい。</li>
+        <li><b>拡大のリセット</b>：拡大したときだけ出す（案1 で反映済み）。</li>
+      </ul>
+    </div>
+  </section>
+</main>
