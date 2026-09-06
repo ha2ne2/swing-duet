@@ -198,7 +198,7 @@ struct ComparisonProject: Codable, Identifiable, Equatable {
     var model: VideoConfig
     var reference: ReferenceSide = .model
     /// 右ペインに入れた登録済みお手本との紐付け。お手本のフェーズ修正を登録元へ反映するのに使う。
-    /// 動画ファイルは登録側と別に複製して持つので、登録を消してもプロジェクトは壊れない（紐付けが外れるだけ）
+    /// 動画ファイルは登録側と共有する。登録を消しても比較は壊れない（ファイルは比較から参照されている限り残り、紐付けが外れるだけ）
     var modelID: UUID? = nil
 
     func config(for side: ReferenceSide) -> VideoConfig {

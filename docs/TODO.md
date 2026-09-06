@@ -22,7 +22,8 @@
 - **対象**: `SwingDuet/Services/VideoImporter.swift`（`ImportedMovie`）、`SwingDuet/Views/VideoPickerSheet.swift`（`PhotosPicker` / `loadMovie`）
 - **やること**: `PhotosPicker(..., photoLibrary: .shared())` にして `PhotosPickerItem.itemIdentifier` を取得 →
   `PHAsset.fetchAssets(withLocalIdentifiers:)` → `PHImageManager.requestAVAsset(forVideo:options:)`（`version = .original`）で
-  元の 240fps ファイルを取り出す。写真ライブラリの読み取り権限（`NSPhotoLibraryUsageDescription` は設定済み）が必要になるので、
+  元の 240fps ファイルを取り出す。取り出した原本も `ProjectStore.importVideo` → `stripAudio` の経路に通す（音声トラックを残さない）。
+  写真ライブラリの読み取り権限（`NSPhotoLibraryUsageDescription` は設定済み）が必要になるので、
   拒否時は現行の PhotosPicker 経路（30fps 版）にフォールバックし、その旨を表示する（[AGENTS.md](../AGENTS.md) §6.3）。
 - **やらない理由（今）**: 実機での挙動確認と権限 UX の設計が先。
 - **参照**: [research/260906_1531-simulator-verification.md](./research/260906_1531-simulator-verification.md) §4.1、[research/260906_1723-slow-motion-speed-detection.md](./research/260906_1723-slow-motion-speed-detection.md) §3.3（PhotoKit で取れるもの）

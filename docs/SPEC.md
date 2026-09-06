@@ -72,8 +72,8 @@
 
 ### 2.5 保存
 
-- 両方の動画がそろった比較は自動で履歴に残る（動画はアプリ内にコピー、設定は JSON で永続化）。左上の「履歴」から開き直し・削除
-- 登録済みお手本（名前・解析結果・動画）の保存。比較とは別にファイルを持つので、比較を消しても残る
+- 両方の動画がそろった比較は自動で履歴に残る（動画は映像トラックだけをアプリ内にコピー、設定は JSON で永続化）。左上の「履歴」から開き直し・削除
+- 登録済みお手本（名前・解析結果・動画）の保存。比較を消しても残る（動画ファイルは比較と共有し、どこからも使われなくなったものは次回起動時に消える）
 
 ---
 
@@ -107,7 +107,8 @@
 
 ## 5. データモデル
 
-永続化は `Documents/projects.json`（`ComparisonProject` の配列）と `Documents/Videos/<UUID>.<ext>`（動画のコピー）。
+永続化は `Documents/projects.json`（`ComparisonProject` の配列）と `Documents/Videos/<UUID>.<ext>`
+（動画のコピー。音声トラックは取り込み時に除く。理由は [ARCHITECTURE.md](./ARCHITECTURE.md) §4）。
 定義は [SwingDuet/Models/SwingModels.swift](../SwingDuet/Models/SwingModels.swift)。
 
 | 型                  | 内容                                                                                   |

@@ -11,7 +11,7 @@ SwingDuet の技術スタック・モジュール構成・主要な仕組み（�
 | 動画再生         | AVFoundation（`AVPlayer` × 2 本、`rate` と `seek` で同期）                                     |
 | フレーム読み出し | AVFoundation `AVAssetReader`（解析用に 30fps 相当へ間引き）                                    |
 | 姿勢推定         | Vision `VNDetectHumanBodyPoseRequest`（左右手首の平均位置を追跡）                             |
-| 動画の取り込み   | PhotosUI `PhotosPicker` + CoreTransferable `FileRepresentation(contentType: .movie)`          |
+| 動画の取り込み   | PhotosUI `PhotosPicker` + CoreTransferable `FileRepresentation(contentType: .movie)`。取り込み時に AVFoundation `AVAssetExportSession`（パススルー）で映像トラックだけにする（§4） |
 | 永続化           | JSON（`Documents/projects.json`・`models.json`）+ 動画ファイル（`Documents/Videos/`）。**外部依存なし** |
 | 言語 / 最低 OS   | Swift 5 言語モード / iOS 17                                                                    |
 | プロジェクト     | `SwingDuet.xcodeproj`（手書き。`PBXFileSystemSynchronizedRootGroup` で `SwingDuet/` 配下を自動収集） |
@@ -29,7 +29,7 @@ SwingDuet/
 │   ├── SwingAnalyzer.swift       # 自動解析の入口。PoseTracker → SwingDetector をつなぎ、保存用の VideoConfig にする（§5）
 │   ├── PoseTracker.swift         # Vision の姿勢推定で人物を追跡（手首位置・関節の外接矩形）
 │   ├── SwingDetector.swift       # 手首の動きからスイング区間・4 フェーズを検出し候補を採点（純粋計算）
-│   ├── VideoImporter.swift       # PhotosPicker 用 Transferable（ImportedMovie）・メタデータ取得
+│   ├── VideoImporter.swift       # PhotosPicker 用 Transferable（ImportedMovie）・映像だけへの書き換え（stripAudioTrack）
 │   └── ProjectStore.swift        # 比較の履歴と登録済みお手本の永続化（JSON + 動画ファイル管理）
 ├── Playback/
 │   └── PlaybackController.swift  # CADisplayLink マスタークロック + 区間別レート再生（§4）
@@ -57,13 +57,14 @@ SwingDuet/
 （ジェスチャーの途中でディスクに書かないため）。ピンチ中はドラッグを無視する（2 本指の 1 本目がドラッグとして拾われ、ピンチ中心がずれるのを防ぐ）。
 
 **ステージ**（`StageView`）は左右のペインの状態（`Slot`：空 / 解析中 / 準備済み）を持ち、両方が準備済みになった時点で
-`ComparisonProject` を作って履歴（`ProjectStore.projects`）に入れ、`ComparisonView` に切り替える。ペインに入る動画の出どころは
-`SlotSource`（取り込んだばかり = プロジェクトが引き取る / 登録済みお手本や開いている比較のもの = 使うとき複製）で、他の持ち主のファイルは
-`ProjectStore.duplicate` で複製する（APFS ではクローンなので実容量は増えない。参照の数え上げが不要になり、登録や履歴を消しても
-互いに壊れない）。比較中に片方を選び直すと、もう片方を複製して引き継いだ新しい比較になる。
+`ComparisonProject` を作って履歴（`ProjectStore.projects`）に入れ、`ComparisonView` に切り替える。ライブラリから取り込んだ動画は
+`ProjectStore.importVideo` で `Documents/Videos/` へ移し、解析の前に `ProjectStore.stripAudio` で映像トラックだけにする（理由は §4）。
+動画ファイルは取り込み後に書き換えないので、登録済みお手本と比較、比較同士で同じファイルを共有する（比較中に片方を選び直すと、
+もう片方をそのまま引き継いだ新しい比較になる）。履歴や登録を消してもファイルは消さず、JSON のどこからも参照されなくなったファイルを
+起動時に `ProjectStore.removeUnreferencedVideos` が片付ける（取り込みの途中で終了したときの残りも同様）。
 
 **登録済みお手本**（`ModelVideo`、`Documents/models.json`）は名前 + 解析結果つきの `VideoConfig` で、右ペインでライブラリから選んだ
-動画が解析後にそのまま登録される（ファイルは登録側が持つ）。プロジェクトは `modelID` で登録元と紐付き、お手本のフェーズを修正すると
+動画が解析後にそのまま登録される。プロジェクトは `modelID` で登録元と紐付き、お手本のフェーズを修正すると
 `ProjectStore.update` が登録元の `phases` にも反映する（フェーズは動画そのものの性質なので比較ごとに違わない）。
 拡大率と位置は比較相手で変わるので登録には持たない（自動フィットどおりの初期値に戻す）。
 
@@ -84,6 +85,11 @@ SwingDuet/
   一時停止・ジャンプ・コマ送り・スクラブ終了時は許容ゼロの精密シーク
 - ループ範囲は `loop`（`LoopMode`：スイング全体 / 1 区間 / ループしない）。範囲を出たら先頭へ戻る（ループしないなら停止）
 - フェーズ修正・基準切替時は `updateSync` で相対位置（進捗率）を保って追従する
+- **音声トラックは取り込み時に落とす**（`stripAudioTrack`）。再生は常にミュートだが、
+  音声トラックのある `AVPlayerItem` は再生開始・シークのたびに音声レンダラの起動を待って `currentTime` が 100〜200ms 止まり、
+  ドリフト補正がそれをシークで直し、そのシークがまた時計を止めて連鎖する（速度 × 停止時間 > 80ms で発生。実機の x0.3 で顕在化した。
+  [research/260907_0254](./research/260907_0254-model-video-stutter-on-device.md)）
+- シーク中（完了ハンドラが呼ばれるまで）の側はドリフト補正しない。シーク中は `currentTime` が進まないので、補正すると同じ連鎖になる
 - `PlaybackController` は `@Observable`（`ObservableObject` ではない）。`commonTime` が毎 tick 変わるので、
   `ObservableObject` だと比較画面の View 全体が 60Hz で再描画され、再生中はループ範囲の Menu の項目が押せなくなる。
   `@Observable` なら `commonTime` を読むシークバーだけが再描画される（`ProjectStore` は更新頻度が低いので `ObservableObject` のまま）。
@@ -136,4 +142,6 @@ Vision の手首座標による先行検証の実装（クラブヘッド追跡�
 - ビルド・シミュレータ・実機の手順: [guides/build-test.md](./guides/build-test.md)
 - 通しの自動 E2E（XCUITest ハーネス）: [.claude/skills/e2e-simulator/SKILL.md](../.claude/skills/e2e-simulator/SKILL.md)
 - PhotosPicker 経由のスローモーション動画は 30fps のレンダリング版になる: [TODO.md](./TODO.md) A
+- 実機でお手本だけがカクついた原因（音声トラック）と対策の比較: [research/260907_0254](./research/260907_0254-model-video-stutter-on-device.md)
+- 動画を写真ライブラリの参照ではなくコピーで持つ理由: [research/260907_0316](./research/260907_0316-copy-vs-reference-video-storage.md)
 - 初回検証の記録: [research/260906_1531-simulator-verification.md](./research/260906_1531-simulator-verification.md)

@@ -84,7 +84,7 @@ private struct ComparisonContent: View {
             controller.updateSync(SyncEngine(project: newValue))
         }
         .onDisappear {
-            controller.shutdown()
+            controller.pause()
         }
         .sheet(item: $editingSide) { side in
             PhaseEditView(

@@ -1,7 +1,9 @@
 import Foundation
 import Combine
 
-/// 比較の履歴（プロジェクト）と登録済みお手本の永続化（Documents/projects.json・models.json + Documents/Videos/）
+/// 比較の履歴（プロジェクト）と登録済みお手本の永続化（Documents/projects.json・models.json + Documents/Videos/）。
+/// 動画ファイルは取り込み後に書き換えないので、比較や登録済みお手本の間で同じファイルを共有する。
+/// JSON のどこからも参照されなくなったファイルは起動時に消す（`removeUnreferencedVideos`）
 @MainActor
 final class ProjectStore: ObservableObject {
     /// 比較の履歴（新しい順）。両方の動画がそろった比較が自動で入る
@@ -36,6 +38,7 @@ final class ProjectStore: ObservableObject {
         try? fileManager.createDirectory(at: videosDirectory, withIntermediateDirectories: true)
         projects = read([ComparisonProject].self, from: projectsURL) ?? []
         models = read([ModelVideo].self, from: modelsURL) ?? []
+        removeUnreferencedVideos()
     }
 
     func videoURL(for fileName: String) -> URL {
@@ -44,26 +47,38 @@ final class ProjectStore: ObservableObject {
 
     // MARK: - 動画ファイル
 
-    /// 一時ファイルをアプリ管理領域へ取り込み、保存ファイル名を返す
+    /// 一時ファイルをアプリ管理領域へ取り込み、保存ファイル名を返す。
+    /// 音声トラックの除去は時間がかかることがあるので、続けて `stripAudio(_:)` を非同期に呼ぶ
     func importVideo(from tempURL: URL) throws -> String {
         let fileName = Self.newFileName(extension: tempURL.pathExtension)
-        try fileManager.copyItem(at: tempURL, to: videoURL(for: fileName))
-        try? fileManager.removeItem(at: tempURL)
+        try fileManager.moveItem(at: tempURL, to: videoURL(for: fileName))
         return fileName
     }
 
-    /// 取り込んだが使わなくなった動画（解析失敗・選び直し）を消す
+    /// 取り込んだ動画を映像トラックだけにする（理由は `stripAudioTrack` 参照）。
+    /// 失敗しても取り込みは続ける（音声付きのまま再生はでき、実機でカクつきが残るだけ）
+    func stripAudio(_ fileName: String) async {
+        do {
+            _ = try await stripAudioTrack(at: videoURL(for: fileName))
+        } catch {
+            print("音声トラックの除去に失敗: \(fileName) \(error.localizedDescription)")
+        }
+    }
+
+    /// 取り込んだが使わなくなった動画（解析失敗・選び直し）を消す。まだ比較にも登録にも入っていないものに限る
     func removeVideo(_ fileName: String) {
         try? fileManager.removeItem(at: videoURL(for: fileName))
     }
 
-    /// 動画設定を、動画ファイルを複製して別の持ち主用にする（APFS ではクローンになり、実容量は増えない）。
-    /// プロジェクトと登録済みお手本、プロジェクト同士でファイルを共有しないため（参照の数え上げが不要になる）
-    func duplicate(_ config: VideoConfig) throws -> VideoConfig {
-        var copy = config
-        copy.fileName = Self.newFileName(extension: (config.fileName as NSString).pathExtension)
-        try fileManager.copyItem(at: videoURL(for: config.fileName), to: videoURL(for: copy.fileName))
-        return copy
+    /// どの比較・登録済みお手本からも参照されていない動画ファイルを消す。
+    /// 履歴や登録を消すときはファイルに触らず（同じファイルを別の比較が使っていることがある）、起動時にここでまとめて片付ける。
+    /// 取り込みの途中でアプリが終了したときの残りも同じく消える
+    private func removeUnreferencedVideos() {
+        let referenced = Set(projects.flatMap { [$0.mine.fileName, $0.model.fileName] } + models.map(\.config.fileName))
+        let stored = (try? fileManager.contentsOfDirectory(atPath: videosDirectory.path)) ?? []
+        for name in stored where !referenced.contains(name) {
+            try? fileManager.removeItem(at: videoURL(for: name))
+        }
     }
 
     // MARK: - 比較の履歴
@@ -82,10 +97,6 @@ final class ProjectStore: ObservableObject {
     }
 
     func delete(at offsets: IndexSet) {
-        for idx in offsets {
-            removeVideo(projects[idx].mine.fileName)
-            removeVideo(projects[idx].model.fileName)
-        }
         projects.remove(atOffsets: offsets)
         persistProjects()
     }
@@ -97,7 +108,7 @@ final class ProjectStore: ObservableObject {
         return models.first { $0.id == id }
     }
 
-    /// 解析したばかりの動画設定に名前を付けて登録する。動画ファイルは config のものをそのまま登録側が持つ
+    /// 解析したばかりの動画設定に名前を付けて登録する
     func addModel(name: String, config: VideoConfig) -> ModelVideo {
         let model = ModelVideo(name: name, config: config)
         models.insert(model, at: 0)
@@ -112,9 +123,7 @@ final class ProjectStore: ObservableObject {
     }
 
     func deleteModel(_ id: UUID) {
-        guard let idx = models.firstIndex(where: { $0.id == id }) else { return }
-        removeVideo(models[idx].config.fileName)
-        models.remove(at: idx)
+        models.removeAll { $0.id == id }
         persistModels()
     }
 

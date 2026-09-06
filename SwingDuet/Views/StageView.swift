@@ -1,31 +1,13 @@
 import SwiftUI
 import PhotosUI
 
-/// ペインに入る動画の出どころ
-enum SlotSource {
-    /// ライブラリから取り込んで解析したばかりの動画。ファイルはプロジェクトがそのまま引き取る
-    case imported(VideoConfig)
-    /// 登録済みお手本、または開いている比較の動画。使うときにファイルを複製する（modelID は紐付く登録済みお手本）
-    case shared(VideoConfig, modelID: UUID?)
-
-    var config: VideoConfig {
-        switch self {
-        case .imported(let config), .shared(let config, _): return config
-        }
-    }
-
-    var modelID: UUID? {
-        if case .shared(_, let modelID) = self { return modelID }
-        return nil
-    }
-}
-
 /// ペインの状態
 enum Slot {
     case empty
     /// 取り込み済みのファイルを解析中（title は右ペインに付けた名前）
     case analyzing(fileName: String, title: String?)
-    case ready(SlotSource)
+    /// 動画の設定と、紐付く登録済みお手本（右ペインに登録済みお手本を入れたとき）
+    case ready(VideoConfig, modelID: UUID? = nil)
 }
 
 /// ピッカーで選ばれた動画
@@ -150,8 +132,8 @@ struct StageView: View {
 
     /// 比較の動画をペインに入れる（片方だけ選び直したとき、もう片方をそのまま引き継ぐため）
     private func fill(from project: ComparisonProject) {
-        mine = .ready(.shared(project.mine, modelID: nil))
-        model = .ready(.shared(project.model, modelID: project.modelID))
+        mine = .ready(project.mine)
+        model = .ready(project.model, modelID: project.modelID)
     }
 
     /// ツールバーの「新しいスイング」：選んだ動画を左ペイン（自分）に入れる。お手本はそのまま
@@ -177,7 +159,7 @@ struct StageView: View {
         projectID = nil
         switch picked {
         case .registered(let model):
-            set(side, .ready(.shared(model.config, modelID: model.id)))
+            set(side, .ready(model.config, modelID: model.id))
             createProjectIfReady()
         case .library(let url, let name):
             do {
@@ -192,6 +174,8 @@ struct StageView: View {
 
     private func analyze(fileName: String, name: String?, side: ReferenceSide) async {
         do {
+            // 解析より先に音声を落とす（解析が保存する duration を、以後ずっと読む書き換え後のファイルから取るため）
+            await store.stripAudio(fileName)
             let result = try await SwingAnalyzer.analyze(url: store.videoURL(for: fileName))
             // 解析中に選び直されていたら、その結果は捨てる
             guard case .analyzing(let current, _) = slot(side), current == fileName else {
@@ -201,9 +185,9 @@ struct StageView: View {
             let config = result.videoConfig(fileName: fileName)
             if side == .model, let name {
                 let model = store.addModel(name: name, config: config)
-                set(side, .ready(.shared(model.config, modelID: model.id)))
+                set(side, .ready(model.config, modelID: model.id))
             } else {
-                set(side, .ready(.imported(config)))
+                set(side, .ready(config))
             }
             createProjectIfReady()
         } catch {
@@ -215,26 +199,11 @@ struct StageView: View {
 
     /// 両ペインがそろったら比較を作って履歴に入れる
     private func createProjectIfReady() {
-        guard case .ready(let mineSource) = mine, case .ready(let modelSource) = model else { return }
-        do {
-            let project = ComparisonProject(
-                name: "比較 \(Date().compactLabel)",
-                mine: try resolve(mineSource),
-                model: try resolve(modelSource),
-                modelID: modelSource.modelID)
-            store.add(project)
-            open(project)
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    /// 出どころに応じて、プロジェクトが持つ動画設定を用意する（他の持ち主のファイルは複製する）
-    private func resolve(_ source: SlotSource) throws -> VideoConfig {
-        switch source {
-        case .imported(let config): return config
-        case .shared(let config, _): return try store.duplicate(config)
-        }
+        guard case .ready(let mineConfig, _) = mine, case .ready(let modelConfig, let modelID) = model else { return }
+        let project = ComparisonProject(
+            name: "比較 \(Date().compactLabel)", mine: mineConfig, model: modelConfig, modelID: modelID)
+        store.add(project)
+        open(project)
     }
 }
 
@@ -340,8 +309,8 @@ private struct SlotPane: View {
                 }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("slot.\(side.rawValue).analyzing")
-            case .ready(let source):
-                VideoThumbnail(url: store.videoURL(for: source.config.fileName), time: source.config.phases.address, maxSize: 800)
+            case .ready(let config, _):
+                VideoThumbnail(url: store.videoURL(for: config.fileName), time: config.phases.address, maxSize: 800)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)   // 左右のペインは常に同じ幅
@@ -357,9 +326,9 @@ private struct SlotPane: View {
     /// ラベルに添える登録済みお手本の名前（右ペインで名前を付けた直後は解析中でも出す）
     private var modelName: String? {
         switch slot {
-        case .empty, .ready(.imported): return nil
+        case .empty: return nil
         case .analyzing(_, let title): return title
-        case .ready(.shared(_, let modelID)): return store.model(id: modelID)?.name
+        case .ready(_, let modelID): return store.model(id: modelID)?.name
         }
     }
 }
