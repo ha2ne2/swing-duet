@@ -12,29 +12,46 @@ import UIKit
 @MainActor
 final class PlaybackController: NSObject, ObservableObject {
 
+    /// ループ範囲
+    enum LoopMode: Hashable {
+        /// スイング全体（アドレス〜フィニッシュ）
+        case all
+        /// 1 区間だけ
+        case segment(SwingSegment)
+        /// ループしない（末尾で停止）
+        case off
+
+        var segment: SwingSegment? {
+            if case .segment(let segment) = self { return segment }
+            return nil
+        }
+    }
+
+    /// タップで切り替える再生速度（この順に巡回する）
+    static let speedPresets: [Double] = [0.1, 0.2, 0.3, 0.5, 1.0]
+    /// 実時刻と期待時刻のずれがこれ（秒）を超えたらシークで補正する
+    private static let driftThreshold = 0.08
+
     let minePlayer = AVPlayer()
     let modelPlayer = AVPlayer()
 
     @Published private(set) var commonTime: Double = 0
     @Published private(set) var isPlaying = false
+    /// 再生速度（実時間に対する倍率）
     @Published var speed: Double = 0.3 {
         didSet {
             if isPlaying { applyRates() }
         }
     }
-    /// nil = スイング全体をループ
-    @Published var loopSegment: SwingSegment? = nil {
+    @Published var loop: LoopMode = .all {
         didSet { clampIntoLoop() }
     }
-    @Published var loopEnabled = true
     @Published private(set) var sync: SyncEngine
 
     private var displayLink: CADisplayLink?
     private var lastTimestamp: CFTimeInterval?
     private var currentSegment: SwingSegment?
     private var wasPlayingBeforeScrub = false
-
-    private static let driftThreshold = 0.08
 
     init(mineURL: URL, modelURL: URL, sync: SyncEngine) {
         self.sync = sync
@@ -89,6 +106,14 @@ final class PlaybackController: NSObject, ObservableObject {
     private func stopRates() {
         minePlayer.rate = 0
         modelPlayer.rate = 0
+    }
+
+    // MARK: - 再生速度
+
+    /// speedPresets の次の速度へ（最後の次は最初へ戻る）
+    func cycleSpeed() {
+        let current = Self.speedPresets.firstIndex(of: speed) ?? -1
+        speed = Self.speedPresets[(current + 1) % Self.speedPresets.count]
     }
 
     // MARK: - シーク / スクラブ
@@ -152,8 +177,8 @@ final class PlaybackController: NSObject, ObservableObject {
     // MARK: - ループ範囲
 
     func loopBounds() -> (start: Double, end: Double) {
-        if let seg = loopSegment {
-            let range = sync.commonRange(of: seg)
+        if let segment = loop.segment {
+            let range = sync.commonRange(of: segment)
             return (range.lowerBound, range.upperBound)
         }
         return (0, sync.commonDuration)
@@ -196,17 +221,16 @@ final class PlaybackController: NSObject, ObservableObject {
 
         let bounds = loopBounds()
         if commonTime >= bounds.end {
-            if loopEnabled {
+            if loop == .off {
+                commonTime = bounds.end
+                pause()
+            } else {
                 commonTime = bounds.start
                 currentSegment = sync.segment(at: commonTime)
                 hardSeek()
                 applyRates()
-                return
-            } else {
-                commonTime = bounds.end
-                pause()
-                return
             }
+            return
         }
 
         let segment = sync.segment(at: commonTime)

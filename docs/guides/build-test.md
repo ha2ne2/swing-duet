@@ -62,8 +62,9 @@ ls "$(xcrun simctl get_app_container booted com.ha2ne2.SwingDuet data)/Documents
 Vision はシミュレータでは動かないが Mac では動くので、アプリと同じ `SwingAnalyzer` を CLI にして実サンプルで検出結果を見られる:
 
 ```bash
-swiftc -O -o build/analyze-swing SwingDuet/Services/SwingAnalyzer.swift SwingDuet/Models/SwingModels.swift scripts/analyze-swing/main.swift
-build/analyze-swing docs/data/*.mp4            # 候補ごとの A/T/I/F・採点・採用（★）
+swiftc -O -o build/analyze-swing SwingDuet/Services/{SwingAnalyzer,PoseTracker,SwingDetector}.swift \
+  SwingDuet/Models/{SwingModels,Geometry}.swift scripts/analyze-swing/main.swift
+build/analyze-swing docs/data/*.mp4            # 候補ごとの A/T/I/F・採点・採用（★）・人物範囲
 build/analyze-swing --series docs/data/x.mp4   # 手首位置と速度の系列も出す（閾値を調整するとき）
 ```
 

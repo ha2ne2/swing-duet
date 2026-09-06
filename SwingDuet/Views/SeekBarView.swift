@@ -5,6 +5,8 @@ import SwiftUI
 struct SeekBarView: View {
     @ObservedObject var controller: PlaybackController
 
+    @State private var isScrubbing = false
+
     private var sync: SyncEngine { controller.sync }
 
     var body: some View {
@@ -17,7 +19,7 @@ struct SeekBarView: View {
                         ForEach(SwingSegment.allCases) { segment in
                             Rectangle()
                                 .fill(segment.color.opacity(
-                                    controller.loopSegment == nil || controller.loopSegment == segment
+                                    controller.loop.segment == nil || controller.loop.segment == segment
                                         ? 0.85 : 0.25))
                                 .frame(width: segmentWidth(segment, totalWidth: width))
                         }
@@ -71,8 +73,6 @@ struct SeekBarView: View {
             }
         }
     }
-
-    @State private var isScrubbing = false
 
     private func segmentWidth(_ segment: SwingSegment, totalWidth: CGFloat) -> CGFloat {
         let range = sync.commonRange(of: segment)

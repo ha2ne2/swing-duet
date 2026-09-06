@@ -23,9 +23,12 @@ SwingDuet/
 ├── SwingDuetApp.swift            # エントリ。ProjectStore を環境に注入、ダーク固定
 ├── Models/
 │   ├── SwingModels.swift         # SwingPhase / SwingSegment / PhaseSet / VideoConfig / ComparisonProject
-│   └── SyncEngine.swift          # 共通タイムライン ⇔ 各動画時刻の区間別線形写像（§3）
+│   ├── SyncEngine.swift          # 共通タイムライン ⇔ 各動画時刻の区間別線形写像（§3）
+│   └── Geometry.swift            # CGPoint / CGRect の小さな補助（距離・外接矩形）
 ├── Services/
-│   ├── SwingAnalyzer.swift       # Vision 手首追跡 + スイング区間の検出と 4 フェーズ決定（§5）
+│   ├── SwingAnalyzer.swift       # 自動解析の入口。PoseTracker → SwingDetector をつなぎ、保存用の VideoConfig にする（§5）
+│   ├── PoseTracker.swift         # Vision の姿勢推定で人物を追跡（手首位置・関節の外接矩形）
+│   ├── SwingDetector.swift       # 手首の動きからスイング区間・4 フェーズを検出し候補を採点（純粋計算）
 │   ├── VideoImporter.swift       # PhotosPicker 用 Transferable（ImportedMovie）・メタデータ取得
 │   └── ProjectStore.swift        # プロジェクト永続化（JSON + 動画ファイル管理）
 ├── Playback/
@@ -34,16 +37,20 @@ SwingDuet/
     ├── ProjectListView.swift     # プロジェクト一覧（NavigationStack のルート）
     ├── NewComparisonView.swift   # 動画選択 + 解析 → プロジェクト作成
     ├── ComparisonView.swift      # 比較画面本体（ペイン・テンポ・基準切替・シークバー・操作）
-    ├── VideoPaneView.swift       # 動画ペイン（反転・ピンチ位置を中心にした拡大縮小・位置合わせ。指を離した時点で config に確定）
+    ├── VideoPaneView.swift       # 動画ペイン（人物が収まる自動フィット・ピンチ位置を中心にした拡大縮小・位置合わせ）
     ├── SeekBarView.swift         # 区間色分きの共通シークバー
     ├── TransportControlsView.swift # フェーズジャンプ / コマ送り / 再生 / 速度 / ループ
-    ├── PhaseEditView.swift       # フェーズ手動修正（マーカードラッグ・±コマ）
-    └── PlayerLayerView.swift     # AVPlayerLayer ラッパー
+    ├── PhaseEditView.swift       # フェーズ手動修正（マーカードラッグ・±コマ・スイング候補の切り替え）
+    ├── PlayerLayerView.swift     # AVPlayerLayer ラッパー
+    └── SwingSegment+Color.swift  # 区間の色（SwiftUI 依存を Models に持ち込まないための拡張）
 ```
 
 依存方向は Views → Playback / Services → Models。Models は他に依存しない純粋な値型。
 
-ペインの拡大率・位置は `VideoConfig.scale / offsetX / offsetY`（pt）に保存する。ジェスチャー中は `@GestureState` の一時値で描画し、
+ペインの初期表示は、解析時に得た人物の範囲（`VideoConfig.focusRect`。採用スイングの間に見えていた関節の外接矩形）が余白付きで収まる
+拡大率・位置に自動フィットする（縮小はしない。映像の端がペインに入って黒帯が出る手前で止める）。
+拡大率・位置は自動フィットからの相対値として `VideoConfig.scale / offsetX / offsetY`（pt）に保存する（1 と 0 で自動フィットどおり）。
+ジェスチャー中は `@GestureState` の一時値で描画し、
 指を離した時点で `config` に確定 → `ComparisonView.onChange(of: project)` → `ProjectStore.update` で JSON に書く
 （ジェスチャーの途中でディスクに書かないため）。ピンチ中はドラッグを無視する（2 本指の 1 本目がドラッグとして拾われ、ピンチ中心がずれるのを防ぐ）。
 
@@ -62,17 +69,19 @@ SwingDuet/
 - 各 `AVPlayer` は「再生速度 × 区間倍率」の `rate` で走らせ、区間境界で `rate` を切り替える
 - 実時刻と期待時刻のドリフトが **80ms** を超えたらシークで補正（許容 20ms）。
   一時停止・ジャンプ・コマ送り・スクラブ終了時は許容ゼロの精密シーク
-- ループ範囲は「全体」または 1 区間（`loopSegment`）。範囲を出たら先頭へ戻る（`loopEnabled` が false なら停止）
+- ループ範囲は `loop`（`LoopMode`：スイング全体 / 1 区間 / ループしない）。範囲を出たら先頭へ戻る（ループしないなら停止）
 - フェーズ修正・基準切替時は `updateSync` で相対位置（進捗率）を保って追従する
 
 ## 5. フェーズ検出の仕組み（SwingAnalyzer）
 
 Vision の手首座標による先行検証の実装（クラブヘッド追跡は未実装、[SPEC.md](./SPEC.md) §3）。
 1 本の動画に素振りなど複数のスイングが写っている前提で、動作区間ごとに候補を作って採点する。
+`SwingAnalyzer.analyze` が入口で、1 は `PoseTracker`、2〜5 は `SwingDetector`（Vision に依存しない純粋計算）が担う。
 
 1. **手首追跡**: `AVAssetReader` でフレームを読み、`frameRate / 30` 間隔で間引いて `VNDetectHumanBodyPoseRequest` を実行。
    複数人が写るとき（Golfboy の 2 視点合成など）は腰の位置が前フレームに最も近い人物を追い続ける（初回は最も大きく写る人物）。
-   両手首の平均位置（信頼度 0.3 未満は無視）に 3 点メディアンをかけ、単発の飛びを消す
+   両手首の平均位置（信頼度 0.3 未満は無視）に 3 点メディアンをかけ、単発の飛びを消す。
+   あわせて見えている関節の外接矩形をフレームごとに残す（採用スイングの間の和がペインの自動フィットに使う `focusRect`。§2）
 2. **速度系列**: 手首の移動距離/秒を移動平均（窓 5）で平滑化。検出できないフレームは飛ばし、0.25 秒以上あいた区間の速度は作らない
 3. **動作区間の分割**: 速度が最大値の 20% 以上の区間を 1 スイングとし、切り返しの短い減速（低速サンプルの連なりが 0.6 秒未満）や
    ブレによる欠測はつなぐ（`motionSegments`）

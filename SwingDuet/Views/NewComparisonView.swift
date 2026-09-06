@@ -13,9 +13,11 @@ struct NewComparisonView: View {
     @State private var modelURL: URL?
     @State private var mineLoading = false
     @State private var modelLoading = false
-    @State private var isAnalyzing = false
-    @State private var statusText = ""
+    /// 取り込み・解析中の進行表示。nil なら実行していない
+    @State private var analysisStatus: String?
     @State private var errorMessage: String?
+
+    private var isAnalyzing: Bool { analysisStatus != nil }
 
     var body: some View {
         NavigationStack {
@@ -36,10 +38,10 @@ struct NewComparisonView: View {
                 }
 
                 Section {
-                    if isAnalyzing {
+                    if let analysisStatus {
                         HStack(spacing: 12) {
                             ProgressView()
-                            Text(statusText)
+                            Text(analysisStatus)
                                 .foregroundStyle(.secondary)
                         }
                     } else {
@@ -123,17 +125,16 @@ struct NewComparisonView: View {
 
     private func create() {
         guard let mineURL, let modelURL else { return }
-        isAnalyzing = true
+        analysisStatus = "動画を取り込み中…"
         errorMessage = nil
         Task { @MainActor in
             do {
-                statusText = "動画を取り込み中…"
                 let mineFile = try store.importVideo(from: mineURL)
                 let modelFile = try store.importVideo(from: modelURL)
                 let mineStored = store.videoURL(for: mineFile)
                 let modelStored = store.videoURL(for: modelFile)
 
-                statusText = "手首の動きを解析中…（少し時間がかかります）"
+                analysisStatus = "手首の動きを解析中…（少し時間がかかります）"
                 async let mineTask = SwingAnalyzer.analyze(url: mineStored)
                 async let modelTask = SwingAnalyzer.analyze(url: modelStored)
                 let mineResult = try await mineTask
@@ -146,11 +147,11 @@ struct NewComparisonView: View {
                     mine: mineResult.videoConfig(fileName: mineFile),
                     model: modelResult.videoConfig(fileName: modelFile))
                 store.add(project)
-                isAnalyzing = false
+                analysisStatus = nil
                 dismiss()
                 onCreated(project)
             } catch {
-                isAnalyzing = false
+                analysisStatus = nil
                 errorMessage = "解析に失敗しました：\(error.localizedDescription)"
             }
         }

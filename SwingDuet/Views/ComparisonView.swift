@@ -81,7 +81,7 @@ struct ComparisonView: View {
             PhaseEditView(
                 config: side == .mine ? $project.mine : $project.model,
                 videoURL: store.videoURL(for: project.config(for: side).fileName),
-                title: "\(side.label)のフェーズ調整")
+                side: side)
         }
     }
 

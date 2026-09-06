@@ -4,10 +4,11 @@ import AVFoundation
 /// フェーズ検出結果の手動修正。
 /// タイムライン上の4つのマーカー（アドレス / トップ / インパクト / フィニッシュ）を
 /// ドラッグして調整し、プレビューで確認する。コマ単位の微調整ボタン付き。
+/// 動画に複数のスイングが検出されていれば、どのスイングを使うかも切り替えられる。
 struct PhaseEditView: View {
     @Binding var config: VideoConfig
     let videoURL: URL
-    let title: String
+    let side: ReferenceSide
 
     @Environment(\.dismiss) private var dismiss
 
@@ -15,10 +16,10 @@ struct PhaseEditView: View {
     @State private var selectedPhase: SwingPhase = .impact
     @State private var player = AVPlayer()
 
-    init(config: Binding<VideoConfig>, videoURL: URL, title: String) {
+    init(config: Binding<VideoConfig>, videoURL: URL, side: ReferenceSide) {
         self._config = config
         self.videoURL = videoURL
-        self.title = title
+        self.side = side
         self._phases = State(initialValue: config.wrappedValue.phases)
     }
 
@@ -75,7 +76,7 @@ struct PhaseEditView: View {
                 }
                 .padding(.bottom, 8)
             }
-            .navigationTitle(title)
+            .navigationTitle("\(side.label)のフェーズ調整")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

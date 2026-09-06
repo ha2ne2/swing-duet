@@ -191,7 +191,7 @@ final class FlowTests: XCTestCase {
         }
 
         // フェーズジャンプ
-        for phase in ["トップ", "インパクト", "フィニッシュ", "アドレス"] {
+        for phase in ["トップ", "インパクト", "アドレス"] {
             tapIfExists(app.buttons[phase], "jump \(phase)", timeout: 3)
             usleep(500_000)
             if phase == "インパクト" { shot("jump_impact") }
@@ -210,11 +210,15 @@ final class FlowTests: XCTestCase {
         tapIfExists(app.buttons["自分基準"], "reference=mine", timeout: 3)
         usleep(300_000)
 
-        // 速度スライダー（SwiftUI の Slider には adjust が効かないことがある。値をログに残すだけ）
-        let slider = app.sliders.firstMatch
-        if slider.waitForExistence(timeout: 3) {
-            slider.adjust(toNormalizedSliderPosition: 0.2)
-            log("slider adjust 0.2 -> value=\(slider.value ?? "nil")")
+        // 再生速度（表示をタップすると 0.1 / 0.2 / 0.3 / 0.5 / 1.0 を巡回する）
+        let speed = app.buttons["再生速度"]
+        if speed.waitForExistence(timeout: 3) {
+            let before = speed.value as? String ?? ""
+            speed.tap()
+            usleep(300_000)
+            let after = speed.value as? String ?? ""
+            log("speed tap: \(before) -> \(after)")
+            XCTAssertNotEqual(before, after, "速度表示をタップしても速度が変わらない")
         }
 
         // ループメニュー → ダウンスイングのみ → 区間ループ再生
@@ -292,10 +296,11 @@ final class FlowTests: XCTestCase {
         log("impact time before=\(before) after=\(after)")
         XCTAssertNotEqual(before, after, "候補を切り替えても時刻が変わらない")
         shot("phase_edit_candidate1")
-        tapIfExists(app.buttons["保存"], "save", timeout: 3)
+        // 保存せずに閉じる（自動検出の採用結果をテストで上書きしない。保存の経路は testFullFlow で確認している）
+        tapIfExists(app.buttons["キャンセル"], "cancel", timeout: 3)
         usleep(500_000)
-        log("after save: \(texts())")
-        shot("after_candidate_save")
+        log("after cancel: \(texts())")
+        shot("after_candidate_cancel")
     }
 
     /// ピンチで拡大・縮小、ドラッグで移動したペインの状態が、一覧に戻って開き直しても、再起動しても残ること

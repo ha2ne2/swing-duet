@@ -6,9 +6,9 @@ struct TransportControlsView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            // フェーズへのジャンプ
+            // フェーズへのジャンプ（フィニッシュは終端なので省く）
             HStack(spacing: 8) {
-                ForEach(SwingPhase.allCases) { phase in
+                ForEach([SwingPhase.address, .top, .impact]) { phase in
                     Button {
                         controller.jump(to: phase)
                     } label: {
@@ -47,68 +47,43 @@ struct TransportControlsView: View {
                         .font(.title3)
                 }
 
-                Text(String(format: "x%.2f", controller.speed))
-                    .font(.caption.monospacedDigit())
-                    .frame(width: 44)
+                speedButton
             }
             .buttonStyle(.plain)
-
-            // 再生速度 0.1〜1.0
-            HStack(spacing: 8) {
-                Image(systemName: "tortoise.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Slider(value: $controller.speed, in: 0.1...1.0, step: 0.05)
-                Image(systemName: "hare.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
+    }
+
+    /// 再生速度。タップで PlaybackController.speedPresets を巡回する
+    private var speedButton: some View {
+        let speedText = String(format: "x%.2f", controller.speed)
+        return Button {
+            controller.cycleSpeed()
+        } label: {
+            Text(speedText)
+                .font(.caption.monospacedDigit())
+                .frame(width: 52, height: 30)
+                .background(.quaternary, in: Capsule())
+                .frame(height: 44)   // タッチ領域
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel("再生速度")
+        .accessibilityValue(speedText)
+        .accessibilityHint("タップで切り替え")
     }
 
     private var loopMenu: some View {
         Menu {
-            Picker("ループ範囲", selection: loopSelection) {
-                Text("スイング全体").tag(LoopChoice.all)
+            Picker("ループ範囲", selection: $controller.loop) {
+                Text("スイング全体").tag(PlaybackController.LoopMode.all)
                 ForEach(SwingSegment.allCases) { segment in
-                    Text("\(segment.label)のみ").tag(LoopChoice.segment(segment))
+                    Text("\(segment.label)のみ").tag(PlaybackController.LoopMode.segment(segment))
                 }
-                Text("ループしない").tag(LoopChoice.off)
+                Text("ループしない").tag(PlaybackController.LoopMode.off)
             }
         } label: {
-            Image(systemName: loopIcon)
+            Image(systemName: controller.loop.segment == nil ? "repeat" : "repeat.1")
                 .font(.title3)
-                .foregroundStyle(controller.loopEnabled ? Color.accentColor : Color.secondary)
-        }
-    }
-
-    private var loopIcon: String {
-        controller.loopSegment == nil ? "repeat" : "repeat.1"
-    }
-
-    private enum LoopChoice: Hashable {
-        case all
-        case segment(SwingSegment)
-        case off
-    }
-
-    private var loopSelection: Binding<LoopChoice> {
-        Binding {
-            if !controller.loopEnabled { return .off }
-            if let seg = controller.loopSegment { return .segment(seg) }
-            return .all
-        } set: { choice in
-            switch choice {
-            case .all:
-                controller.loopEnabled = true
-                controller.loopSegment = nil
-            case .segment(let seg):
-                controller.loopEnabled = true
-                controller.loopSegment = seg
-            case .off:
-                controller.loopEnabled = false
-                controller.loopSegment = nil
-            }
+                .foregroundStyle(controller.loop == .off ? Color.secondary : Color.accentColor)
         }
     }
 }

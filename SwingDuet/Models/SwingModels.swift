@@ -1,5 +1,5 @@
 import Foundation
-import SwiftUI
+import CoreGraphics
 
 /// スイングの4フェーズ（MVP）
 enum SwingPhase: String, Codable, CaseIterable, Identifiable {
@@ -42,14 +42,6 @@ enum SwingSegment: String, Codable, CaseIterable, Identifiable {
         case .backswing: return "バックスイング"
         case .downswing: return "ダウンスイング"
         case .follow: return "フォロー"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .backswing: return .blue
-        case .downswing: return .orange
-        case .follow: return .green
         }
     }
 }
@@ -147,12 +139,16 @@ enum ReferenceSide: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-/// 1本の動画の設定（表示変換 + フェーズ）
+/// 1 本の動画の設定（動画の情報・自動検出の結果・フェーズ・表示変換）
 struct VideoConfig: Codable, Equatable {
     var fileName: String
     var duration: Double
     var frameRate: Double
-    var mirrored: Bool = false
+    /// 表示される映像の縦横比（幅 ÷ 高さ。回転メタデータ適用後）。0 なら不明
+    var videoAspect: Double = 0
+    /// 自動検出で採用したスイングの間に人物が写っていた範囲（正規化座標・左下原点）。初期表示はここが収まるように拡大する。無ければ等倍
+    var focusRect: CGRect? = nil
+    /// 拡大率と位置（pt）。自動フィットからの相対値で、1 と 0 のとき自動フィットどおり
     var scale: Double = 1.0
     var offsetX: Double = 0
     var offsetY: Double = 0
@@ -164,16 +160,17 @@ struct VideoConfig: Codable, Equatable {
 
 extension VideoConfig {
     private enum CodingKeys: String, CodingKey {
-        case fileName, duration, frameRate, mirrored, scale, offsetX, offsetY, phases, lowConfidence, candidates
+        case fileName, duration, frameRate, videoAspect, focusRect, scale, offsetX, offsetY, phases, lowConfidence, candidates
     }
 
-    /// candidates は後から追加したキーなので、無い保存データも読めるようにする
+    /// 後から追加したキー（candidates / videoAspect / focusRect）が無い保存データも読めるようにする
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         fileName = try c.decode(String.self, forKey: .fileName)
         duration = try c.decode(Double.self, forKey: .duration)
         frameRate = try c.decode(Double.self, forKey: .frameRate)
-        mirrored = try c.decodeIfPresent(Bool.self, forKey: .mirrored) ?? false
+        videoAspect = try c.decodeIfPresent(Double.self, forKey: .videoAspect) ?? 0
+        focusRect = try c.decodeIfPresent(CGRect.self, forKey: .focusRect)
         scale = try c.decodeIfPresent(Double.self, forKey: .scale) ?? 1.0
         offsetX = try c.decodeIfPresent(Double.self, forKey: .offsetX) ?? 0
         offsetY = try c.decodeIfPresent(Double.self, forKey: .offsetY) ?? 0

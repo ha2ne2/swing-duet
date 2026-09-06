@@ -61,10 +61,10 @@ build/e2e-harness/run.sh                               # 起動中のシミュ�
   - `*.txt` … 画面の要素階層ダンプ（ボタンのラベルを調べるときに読む）
   - `../xcodebuild.log` … xcodebuild の全出力
 - テスト内容は [FlowTests.swift](./FlowTests.swift):
-  - `testFullFlow`: 起動 → ＋ → 動画 2 本選択 → 解析 → 比較画面 → 再生 / 停止 → フェーズジャンプ → コマ送り → 基準切替 → ループ設定 →
+  - `testFullFlow`: 起動 → ＋ → 動画 2 本選択 → 解析 → 比較画面 → 再生 / 停止 → フェーズジャンプ → コマ送り → 基準切替 → 速度切替 → ループ設定 →
     区間ループ再生 → フェーズ調整シート → 一覧 → 再起動で復元 → 再オープン
   - `testZoomPanPersistence`: ペインをピンチで拡大 / 縮小・ドラッグで移動 → 一覧に戻って開き直す → 再起動、で状態が残ること → リセット。
-    ペインの状態は `accessibilityValue`（`x1.50 (12, -30)` = 拡大率と位置）で読む
+    ペインの状態は `accessibilityValue`（`x1.50 (12, -30)` = 自動フィットに対する拡大率と位置）で読む
   - `testPhaseEditCandidates`: 保存済みプロジェクトを開き、フェーズ調整の「スイング候補」を切り替える。Vision が動かないので
     候補は `projects.json` に直接入れる（下記）。`E2E_KEEP_DATA=1` で回す（アンインストールしない）
 - 1 テストだけ回す: `E2E_ONLY="SwingDuetUITests/FlowTests/testZoomPanPersistence" build/e2e-harness/run.sh`
@@ -72,6 +72,8 @@ build/e2e-harness/run.sh                               # 起動中のシミュ�
   `python3 - <<'EOF'` 等で `$(xcrun simctl get_app_container booted com.ha2ne2.SwingDuet data)/Documents/projects.json` の
   `model.candidates` に PhaseSet の配列（`build/analyze-swing docs/data/*.mp4` の出力から作る）を入れ、
   `E2E_KEEP_DATA=1 E2E_ONLY="SwingDuetUITests/FlowTests/testPhaseEditCandidates" build/e2e-harness/run.sh`
+- `run.sh` は他のセッションが同じシミュレータで E2E を回していると衝突する（アプリのアンインストールと `out/` の削除で互いのランナーが落ち、
+  「Restarting after unexpected exit」「Executed 0 tests」になる）。実行前に `pgrep -f "xcodebuild tes[t]"` で確認する
 - ピッカーで選ぶ動画は環境変数で指定する。ラベル（`uitest_trace.log` の `picker: N video cells: [...]` に出る "ビデオ, 四秒, 9月05日, 23:09" 等）に
   含まれる文字列で選ぶのが確実:
   `E2E_MINE_MATCH="9月05日" E2E_MODEL_MATCH="8月30日" build/e2e-harness/run.sh`
@@ -83,7 +85,6 @@ build/e2e-harness/run.sh                               # 起動中のシミュ�
   2 秒 × 0.3 倍 → 共通時間 0.6 秒。共通時間の長さは基準側のスイング区間長
 - PhotosPicker のセルは表示アニメーション中 `isHittable == false` になる。`coordinate(...).tap()` なら押せる（実装済み）
 - 画面遷移中に全要素を列挙すると "Failed to get matching snapshot" で落ちる。`texts()` は存在確認しながらリトライしている
-- SwiftUI の `Slider` は `adjust(toNormalizedSliderPosition:)` が効かない（[docs/TODO.md](../../../docs/TODO.md) C）
 - ピンチは `element.pinch(withScale:velocity:)`（要素の中心が基準。倍率は指定どおりにならず 2.0 指定で 3 倍前後になる）、
   ドラッグは `coordinate.press(forDuration: 0.1, thenDragTo:)`。手動で試すときは Simulator.app で Option を押しながらドラッグ（Option+Shift で中心を移動）
 - エラーログの確認:
