@@ -15,3 +15,12 @@ build/
 
 # macOS
 .DS_Store
+
+# 検証用のサンプル動画（サイズが大きく、人物が写るため共有しない）
+/docs/data
+
+# Xcode テスト結果
+*.xcresult
+
+# Codex CLI レビュー用一時出力
+.tmp_review/
