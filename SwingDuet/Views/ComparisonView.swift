@@ -25,11 +25,11 @@ struct ComparisonView: View {
                 VideoPaneView(
                     player: controller.minePlayer,
                     config: $project.mine,
-                    title: "自分")
+                    side: .mine)
                 VideoPaneView(
                     player: controller.modelPlayer,
                     config: $project.model,
-                    title: "お手本")
+                    side: .model)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)

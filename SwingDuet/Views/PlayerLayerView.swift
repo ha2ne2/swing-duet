@@ -10,6 +10,9 @@ struct PlayerLayerView: UIViewRepresentable {
         view.playerLayer.player = player
         view.playerLayer.videoGravity = .resizeAspect
         view.backgroundColor = .black
+        // NOTE: ピンチ・ドラッグは SwiftUI 側（VideoPaneView）で扱う。UIKit 側でタッチを受け取らないようにして、
+        // SwiftUI のジェスチャーがこのビューの上でも確実に認識されるようにする
+        view.isUserInteractionEnabled = false
         return view
     }
 
