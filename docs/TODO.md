@@ -6,8 +6,8 @@
 ## ステータス一覧
 
 - [ ] A. PhotosPicker 経由のスローモーション動画が 30fps レンダリング版になる（2026-09-06 起票）
-- [ ] B. テストターゲットが無い（2026-09-06 起票）
-- [ ] D. 30fps 動画でトップ〜インパクトがブレで欠測すると位置が粗い（2026-09-06 起票）
+- [ ] B. テストが検出ロジックにしかない（2026-09-06 起票）
+- [ ] D. 手首が見えない区間に掛かるトップ・インパクトは推定で、0.15〜0.2 秒ずれる（2026-09-06 起票）
 - [ ] E. 焼き込み済みスロー動画の倍率が分からず、x1 が実速にならない（2026-09-06 起票）
 - [ ] F. 2 セッションが同時に E2E を回すと壊れる（2026-09-06 起票）
 
@@ -28,27 +28,26 @@
 - **やらない理由（今）**: 実機での挙動確認と権限 UX の設計が先。
 - **参照**: [research/260906_1531-simulator-verification.md](./research/260906_1531-simulator-verification.md) §4.1、[research/260906_1723-slow-motion-speed-detection.md](./research/260906_1723-slow-motion-speed-detection.md) §3.3（PhotoKit で取れるもの）
 
-### B. テストターゲットが無い（2026-09-06 起票）
+### B. テストが検出ロジックにしかない（2026-09-06 起票）
 
 - **背景**: MVP はテスト無しで作られた。[AGENTS.md](../AGENTS.md) §5.1 は「最初からテストを書く」前提。
-- **対象**: `SwingDuet.xcodeproj/project.pbxproj`（テストターゲットの追加）、
-  `SwingDuet/Models/SyncEngine.swift`、`SwingDuet/Models/SwingModels.swift`（`PhaseSet.sanitize` / `assign` / `fallback`）、
-  `SwingDuet/Services/SwingDetector.swift`（`speedSeries` / `motionSegments` / `detect`）
-- **やること**: Swift Testing のテストターゲット `SwingDuetTests` を pbxproj に追加し、上記の純粋ロジックから着手する。
-  検出ロジックは合成した速度系列（静止 → 加速 → 減速 → 最大 → 静止）で境界条件を固定する。
-- **やらない理由（今）**: pbxproj が手書き管理でターゲット追加の影響が大きい。ユーザーと合意してから着手する。
+  2026-09-10 に Swift Testing のターゲット `SwingDuetTests` を追加し、`SwingDetector` を合成した手の高さの系列で固定した（実行方法は [guides/build-test.md](./guides/build-test.md)）。
+- **対象**: `SwingDuet/Models/SyncEngine.swift`、`SwingDuet/Models/SwingModels.swift`（`PhaseSet.sanitize` / `assign` / `fallback`）
+- **やること**: 上記の純粋ロジックにテストを足す。
 - **参照**: [ROADMAP.md](./ROADMAP.md) フェーズ 3
 
-### D. 30fps 動画でトップ〜インパクトがブレで欠測すると位置が粗い（2026-09-06 起票）
+### D. 手首が見えない区間に掛かるトップ・インパクトは推定で、0.15〜0.2 秒ずれる（2026-09-06 起票）
 
-- **背景**: Golfboy の自分の動画（30fps）では 1.6〜2.3 秒の 0.8 秒間、手首がブレで検出できず、トップは欠測直前（1.59 秒）、
-  インパクトは欠測直後（2.56 秒）になってテンポが 0.8 : 1 と過小になる。現状は手動修正に頼っている（`lowConfidence` は記録されるが画面には出ない）。
-- **対象**: `SwingDuet/Services/SwingDetector.swift`（`swingCandidate` のトップ・インパクト決定、`SwingCandidate.downswingGap`）
-- **やること**: 欠測区間があるときの推定を入れる。案: (1) 欠測直前のバックスイング速度の減速から静止（トップ）時刻を外挿し、
-  欠測直後の位置とアドレス位置の距離からインパクト通過時刻を逆算する。(2) 手首以外の関節（肘・肩）で欠測を埋める。
-  (3) 240fps の元ファイル取得（A）でそもそも欠測を減らす。`build/analyze-swing --series docs/data/*.mp4` で検証する。
-- **やらない理由（今）**: A（元ファイル取得）で解決する見込みが大きく、先に実機で 240fps 撮影の欠測率を確認したい。
-- **参照**: [research/260906_1641-multi-swing-detection.md](./research/260906_1641-multi-swing-detection.md) §2.2
+- **背景**: 30fps ではトップ〜インパクトがブレで欠測し（Golfboy: 1.6〜2.3 秒）、後方視点では体の陰に入って見えない（yuta: 15.4〜16.2 秒）。
+  2026-09-10 の手の高さモデル（[design/260910_0236](./design/260910_0236-hand-height-phase-detection.md)）で、欠測に掛かるときは
+  再出現後の最低点をインパクト、消える前に高ければその時点・まだ低ければ 3 : 1 の比をトップに置き、`lowConfidence` を立てるようにした。
+  それでも Golfboy はトップが 0.15 秒早く、インパクトが 0.15 秒遅い（欠測の両端）。手動修正に頼っている（`lowConfidence` は画面に出ない）。
+- **対象**: `SwingDuet/Services/SwingDetector.swift`（`swingCandidate` の欠測の分岐）
+- **やること**: (1) 実速の自撮り動画では衝突音でインパクトを精密化する（取り込み時の音声削除より前に解析する順序が必要。隣の打席の音は映像の推定 ±0.1 秒で絞る）。
+  (2) クラブヘッド追跡で欠測区間を埋める（[ROADMAP.md](./ROADMAP.md) フェーズ 4）。(3) 240fps の元ファイル取得（A）で欠測そのものを減らす。
+  `build/analyze-swing --series --joints docs/data/*` で検証する。
+- **やらない理由（今）**: 推定と手動修正で運用できる。A が入れば自分の動画側の欠測は減る見込み。
+- **参照**: [research/260910_0215](./research/260910_0215-rear-view-phase-detection.md) §3.2、[research/260906_1641](./research/260906_1641-multi-swing-detection.md) §2.2
 
 ### E. 焼き込み済みスロー動画の倍率が分からず、x1 が実速にならない（2026-09-06 起票）
 

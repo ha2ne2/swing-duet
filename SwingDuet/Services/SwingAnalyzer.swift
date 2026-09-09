@@ -19,10 +19,10 @@ struct SwingAnalysisResult {
     /// 採用したスイングのフェーズ。検出失敗時はフォールバック値
     var phases: PhaseSet { chosen?.phases ?? .fallback(duration: duration) }
 
-    /// 手動確認を促すべきか：検出失敗、手首の検出率 40% 未満、採用スイングの切り返し〜インパクトが未観測のとき
+    /// 手動確認を促すべきか：検出失敗、手首の検出率 40% 未満、採用スイングのトップかインパクトを推定で置いたとき
     var lowConfidence: Bool {
         guard let chosen else { return true }
-        return pose.coverage < 0.4 || chosen.downswingUnobserved
+        return pose.coverage < 0.4 || !chosen.estimated.isEmpty
     }
 
     /// 採用したスイングの間（スイングが無ければ動画全体）に人物が写っていた範囲（正規化座標・左下原点）。

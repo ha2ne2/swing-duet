@@ -8,12 +8,18 @@
 
 /* Begin PBXFileReference section */
 		A100000000000000000000A5 /* SwingDuet.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SwingDuet.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A100000000000000000000C1 /* SwingDuetTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SwingDuetTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A100000000000000000000A1 /* SwingDuet */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = SwingDuet;
+			sourceTree = "<group>";
+		};
+		A100000000000000000000C2 /* SwingDuetTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SwingDuetTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,13 +32,31 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A100000000000000000000C3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXContainerItemProxy section */
+		A100000000000000000000C9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A100000000000000000000A7 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A100000000000000000000A6;
+			remoteInfo = SwingDuet;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXGroup section */
 		A100000000000000000000A3 = {
 			isa = PBXGroup;
 			children = (
 				A100000000000000000000A1 /* SwingDuet */,
+				A100000000000000000000C2 /* SwingDuetTests */,
 				A100000000000000000000A4 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				A100000000000000000000A5 /* SwingDuet.app */,
+				A100000000000000000000C1 /* SwingDuetTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +95,29 @@
 			productReference = A100000000000000000000A5 /* SwingDuet.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A100000000000000000000C6 /* SwingDuetTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A100000000000000000000C7 /* Build configuration list for PBXNativeTarget "SwingDuetTests" */;
+			buildPhases = (
+				A100000000000000000000C4 /* Sources */,
+				A100000000000000000000C3 /* Frameworks */,
+				A100000000000000000000C5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A100000000000000000000C8 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A100000000000000000000C2 /* SwingDuetTests */,
+			);
+			name = SwingDuetTests;
+			packageProductDependencies = (
+			);
+			productName = SwingDuetTests;
+			productReference = A100000000000000000000C1 /* SwingDuetTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,6 +130,10 @@
 				TargetAttributes = {
 					A100000000000000000000A6 = {
 						CreatedOnToolsVersion = 16.0;
+					};
+					A100000000000000000000C6 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = A100000000000000000000A6;
 					};
 				};
 			};
@@ -100,12 +152,20 @@
 			projectRoot = "";
 			targets = (
 				A100000000000000000000A6 /* SwingDuet */,
+				A100000000000000000000C6 /* SwingDuetTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A100000000000000000000A9 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A100000000000000000000C5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +182,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A100000000000000000000C4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A100000000000000000000C8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A100000000000000000000A6 /* SwingDuet */;
+			targetProxy = A100000000000000000000C9 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A100000000000000000000B3 /* Debug */ = {
@@ -306,6 +381,44 @@
 			};
 			name = Release;
 		};
+		A100000000000000000000CA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TRWC68XPP9;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ha2ne2.SwingDuetTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SwingDuet.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SwingDuet";
+			};
+			name = Debug;
+		};
+		A100000000000000000000CB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = TRWC68XPP9;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ha2ne2.SwingDuetTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/SwingDuet.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/SwingDuet";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -323,6 +436,15 @@
 			buildConfigurations = (
 				A100000000000000000000B5 /* Debug */,
 				A100000000000000000000B6 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A100000000000000000000C7 /* Build configuration list for PBXNativeTarget "SwingDuetTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A100000000000000000000CA /* Debug */,
+				A100000000000000000000CB /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

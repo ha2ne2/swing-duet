@@ -64,13 +64,14 @@ Vision はシミュレータでは動かないが Mac では動くので、ア�
 ```bash
 swiftc -O -o build/analyze-swing SwingDuet/Services/{SwingAnalyzer,PoseTracker,SwingDetector}.swift \
   SwingDuet/Models/{SwingModels,Geometry}.swift scripts/analyze-swing/main.swift
-build/analyze-swing docs/data/*.mp4            # 候補ごとの A/T/I/F・採点・採用（★）・人物範囲
-build/analyze-swing --series docs/data/x.mp4   # 手首位置と速度の系列も出す（閾値を調整するとき）
+build/analyze-swing docs/data/*.mp4            # 候補ごとの A/T/I/F・採点・採用（★）・推定したフェーズ・人物範囲
+build/analyze-swing --series docs/data/x.mp4   # 手の高さ（腰 0・首 1）と速度の系列も出す（閾値を調整するとき）
+build/analyze-swing --joints docs/data/x.mp4   # 左右の手首・腰・首の生の位置と信頼度（手首が隠れる区間を調べるとき）
 ```
 
 検出ロジックを変えたら必ずこれで実サンプルを確認する（[docs/ARCHITECTURE.md](../ARCHITECTURE.md) §5）。
 
-## 実機へのインストール
+## 単体テスト
 
 検出ロジック（`SwingDetector`）など純粋計算の Swift Testing（`SwingDuetTests/`）。アプリをホストにするのでシミュレータで走る:
 
@@ -81,6 +82,7 @@ xcodebuild test -project SwingDuet.xcodeproj -scheme SwingDuetTests \
 
 検出ロジックを変えたら、このテストと上の CLI（実サンプル）の両方で確認する。
 
+## 実機へのインストール
 
 iPhone をケーブルで Mac につなぎ:
 
@@ -92,11 +94,27 @@ xcrun devicectl device install app --device <DEVICE_ID> \
   build/Build/Products/Debug-iphoneos/SwingDuet.app
 ```
 
-- Xcode 派は `open SwingDuet.xcodeproj` で開き、実機を選んで ▶ でも同じ
-- 初回は iPhone の 設定 → 一般 → VPNとデバイス管理 で開発者を「信頼」する必要がある
-- 無料 Apple ID の署名は **7 日で切れる**。切れたら再ビルド + 再インストール
+### 初めてつなぐ iPhone（プロファイル未登録）の場合
+
+上のビルドは `Device "..." isn't registered in your developer account` で失敗する。
+xcodebuild に端末の自動登録を許可し、対象端末を直接指定してビルドする（登録が済めば以降は上の手順でよい）:
+
+```bash
+xcodebuild -project SwingDuet.xcodeproj -scheme SwingDuet -showdestinations 2>/dev/null | grep 'platform:iOS,'
+#   → { platform:iOS, arch:arm64, id:00008140-…, name:npiPhone } の id を使う
+#     （devicectl の Identifier とは別物。xcodebuild には通らない）
+xcodebuild build -project SwingDuet.xcodeproj -scheme SwingDuet \
+  -destination 'platform=iOS,id=<XCODEBUILD_ID>' \
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration -derivedDataPath build
+```
+
+- 事前に iPhone 側で「このコンピュータを信頼」と、設定 → プライバシーとセキュリティ → **デベロッパモード** を有効化しておく
+- Xcode 派は `open SwingDuet.xcodeproj` で開き、実機を選んで ▶ でも同じ（Xcode は端末登録も自動で行う）
+- 初回起動時に「信頼されていないデベロッパ」と出たら、iPhone の 設定 → 一般 → VPNとデバイス管理 で開発者を「信頼」する
+- 署名は有料の Developer Program のチームなので、インストールしたアプリは**ビルドから約 1 年**動く（無料 Apple ID なら 7 日）。
+  切れたら再ビルド + 再インストール
 - Wi-Fi 経由は不安定なことがある（`unavailable` のまま）。**ケーブル接続が確実**
-- 手順は DriveMemory の iOS 版と同じ。上記コマンドで iPhone 15（iOS 26）へのインストールを確認済み（2026-09-06）
+- 手順は DriveMemory の iOS 版と同じ。iPhone 15 / iPhone 16（iOS 26）へのインストールを確認済み（2026-09-08）
 
 ## 補足
 
