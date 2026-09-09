@@ -26,12 +26,7 @@ struct TransportControlsView: View {
             HStack(spacing: 22) {
                 loopMenu
 
-                Button {
-                    controller.stepFrame(by: -1)
-                } label: {
-                    Image(systemName: "backward.frame.fill")
-                        .font(.title3)
-                }
+                stepButton(frames: -1, symbol: "backward.frame.fill", label: "1 コマ戻す")
 
                 Button {
                     controller.togglePlay()
@@ -40,17 +35,25 @@ struct TransportControlsView: View {
                         .font(.system(size: 44))
                 }
 
-                Button {
-                    controller.stepFrame(by: 1)
-                } label: {
-                    Image(systemName: "forward.frame.fill")
-                        .font(.title3)
-                }
+                stepButton(frames: 1, symbol: "forward.frame.fill", label: "1 コマ進める")
 
                 speedButton
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// コマ送り。押した瞬間に 1 コマ、押しっぱなしで進み続ける
+    private func stepButton(frames: Int, symbol: String, label: String) -> some View {
+        HoldRepeatButton(
+            onPress: { controller.beginStepping(by: frames) },
+            onRelease: { controller.endStepping() },
+            action: { controller.stepFrame(by: frames) }
+        ) {
+            Image(systemName: symbol)
+                .font(.title3)
+        }
+        .accessibilityLabel(label)
     }
 
     /// 再生速度。タップで PlaybackController.speedPresets を巡回する

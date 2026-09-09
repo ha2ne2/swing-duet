@@ -42,6 +42,7 @@ SwingDuet/
     ├── VideoPaneView.swift       # 動画ペイン（自動フィット・拡大縮小・位置合わせ。上端に選び直しのラベル、下端中央にフェーズ調整）
     ├── SeekBarView.swift         # 区間色分きの共通シークバー
     ├── TransportControlsView.swift # フェーズジャンプ / コマ送り / 再生 / 速度 / ループ
+    ├── HoldRepeatButton.swift    # 押した瞬間と離した瞬間を伝えるボタン（コマ送りの長押し用）
     ├── PhaseEditView.swift       # フェーズ手動修正（マーカードラッグ・±コマ・スイング候補の切り替え）
     ├── PlayerLayerView.swift     # AVPlayerLayer ラッパー
     └── SwingSegment+Color.swift  # 区間の色（SwiftUI 依存を Models に持ち込まないための拡張）
@@ -83,6 +84,8 @@ SwingDuet/
 - 各 `AVPlayer` は「再生速度 × 区間倍率」の `rate` で走らせ、区間境界で `rate` を切り替える
 - 実時刻と期待時刻のドリフトが **80ms** を超えたらシークで補正（許容 20ms）。
   一時停止・ジャンプ・コマ送り・スクラブ終了時は許容ゼロの精密シーク
+- コマ送りボタンの押しっぱなしは 0.4 秒後から 0.1 秒ごとに 1 コマ進める（`beginStepping` / `endStepping`）。
+  前のコマの精密シークが終わるまで次へ進まない（シークを重ねると後のシークが前のを取り消し続け、画面が更新されなくなる）
 - ループ範囲は `loop`（`LoopMode`：スイング全体 / 1 区間 / ループしない）。範囲を出たら先頭へ戻る（ループしないなら停止）
 - フェーズ修正・基準切替時は `updateSync` で相対位置（進捗率）を保って追従する
 - **音声トラックは取り込み時に落とす**（`stripAudioTrack`）。再生は常にミュートだが、

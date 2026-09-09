@@ -1,5 +1,4 @@
 import SwiftUI
-import PhotosUI
 
 /// ペインの状態
 enum Slot {
@@ -8,6 +7,11 @@ enum Slot {
     case analyzing(fileName: String, title: String?)
     /// 動画の設定と、紐付く登録済みお手本（右ペインに登録済みお手本を入れたとき）
     case ready(VideoConfig, modelID: UUID? = nil)
+
+    var isEmpty: Bool {
+        if case .empty = self { return true }
+        return false
+    }
 }
 
 /// ピッカーで選ばれた動画
@@ -19,7 +23,7 @@ enum PickedVideo {
 
 /// アプリの唯一の画面。起動時は 2 つのペインが空で、それぞれの + から動画を選ぶ。
 /// 両方そろうと比較（`ComparisonView`）になり、履歴に自動で残る。
-/// ツールバーは「履歴」と「新しいスイング」（ライブラリを直接開いて左ペインに入れる。一番多い操作なのでツールバーに置く）
+/// ツールバーは「履歴」と「新しいスイング」（両ペインと開いている比較を空に戻し、起動直後の状態からやり直す）
 struct StageView: View {
     @EnvironmentObject private var store: ProjectStore
 
@@ -30,12 +34,14 @@ struct StageView: View {
     @State private var picking: ReferenceSide?
     @State private var showingHistory = false
     @State private var errorMessage: String?
-    /// ツールバーの「新しいスイング」で選んだライブラリの項目と、その取り出し中フラグ
-    @State private var newSwingItem: PhotosPickerItem?
-    @State private var importingNewSwing = false
 
     private var project: ComparisonProject? {
         store.projects.first { $0.id == projectID }
+    }
+
+    /// 起動直後と同じ状態（両ペインが空で、比較を開いていない）
+    private var isInitial: Bool {
+        projectID == nil && mine.isEmpty && model.isEmpty
     }
 
     var body: some View {
@@ -67,23 +73,18 @@ struct StageView: View {
                     .accessibilityLabel("履歴")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    PhotosPicker(selection: $newSwingItem, matching: .videos) {
+                    Button {
+                        reset()
+                    } label: {
                         HStack(spacing: 5) {
-                            if importingNewSwing {
-                                ProgressView()
-                            } else {
-                                Image(systemName: "plus")
-                            }
+                            Image(systemName: "plus")
                             Text("新しいスイング")
                         }
                     }
-                    .disabled(importingNewSwing)
+                    .disabled(isInitial)
                     .accessibilityLabel("新しいスイング")
                     .accessibilityIdentifier("toolbar.newSwing")
                 }
-            }
-            .onChange(of: newSwingItem) { _, item in
-                if let item { importNewSwing(item) }
             }
             .sheet(item: $picking) { side in
                 VideoPickerSheet(side: side) { picked in
@@ -119,6 +120,8 @@ struct StageView: View {
         if side == .mine { mine = slot } else { model = slot }
     }
 
+    /// 起動直後の状態に戻す。比較は履歴に残っているので、開いていたものが失われることはない。
+    /// 解析中のペインがあっても、結果が返った時点でペインが空になっているのを見て捨てられる（`analyze` のガード）
     private func reset() {
         projectID = nil
         mine = .empty
@@ -134,23 +137,6 @@ struct StageView: View {
     private func fill(from project: ComparisonProject) {
         mine = .ready(project.mine)
         model = .ready(project.model, modelID: project.modelID)
-    }
-
-    /// ツールバーの「新しいスイング」：選んだ動画を左ペイン（自分）に入れる。お手本はそのまま
-    private func importNewSwing(_ item: PhotosPickerItem) {
-        importingNewSwing = true
-        Task { @MainActor in
-            defer {
-                importingNewSwing = false
-                newSwingItem = nil   // 同じ動画をもう一度選んでも onChange が走るように
-            }
-            do {
-                let url = try await item.loadMovieURL()
-                load(.library(url, name: nil), into: .mine)
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
     }
 
     private func load(_ picked: PickedVideo, into side: ReferenceSide) {
@@ -256,9 +242,9 @@ private struct SetupStageView: View {
                 }
                 HStack(spacing: 22) {
                     Image(systemName: "repeat").font(.title3)
-                    Image(systemName: "backward.frame.fill").font(.title3)
+                    Image(systemName: "backward.frame.fill").font(.title3).frame(width: 44, height: 44)
                     Image(systemName: "play.circle.fill").font(.system(size: 44))
-                    Image(systemName: "forward.frame.fill").font(.title3)
+                    Image(systemName: "forward.frame.fill").font(.title3).frame(width: 44, height: 44)
                     Text("x0.30")
                         .font(.caption.monospacedDigit())
                         .frame(width: 52, height: 30)

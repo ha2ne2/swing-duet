@@ -38,6 +38,10 @@ final class PlaybackController: NSObject {
     private static let driftThreshold = 0.08
     /// 再生中のシーク（スクラブ・ドリフト補正）の許容幅。ゼロにすると精密シークになり、コマ単位の復号で重くなる
     private static let seekTolerance = CMTime(seconds: 0.02, preferredTimescale: 6000)
+    /// 押しっぱなしのコマ送り：押してから連続で進み始めるまでの待ち（秒）。普通のタップ（0.1〜0.2 秒）では始まらない長さ
+    private static let stepRepeatDelay = 0.4
+    /// 押しっぱなしのコマ送り：連続中のコマの間隔（秒）。10 コマ/秒はキーリピートと同じ速さで、1 コマずつ目で追える
+    private static let stepRepeatInterval = 0.1
 
     let minePlayer = AVPlayer()
     let modelPlayer = AVPlayer()
@@ -66,6 +70,13 @@ final class PlaybackController: NSObject {
     @ObservationIgnored private var wasPlayingBeforeScrub = false
     /// 側ごとの実行中のシーク数（`seek` で増やし、完了ハンドラで減らす）。0 でない側はドリフト補正しない
     @ObservationIgnored private var pendingSeeks: [ReferenceSide: Int] = [:]
+    /// 押しっぱなしのコマ送りを進めている Task（`beginStepping` で作り、`endStepping` で取り消す）
+    @ObservationIgnored private var stepRepeatTask: Task<Void, Never>?
+
+    /// どちらかの側でシークが終わっていない
+    private var isSeeking: Bool {
+        pendingSeeks.values.contains { $0 > 0 }
+    }
 
     init(mineURL: URL, modelURL: URL, sync: SyncEngine) {
         self.sync = sync
@@ -145,6 +156,29 @@ final class PlaybackController: NSObject {
     func stepFrame(by frames: Int) {
         stop()
         move(to: clampedToLoop(commonTime + sync.referenceFrameDuration * Double(frames)))
+    }
+
+    /// コマ送りボタンが押された瞬間に呼ぶ。すぐ 1 コマ進め、押したままなら `stepRepeatDelay` 後から
+    /// `stepRepeatInterval` ごとに進め続ける（指が離れたら `endStepping`）。
+    ///
+    /// 前のコマの精密シークが終わるまで次のコマへは進まない。シークが間隔より遅い端末で構わず重ねると、
+    /// 後のシークが前のシークを取り消し続けて、押している間ずっと画面が更新されなくなるため
+    func beginStepping(by frames: Int) {
+        endStepping()
+        stepFrame(by: frames)
+        stepRepeatTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.stepRepeatDelay))
+            while !Task.isCancelled, let self {
+                if !isSeeking { stepFrame(by: frames) }
+                try? await Task.sleep(for: .seconds(Self.stepRepeatInterval))
+            }
+        }
+    }
+
+    /// コマ送りボタンから指が離れたら呼ぶ
+    func endStepping() {
+        stepRepeatTask?.cancel()
+        stepRepeatTask = nil
     }
 
     /// フェーズ修正・基準切り替え時に呼ぶ。相対位置（進捗率）を保って追従する
