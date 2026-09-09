@@ -72,6 +72,16 @@ build/analyze-swing --series docs/data/x.mp4   # 手首位置と速度の系列�
 
 ## 実機へのインストール
 
+検出ロジック（`SwingDetector`）など純粋計算の Swift Testing（`SwingDuetTests/`）。アプリをホストにするのでシミュレータで走る:
+
+```bash
+xcodebuild test -project SwingDuet.xcodeproj -scheme SwingDuetTests \
+  -destination 'platform=iOS Simulator,name=iPhone 16e' -derivedDataPath build -quiet
+```
+
+検出ロジックを変えたら、このテストと上の CLI（実サンプル）の両方で確認する。
+
+
 iPhone をケーブルで Mac につなぎ:
 
 ```bash
