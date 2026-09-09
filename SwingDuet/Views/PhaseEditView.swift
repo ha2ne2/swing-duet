@@ -23,10 +23,6 @@ struct PhaseEditView: View {
         self._phases = State(initialValue: config.wrappedValue.phases)
     }
 
-    private var frameDuration: Double {
-        config.frameRate > 1 ? 1.0 / config.frameRate : 1.0 / 30.0
-    }
-
     var body: some View {
         NavigationStack {
             VStack(spacing: 12) {
@@ -216,7 +212,7 @@ struct PhaseEditView: View {
 
     private func stepButton(label: String, frames: Int) -> some View {
         Button {
-            let t = phases.time(of: selectedPhase) + Double(frames) * frameDuration
+            let t = phases.time(of: selectedPhase) + Double(frames) * config.frameDuration
             phases.assign(selectedPhase, to: t, duration: config.duration)
             seek(to: phases.time(of: selectedPhase))
         } label: {

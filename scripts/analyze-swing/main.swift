@@ -6,7 +6,6 @@
 //          --series  手の高さ（腰 = 0、首 = 1）と速度（体の大きさ/秒）の系列も出す（# の長さは速度）
 //          --joints  左右の手首・腰・首の生の位置と信頼度を出す（手首が隠れる区間を調べるとき）
 import Foundation
-import AVFoundation
 import Vision
 
 func describe(_ p: PhaseSet) -> String {
@@ -42,28 +41,24 @@ func printSeries(_ result: SwingAnalysisResult) {
     let maxSpeed = samples.compactMap(\.speed).max() ?? 1
     var si = 0
     print("   t     手首(x,y)  r n   高さ   速度")
-    for (i, t) in result.pose.times.enumerated() {
-        let point = result.pose.points[i].map { String(format: "%.2f,%.2f", $0.x, $0.y) } ?? "  -  "
-        let joints = (result.pose.roots[i] == nil ? " " : "r") + " " + (result.pose.necks[i] == nil ? " " : "n")
+    for frame in result.pose.frames {
+        let point = frame.wrist.map { String(format: "%.2f,%.2f", $0.x, $0.y) } ?? "  -  "
+        let joints = (frame.root == nil ? " " : "r") + " " + (frame.neck == nil ? " " : "n")
         var series = ""
-        if si < samples.count, abs(samples[si].time - t) < 1e-6 {
+        if si < samples.count, abs(samples[si].time - frame.time) < 1e-6 {
             let s = samples[si]
             series = String(format: "%6.2f  %@ %@", s.height,
                             s.speed.map { String(format: "%5.2f", $0) } ?? "    -",
                             String(repeating: "#", count: Int((s.speed ?? 0) / maxSpeed * 40)))
             si += 1
         }
-        print(String(format: "  %5.2f %9@  %@ %@", t, point, joints, series))
+        print(String(format: "  %5.2f %9@  %@ %@", frame.time, point, joints, series))
     }
 }
 
 /// 左右の手首・腰・首を信頼度付きで出す（手首が体に隠れる区間の調査用）
 func printJoints(url: URL) async throws {
-    let asset = AVURLAsset(url: url)
-    guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw SwingAnalyzerError.noVideoTrack }
-    let (fps, transform) = try await track.load(.nominalFrameRate, .preferredTransform)
-    let frames = try PoseTracker.jointDump(
-        asset: asset, videoTrack: track, frameRate: Double(fps), orientation: PoseTracker.orientation(from: transform))
+    let frames = try await SwingAnalyzer.jointDump(url: url)
     func text(_ point: VNRecognizedPoint?) -> String {
         point.map { String(format: "%.2f,%.2f c%.2f", $0.location.x, $0.location.y, $0.confidence) } ?? "      -        "
     }

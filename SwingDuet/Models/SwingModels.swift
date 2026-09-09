@@ -156,6 +156,11 @@ struct VideoConfig: Codable, Equatable {
     var lowConfidence: Bool = false
     /// 自動検出で見つかったスイング候補（時系列順）。素振りなど複数のスイングが写る動画で、フェーズ調整画面から選び直せる
     var candidates: [PhaseSet] = []
+
+    /// 1 フレームの長さ（秒）。コマ送りの単位。フレームレートが取れていなければ 30fps とみなす
+    var frameDuration: Double {
+        frameRate > 1 ? 1.0 / frameRate : 1.0 / 30.0
+    }
 }
 
 extension VideoConfig {

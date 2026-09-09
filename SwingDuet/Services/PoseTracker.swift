@@ -3,29 +3,33 @@ import AVFoundation
 import Vision
 import CoreGraphics
 
-/// 人物の追跡結果（解析レートに間引いたフレームごとの手首・腰・首の位置と、関節の外接矩形）
+/// 解析レートに間引いた 1 フレームの追跡結果（正規化座標・左下原点）
+struct PoseFrame {
+    var time: Double
+    /// 手首（両手首の中点相当）。検出できなければ nil
+    var wrist: CGPoint?
+    /// 腰（root）。手の高さの基準（0）
+    var root: CGPoint?
+    /// 首（neck）。腰からの距離が体の大きさの単位
+    var neck: CGPoint?
+    /// 見えていた関節すべてを囲む矩形。人物を検出できなければ nil
+    var bodyBounds: CGRect?
+}
+
+/// 人物の追跡結果
 struct PoseTrack {
-    /// 各フレームの時刻（秒）
-    var times: [Double]
-    /// 各フレームの手首位置（両手首の中点相当。正規化座標・左下原点）。検出できなかったフレームは nil
-    var points: [CGPoint?]
-    /// 各フレームの腰（root）の位置。手の高さの基準（0）
-    var roots: [CGPoint?]
-    /// 各フレームの首（neck）の位置。腰からの距離が体の大きさの単位
-    var necks: [CGPoint?]
-    /// 各フレームで見えていた関節すべてを囲む矩形（正規化座標・左下原点）。人物を検出できなかったフレームは nil
-    var bodyBounds: [CGRect?]
+    var frames: [PoseFrame]
 
     /// 手首を検出できたフレームの割合
     var coverage: Double {
-        points.isEmpty ? 0 : Double(points.filter { $0 != nil }.count) / Double(points.count)
+        frames.isEmpty ? 0 : Double(frames.filter { $0.wrist != nil }.count) / Double(frames.count)
     }
 
-    /// 体の大きさ（腰から首までの高さ。正規化座標）。動画全体の中央値なので 1 フレームの外れ値に揺れない。
+    /// 体の大きさ（腰から首までの高さ）。動画全体の中央値なので 1 フレームの外れ値に揺れない。
     /// 腰と首が同時に取れたフレームが無ければ nil（検出できない）
     var torsoHeight: Double? {
-        let heights = zip(roots, necks).compactMap { root, neck -> Double? in
-            guard let root, let neck else { return nil }
+        let heights = frames.compactMap { frame -> Double? in
+            guard let root = frame.root, let neck = frame.neck else { return nil }
             return abs(Double(neck.y - root.y))
         }
         return heights.median.flatMap { $0 > 0 ? $0 : nil }
@@ -57,20 +61,18 @@ enum PoseTracker {
         frameRate: Double,
         orientation: CGImagePropertyOrientation
     ) throws -> PoseTrack {
-        var times: [Double] = []
-        var points: [CGPoint?] = []
-        var roots: [CGPoint?] = []
-        var necks: [CGPoint?] = []
-        var bodyBounds: [CGRect?] = []
+        var frames: [PoseFrame] = []
         var wrists = WristTracker()
         try forEachTrackedPerson(asset: asset, videoTrack: videoTrack, frameRate: frameRate, orientation: orientation) { time, person in
-            times.append(time)
-            points.append(wrists.update(with: person))
-            roots.append(person.flatMap { location(of: .root, in: $0) })
-            necks.append(person.flatMap { location(of: .neck, in: $0) })
-            bodyBounds.append(person.flatMap { jointBounds(of: $0) })
+            frames.append(PoseFrame(
+                time: time,
+                wrist: wrists.update(with: person),
+                root: person.flatMap { location(of: .root, in: $0) },
+                neck: person.flatMap { location(of: .neck, in: $0) },
+                bodyBounds: person.flatMap { jointBounds(of: $0) }))
         }
-        return PoseTrack(times: times, points: medianFiltered(points), roots: roots, necks: necks, bodyBounds: bodyBounds)
+        medianFilterWrists(&frames)
+        return PoseTrack(frames: frames)
     }
 
     /// 調査用：追跡対象の人物の左右手首・腰・首を、信頼度による足切りをせずそのまま返す
@@ -228,14 +230,13 @@ enum PoseTracker {
         return point.location
     }
 
-    /// 単発の外れ値（誤検出の瞬間的な飛びなど）を抑える 3 点メディアン
-    private static func medianFiltered(_ points: [CGPoint?]) -> [CGPoint?] {
-        guard points.count >= 3 else { return points }
-        var result = points
-        for i in 1..<(points.count - 1) {
-            guard let a = points[i - 1], let b = points[i], let c = points[i + 1] else { continue }
-            result[i] = CGPoint(x: [a.x, b.x, c.x].sorted()[1], y: [a.y, b.y, c.y].sorted()[1])
+    /// 手首の単発の外れ値（誤検出の瞬間的な飛びなど）を抑える 3 点メディアン
+    private static func medianFilterWrists(_ frames: inout [PoseFrame]) {
+        guard frames.count >= 3 else { return }
+        let wrists = frames.map(\.wrist)
+        for i in 1..<(wrists.count - 1) {
+            guard let a = wrists[i - 1], let b = wrists[i], let c = wrists[i + 1] else { continue }
+            frames[i].wrist = CGPoint(x: [a.x, b.x, c.x].sorted()[1], y: [a.y, b.y, c.y].sorted()[1])
         }
-        return result
     }
 }

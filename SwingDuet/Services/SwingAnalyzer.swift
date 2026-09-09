@@ -29,8 +29,8 @@ struct SwingAnalysisResult {
     /// 人物を検出できていなければ nil
     var focusRect: CGRect? {
         let swing = chosen.map { $0.phases.address...$0.phases.finish }
-        let rects = zip(pose.times, pose.bodyBounds).compactMap { time, rect in
-            (swing?.contains(time) ?? true) ? rect : nil
+        let rects = pose.frames.compactMap { frame in
+            (swing?.contains(frame.time) ?? true) ? frame.bodyBounds : nil
         }
         return CGRect(enclosing: rects.flatMap { [CGPoint(x: $0.minX, y: $0.minY), CGPoint(x: $0.maxX, y: $0.maxY)] })
     }
@@ -66,22 +66,46 @@ enum SwingAnalyzerError: LocalizedError {
 enum SwingAnalyzer {
 
     static func analyze(url: URL) async throws -> SwingAnalysisResult {
+        let video = try await loadVideo(url: url)
+        let pose = try PoseTracker.track(
+            asset: video.asset, videoTrack: video.track, frameRate: video.frameRate, orientation: video.orientation)
+        return SwingAnalysisResult(
+            duration: video.duration,
+            frameRate: video.frameRate > 1 ? video.frameRate : 30,
+            videoAspect: video.aspect,
+            pose: pose,
+            candidates: SwingDetector.detect(track: pose, duration: video.duration))
+    }
+
+    /// 調査用（`analyze-swing --joints`）：追跡対象の人物の主要関節を信頼度付きでそのまま返す
+    static func jointDump(url: URL) async throws -> [JointFrame] {
+        let video = try await loadVideo(url: url)
+        return try PoseTracker.jointDump(
+            asset: video.asset, videoTrack: video.track, frameRate: video.frameRate, orientation: video.orientation)
+    }
+
+    private struct Video {
+        var asset: AVURLAsset
+        var track: AVAssetTrack
+        var duration: Double
+        var frameRate: Double
+        /// 表示される映像の縦横比（幅 ÷ 高さ。回転メタデータ適用後）
+        var aspect: Double
+        var orientation: CGImagePropertyOrientation
+    }
+
+    /// 解析に必要な動画の情報をまとめて読む
+    private static func loadVideo(url: URL) async throws -> Video {
         let asset = AVURLAsset(url: url)
         let duration = try await asset.load(.duration).seconds
-        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw SwingAnalyzerError.noVideoTrack
         }
-        let (nominalFrameRate, naturalSize, transform) = try await videoTrack.load(.nominalFrameRate, .naturalSize, .preferredTransform)
-        let fps = Double(nominalFrameRate)
+        let (nominalFrameRate, naturalSize, transform) = try await track.load(.nominalFrameRate, .naturalSize, .preferredTransform)
         let shownSize = naturalSize.applying(transform)   // 回転メタデータ適用後の大きさ（符号は向きなので絶対値で使う）
-
-        let pose = try PoseTracker.track(
-            asset: asset, videoTrack: videoTrack, frameRate: fps, orientation: PoseTracker.orientation(from: transform))
-        return SwingAnalysisResult(
-            duration: duration,
-            frameRate: fps > 1 ? fps : 30,
-            videoAspect: shownSize.height != 0 ? abs(shownSize.width / shownSize.height) : 0,
-            pose: pose,
-            candidates: SwingDetector.detect(track: pose, duration: duration))
+        return Video(
+            asset: asset, track: track, duration: duration, frameRate: Double(nominalFrameRate),
+            aspect: shownSize.height != 0 ? abs(shownSize.width / shownSize.height) : 0,
+            orientation: PoseTracker.orientation(from: transform))
     }
 }

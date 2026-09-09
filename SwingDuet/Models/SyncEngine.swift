@@ -10,7 +10,8 @@ struct SyncEngine: Equatable {
     var minePhases: PhaseSet
     var modelPhases: PhaseSet
     var reference: ReferenceSide
-    var referenceFrameRate: Double
+    /// コマ送りの 1 ステップ（基準側動画の 1 フレーム相当）
+    var referenceFrameDuration: Double
 
     private static let eps = 1e-3
 
@@ -18,7 +19,7 @@ struct SyncEngine: Equatable {
         self.minePhases = project.mine.phases
         self.modelPhases = project.model.phases
         self.reference = project.reference
-        self.referenceFrameRate = project.config(for: project.reference).frameRate
+        self.referenceFrameDuration = project.config(for: project.reference).frameDuration
     }
 
     func phases(for side: ReferenceSide) -> PhaseSet {
@@ -86,10 +87,5 @@ struct SyncEngine: Equatable {
         guard refDur > Self.eps else { return 1 }
         let dur = phases(for: side).duration(of: segment)
         return max(dur / refDur, 0.001)
-    }
-
-    /// コマ送りの1ステップ（基準側動画の1フレーム相当）
-    var referenceFrameDuration: Double {
-        referenceFrameRate > 1 ? 1.0 / referenceFrameRate : 1.0 / 30.0
     }
 }

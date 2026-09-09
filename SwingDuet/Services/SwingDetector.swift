@@ -26,48 +26,56 @@ struct SwingCandidate {
 /// 手首の追跡結果からスイングとフェーズを検出する。
 ///
 /// フェーズは**体に対する手の高さ**で決める（腰 = 0、首 = 1）。高さは撮影方向（正面・後方）にも再生速度にも依存せず、
-/// アドレス・インパクト（低い）とトップ・フィニッシュ（高い）がはっきり分かれる。基準点を選ばないので、
-/// トップで長く静止してもアドレスと取り違えない。設計と実測値は docs/design/260910_0236-hand-height-phase-detection.md。
+/// アドレス・インパクト（低い）とトップ・フィニッシュ（高い）がはっきり分かれる。設計は docs/design/260910_0236-hand-height-phase-detection.md。
 ///
-/// 1 本の動画に素振りなど複数のスイングが写っている前提で、「低くて静止」（アドレス）ごとに候補を作って採点する
+/// **動画の速さに依存しない**ことを原則にする（同設計書 §4.2）。スロー再生が焼き込まれた動画では
+/// トップの間が 2 秒に伸び、後方視点ではインパクト付近の手が奥へ動いて画面上は止まって見える。「何秒止まったか」で
+/// フェーズやスイングの境目を決めると割れるので、時間の閾値は持たず、高さの形（低い → 高い → 低い → 高い）と
+/// 同じ動画の中での速度の比だけで決める。
+///
+/// 1 本の動画に素振りなど複数のスイングが写っている前提で、手が低い区間から順に形を読んで候補を作り、採点する
 /// （最も振り切っている候補を採用するのは呼び出し側。候補はすべて返し、ユーザーが選び直せる）。
 ///
-/// 手首が見えない区間（後方視点ではトップ〜インパクトが体の陰に入る）は、再出現をインパクト、
+/// 手首が見えない区間（後方視点ではトップ〜インパクトが体の陰に入る）に切り返しが掛かるときは、再出現をインパクト、
 /// バックスイング : ダウンスイング = 3 : 1 の比でトップに置き、`estimated` に記録する。
 enum SwingDetector {
 
-    // しきい値はすべて体の大きさ単位。実測（4 本）はアドレス −0.2〜0.1、トップ・フィニッシュ 0.7〜1.9、アドレスの揺れ 0.25〜0.56/秒
-    /// これ未満なら手が「低い」（アドレス・インパクト）
+    /// これ未満なら手が「低い」（アドレス・インパクト）。実測はアドレス −0.2〜0.1
     static let lowHeight = 0.3
-    /// これ以上なら手が「高い」（トップ・フィニッシュ）
+    /// これ以上なら手が「高い」（トップ・フィニッシュ）。実測は 0.7〜1.9
     static let highHeight = 0.5
-    /// アドレスの静止：この速度未満が `addressStillDuration` 続く
-    static let stillSpeed = 0.7
-    static let addressStillDuration = 0.15
-    /// フィニッシュの落ち着き：この速度未満が `finishStillDuration` 続く（フィニッシュは反動で少し動くので静止より緩い）
-    static let settleSpeed = 1.5
-    static let finishStillDuration = 0.2
-    /// トップで止まっている判定：最も高い点からこの時間以上、下り始めが来なければ「止まっている」とみなし、下り始めをトップにする
-    static let topHoldDuration = 0.2
-    /// 下り始め：高さが下がりながら、この速度以上になったところ（止まったトップでの手の揺れ・ずれは 0.2〜0.9）
-    static let descentSpeed = 1.0
-    /// 手首が見えない時間がこれ以上なら欠測として扱う（欠測明けのサンプルは速度が nil になる）
+    /// 手首が見えない時間がこれ以上なら欠測として扱う（解析は 30fps なので 6 フレーム。欠測明けのサンプルは速度が nil）
     static let gapDuration = 0.2
+    /// アドレス：低い区間で最も低い高さからこの範囲内にいるサンプルのうち、
+    /// 速度がバックスイングの最大の `addressSpeedRatio` 以下（まだ動き出していない）である最後のもの
+    static let restBand = 0.1
+    static let addressSpeedRatio = 0.15
+    /// トップ（切り返し）：最も高い点の後、高さが下がりながら速度がダウンスイングの最大のこの割合に達したところ
+    static let descentOnsetRatio = 0.3
+    /// フィニッシュ：フォローで手が最も高くなる（そこから `finishDrop` 下がるまでの山の）高さの、この割合に最初に達したところ
+    static let finishHeightRatio = 0.9
+    static let finishDrop = 0.3
+    /// フォローの後に手が低く戻る速さが、フォローで上がった速さのこの倍以上なら、その高い区間は別のスイングのトップ
+    /// （切り返しの後のダウンスイングは、その前の上がりより速い。フィニッシュから下ろす動きは上がりより遅い）
+    static let anotherSwingRatio = 1.0
     /// トップが見えないときの置き場所（バックスイング : ダウンスイング = 3 : 1）
     static let backswingShare = 0.75
 
     static func detect(track: PoseTrack, duration: Double) -> [SwingCandidate] {
         let samples = handSamples(track: track)
         guard samples.count >= 8 else { return [] }
-        let addresses = addressRuns(samples)
+        let lows = lowRegions(samples)
 
+        // 低い区間から順に形を読む。スイングが成立したら、そのフィニッシュより後の低い区間から続ける
+        // （インパクト付近で手が低く見える区間を、次のスイングのアドレスと取り違えないため）
         var candidates: [SwingCandidate] = []
-        for (i, run) in addresses.enumerated() {
-            // 次のアドレスの静止が始まるまでが、この候補の探索範囲
-            let end = i + 1 < addresses.count ? addresses[i + 1].lowerBound : samples.count
-            let timeBound = i + 1 < addresses.count ? samples[end].time : duration
-            if let candidate = swingCandidate(address: run, before: end, timeBound: timeBound, samples: samples, duration: duration) {
+        var i = 0
+        while i < lows.count {
+            if let (candidate, finishIdx) = swingCandidate(from: lows[i], samples: samples, duration: duration) {
                 candidates.append(candidate)
+                i = lows.firstIndex { $0.lowerBound > finishIdx } ?? lows.count
+            } else {
+                i += 1
             }
         }
 
@@ -86,19 +94,19 @@ enum SwingDetector {
     /// 手首が見えたフレームの、体の大きさ単位の高さと速度。速度は移動平均（窓 5）で平滑化する
     static func handSamples(track: PoseTrack) -> [HandSample] {
         guard let torso = track.torsoHeight, torso > 0 else { return [] }
-        // 腰は毎フレーム取れるとは限らないので、直前（先頭だけ直後）の腰の高さを使う（スイング中ほとんど動かない）
-        let rootYs = filled(track.roots.map { $0.map { Double($0.y) } })
+        // 腰は毎フレーム取れるとは限らないので、直前に取れた腰の高さを使う（スイング中ほとんど動かない。先頭は最初に取れたもの）
+        var rootY = track.frames.first { $0.root != nil }?.root.map { Double($0.y) }
         var samples: [HandSample] = []
         var last: (time: Double, point: CGPoint)? = nil
-        for (i, point) in track.points.enumerated() {
-            guard let point, let rootY = rootYs[i] else { continue }
-            let time = track.times[i]
+        for frame in track.frames {
+            if let root = frame.root { rootY = Double(root.y) }
+            guard let wrist = frame.wrist, let rootY else { continue }
             var speed: Double? = nil
-            if let last, time - last.time > 0, time - last.time < gapDuration {
-                speed = Double(point.distance(to: last.point)) / (time - last.time) / torso
+            if let last, frame.time - last.time > 0, frame.time - last.time < gapDuration {
+                speed = Double(wrist.distance(to: last.point)) / (frame.time - last.time) / torso
             }
-            samples.append(HandSample(time: time, height: (Double(point.y) - rootY) / torso, speed: speed))
-            last = (time, point)
+            samples.append(HandSample(time: frame.time, height: (Double(wrist.y) - rootY) / torso, speed: speed))
+            last = (frame.time, wrist)
         }
         let raw = samples.map(\.speed)
         for i in samples.indices where raw[i] != nil {
@@ -108,47 +116,30 @@ enum SwingDetector {
         return samples
     }
 
-    /// nil を直前の値で埋める（先頭の nil は最初に現れる値で埋める）
-    private static func filled(_ values: [Double?]) -> [Double?] {
-        var result = values
-        var last: Double? = values.first { $0 != nil } ?? nil
-        for i in result.indices {
-            if let value = result[i] { last = value } else { result[i] = last }
-        }
-        return result
-    }
-
-    // MARK: - アドレス
-
-    /// 低くて静止しているサンプルの連なり（`addressStillDuration` 以上）。欠測明け（speed nil）は連なりを切る
-    static func addressRuns(_ samples: [HandSample]) -> [ClosedRange<Int>] {
-        var runs: [ClosedRange<Int>] = []
+    /// 手が低い（height < lowHeight）サンプルの連なり
+    static func lowRegions(_ samples: [HandSample]) -> [ClosedRange<Int>] {
+        var regions: [ClosedRange<Int>] = []
         var start: Int? = nil
-        func close(at last: Int) {
-            if let s = start, samples[last].time - samples[s].time >= addressStillDuration { runs.append(s...last) }
-            start = nil
-        }
         for i in samples.indices {
-            let still = samples[i].height < lowHeight && (samples[i].speed ?? .infinity) < stillSpeed
-            if still {
+            if samples[i].height < lowHeight {
                 if start == nil { start = i }
-            } else {
-                close(at: i - 1)
+            } else if let s = start {
+                regions.append(s...(i - 1))
+                start = nil
             }
         }
-        close(at: samples.count - 1)
-        return runs
+        if let s = start { regions.append(s...(samples.count - 1)) }
+        return regions
     }
 
     // MARK: - 1 回のスイング
 
-    /// アドレスの静止 `run` から始まるスイングの候補。`end`（次のアドレスの静止の先頭）より先は見ない。
+    /// 手が低い区間 `low` をアドレスとするスイングの候補と、そのフィニッシュのサンプル添字。
     /// スイングと呼べる形（低い → 高い → 低い → 高い）にならなければ nil
     private static func swingCandidate(
-        address run: ClosedRange<Int>, before end: Int, timeBound: Double, samples: [HandSample], duration: Double
-    ) -> SwingCandidate? {
-        let a = run.upperBound
-        guard a + 1 < end else { return nil }
+        from low: ClosedRange<Int>, samples: [HandSample], duration: Double
+    ) -> (SwingCandidate, finishIdx: Int)? {
+        let end = samples.count
         func firstHigh(from i: Int) -> Int? { (i..<end).first { samples[$0].height >= highHeight } }
         func firstLow(from i: Int) -> Int? { (i..<end).first { samples[$0].height < lowHeight } }
         /// `start` 以降で最初に見える「高い → 低い → 高い」の形
@@ -157,39 +148,46 @@ enum SwingDetector {
                   let up2 = firstHigh(from: down + 1) else { return nil }
             return (up, down, up2)
         }
+        func maxSpeed(in range: Range<Int>) -> Double { range.compactMap { samples[$0].speed }.max() ?? 0 }
         // NOTE: 以下の範囲は空でないことが呼び出し側で決まっている（見つけた index の間、または要素があると確認した範囲）ので、
         //       min / max の強制アンラップは安全
         func lowest(in range: Range<Int>) -> Int { range.min { samples[$0].height < samples[$1].height }! }
-        /// トップ：範囲内で手が最も高いサンプル。ただしそこから `topHoldDuration` 以上、下り始め（高さが下がって
-        /// 速度が `descentSpeed` 以上）が来なければトップで止まっているので、下り始め = 切り返しをトップにする
+        /// トップ：範囲内で手が最も高いサンプル。そこから手が下がりながら速度がダウンスイングの最大の
+        /// `descentOnsetRatio` に達したところ（切り返し）があればそこ。トップで止まっても、下ろし始めが取れる
         func topIndex(in range: Range<Int>) -> Int {
             let peakIdx = range.max { samples[$0].height < samples[$1].height }!
             let peak = samples[peakIdx].height
-            let descent = ((peakIdx + 1)..<range.upperBound).first {
-                samples[$0].height < peak - 0.02 && (samples[$0].speed ?? 0) >= descentSpeed
-            }
-            guard let descent, samples[descent].time - samples[peakIdx].time >= topHoldDuration else { return peakIdx }
-            return descent
+            let onsetSpeed = descentOnsetRatio * maxSpeed(in: peakIdx..<range.upperBound)
+            return ((peakIdx + 1)..<range.upperBound).first {
+                samples[$0].height < peak - 0.02 && (samples[$0].speed ?? 0) >= onsetSpeed   // 0.02 は手の揺れの分
+            } ?? peakIdx
         }
 
+        guard let up = firstHigh(from: low.upperBound + 1) else { return nil }   // 高くならない → スイングではない
+        // アドレス：低い区間で最も低い高さの近くにいて、まだ動き出していない（速度がバックスイングの最大に比べて小さい）最後のサンプル。
+        // 取り出しは手が横へ動くところから始まるので、高さだけでは遅れる。速度が落ち着かなければ高さだけで決める
+        let rest = low.map { samples[$0].height }.min()!
+        let resting = low.filter { samples[$0].height <= rest + restBand }
+        let riseSpeed = maxSpeed(in: (low.upperBound + 1)..<(up + 1))
+        let a = resting.last { (samples[$0].speed ?? .infinity) <= addressSpeedRatio * riseSpeed } ?? resting.last!
+        let down = firstLow(from: up + 1)
         // 最初の欠測が最初の下りより前にあれば、切り返しが欠測に掛かっているかもしれない。その場合は欠測の後ろから形を読む
         let gap = ((a + 1)..<end).first { samples[$0].speed == nil }
-        let firstDescent = firstHigh(from: a + 1).flatMap { firstLow(from: $0 + 1) }
-        let gapBeforeDescent = gap.map { $0 <= (firstDescent ?? end) } ?? false
+        let gapBeforeDescent = gap.map { $0 <= (down ?? end) } ?? false
 
         var estimated: Set<SwingPhase> = []
         let topIdx: Int?   // nil = 見えないので比で置く
         let impactIdx: Int
-        let followStart: Int
+        let up2: Int       // フォローで手が高くなったところ
         if let s = shape(from: (gapBeforeDescent ? gap : nil) ?? (a + 1)) {
             // トップ〜インパクトが見えている（欠測があってもバックスイングの途中で、その後に形が見える）
             topIdx = topIndex(in: s.up..<s.down)
             impactIdx = lowest(in: s.down..<s.up2)
-            followStart = s.up2
-        } else if gapBeforeDescent, let gap, let up = firstHigh(from: gap) {
+            up2 = s.up2
+        } else if gapBeforeDescent, let gap, let reappear = firstHigh(from: gap) {
             // 切り返しが欠測の中。インパクトは再出現から次に高くなるまでの最低点に置くが、
             // 本当のインパクトは欠測の中かもしれないので推定扱いにする
-            impactIdx = lowest(in: gap..<(up + 1))
+            impactIdx = lowest(in: gap..<(reappear + 1))
             estimated.insert(.impact)
             // 消える前に既に高ければトップはそこ、まだ上がり途中なら比で置く
             let before = (a + 1)..<gap
@@ -199,38 +197,46 @@ enum SwingDetector {
                 topIdx = nil
                 estimated.insert(.top)
             }
-            followStart = up
+            up2 = reappear
         } else {
-            // 高くならない・高くなったまま戻らない（振り上げただけ）・低いまま終わる（トップからアドレスへ戻すリハーサル）
+            // 高くなったまま戻らない（振り上げただけ）、低いまま終わる（トップからアドレス位置へ戻すだけ）
             return nil
         }
 
-        // フィニッシュ：インパクトの後、高くて落ち着いた状態が finishStillDuration 続く最初のサンプル
-        let finishIdx = (followStart..<end).first { settled(from: $0, before: end, samples: samples) }
+        // フォローの後に手が低く戻るなら、その下りがフォローの上がりより速ければ、この高い区間は別のスイングのトップだった
+        // （素振りの直後の本番など）。この区間からはスイングが成立しない。
+        // 上がりの速さはインパクトの次のサンプルから見る（インパクトのサンプルの速度は、そこへ到達したダウンスイングの速さ）。
+        // 切り返しが欠測で上がりの速さが取れないときは判定しない
+        let down2 = firstLow(from: up2 + 1)
+        let followRise = maxSpeed(in: (impactIdx + 1)..<(up2 + 1))
+        if let down2, followRise > 0 {
+            let lastHigh = (up2..<down2).last { samples[$0].height >= highHeight }!
+            if maxSpeed(in: lastHigh..<(down2 + 1)) >= anotherSwingRatio * followRise { return nil }
+        }
 
-        let addressTime = max(samples[run.lowerBound].time, samples[a].time - 0.1)
+        // フィニッシュ：フォローで手が上がりきる山（そこから finishDrop 下がるまで）の高さの finishHeightRatio に最初に達したところ。
+        // 肩を回るときの小さな窪みでは山を切らない
+        var finishPeak = samples[up2].height
+        var humpEnd = up2
+        for j in up2..<(down2 ?? end) {
+            if samples[j].height < finishPeak - finishDrop { break }
+            finishPeak = max(finishPeak, samples[j].height)
+            humpEnd = j
+        }
+        let finishIdx = (up2...humpEnd).first { samples[$0].height >= finishHeightRatio * finishPeak }!
+
+        let addressTime = samples[a].time
         let impactTime = samples[impactIdx].time
         let topTime = topIdx.map { samples[$0].time } ?? (addressTime + backswingShare * (impactTime - addressTime))
-        let finishTime = min(timeBound, (finishIdx.map { samples[$0].time } ?? samples[end - 1].time) + 0.2)
-        var phases = PhaseSet(address: addressTime, top: topTime, impact: impactTime, finish: finishTime)
+        var phases = PhaseSet(address: addressTime, top: topTime, impact: impactTime, finish: samples[finishIdx].time)
         guard phases.top > phases.address, phases.impact > phases.top, phases.finish > phases.impact else { return nil }
         phases.sanitize(duration: duration)
 
-        let span = a...(finishIdx ?? (end - 1))
-        return SwingCandidate(
+        let candidate = SwingCandidate(
             phases: phases,
-            rise: span.map { samples[$0].height }.max()! - samples[a].height,
-            peakSpeed: span.compactMap { samples[$0].speed }.max() ?? 0,
+            rise: (a...finishIdx).map { samples[$0].height }.max()! - samples[a].height,
+            peakSpeed: maxSpeed(in: a..<(finishIdx + 1)),
             estimated: estimated)
-    }
-
-    /// `i` から、高くて速度が settleSpeed 未満の状態が欠測なしに finishStillDuration 続くか
-    private static func settled(from i: Int, before end: Int, samples: [HandSample]) -> Bool {
-        var j = i
-        while j < end, samples[j].height >= highHeight, (samples[j].speed ?? .infinity) < settleSpeed {
-            if samples[j].time - samples[i].time >= finishStillDuration { return true }
-            j += 1
-        }
-        return false
+        return (candidate, finishIdx)
     }
 }
