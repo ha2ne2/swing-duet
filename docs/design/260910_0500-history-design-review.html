@@ -1,0 +1,346 @@
+<title>SwingDuet 履歴の再考</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --paper: #F3F5F3; --paper-2: #E9EDEA; --ink: #1B2027; --ink-2: #3E4750; --muted: #66707A; --line: #D2D8D4;
+    --accent: #B27A0B; --accent-ink: #7C5406; --accent-soft: #F6E8C4; --pin: #C2410C; --pin-soft: #FBE5D6;
+    --code-bg: #E7EBE8; --good: #2F7D4F; --warn: #B0560F; --pick: #1F5F8B; --pick-soft: #DDEAF5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #131618; --paper-2: #1B2023; --ink: #E9EDEB; --ink-2: #C3CAC6; --muted: #97A1A9; --line: #2C3438;
+      --accent: #F0B93A; --accent-ink: #F6CF6E; --accent-soft: #3A2E10; --pin: #F59E6B; --pin-soft: #3F2415;
+      --code-bg: #1B2023; --good: #5FBF85; --warn: #F0A25A; --pick: #7FB6E6; --pick-soft: #162B3C;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #131618; --paper-2: #1B2023; --ink: #E9EDEB; --ink-2: #C3CAC6; --muted: #97A1A9; --line: #2C3438;
+    --accent: #F0B93A; --accent-ink: #F6CF6E; --accent-soft: #3A2E10; --pin: #F59E6B; --pin-soft: #3F2415;
+    --code-bg: #1B2023; --good: #5FBF85; --warn: #F0A25A; --pick: #7FB6E6; --pick-soft: #162B3C;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Zen Kaku Gothic New", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; font-size: 15.5px; line-height: 1.85; -webkit-font-smoothing: antialiased; }
+  main { max-width: 1340px; margin: 0 auto; padding: 48px 24px 96px; }
+  .prose { max-width: 66ch; }
+  h1, h2 { font-family: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif; font-weight: 700; letter-spacing: 0.01em; text-wrap: balance; line-height: 1.35; }
+  h1 { font-size: 34px; margin: 8px 0 14px; }
+  h2 { font-size: 23px; margin: 0 0 14px; }
+  h3 { font-size: 16px; font-weight: 700; margin: 22px 0 8px; }
+  p { margin: 0 0 14px; }
+  .eyebrow { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  section { padding: 40px 0 8px; border-top: 1px solid var(--line); margin-top: 24px; }
+  section > .eyebrow { display: block; margin-bottom: 6px; }
+  .lede { font-size: 18px; line-height: 1.8; color: var(--ink-2); }
+  .lede strong { color: var(--ink); }
+  code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.92em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.4em; margin: 0 0 14px; }
+  li { margin: 4px 0; }
+  li::marker { color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; line-height: 1.6; margin: 8px 0 20px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px 10px 0; border-bottom: 1px solid var(--line); }
+  th { font-weight: 700; color: var(--muted); font-size: 13px; letter-spacing: 0.04em; }
+  td:first-child, th:first-child { font-weight: 500; white-space: nowrap; }
+  .tablewrap { overflow-x: auto; }
+  .small { font-size: 13.5px; color: var(--muted); }
+  .tag { display: inline-block; font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); vertical-align: middle; margin-left: 6px; }
+  .tag.pick { color: var(--pick); border-color: var(--pick); background: var(--pick-soft); }
+  .verdict { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 24px 0 8px; }
+  .verdict > div { border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; background: var(--paper-2); }
+  .verdict .h { font-weight: 700; margin-bottom: 4px; }
+  .verdict .keep { border-color: var(--good); }
+  .verdict .change { border-color: var(--pick); }
+  .verdict .add { border-color: var(--accent); }
+  .verdict ul { margin: 0; padding-left: 1.2em; font-size: 14.5px; }
+  @media (max-width: 900px) { .verdict { grid-template-columns: 1fr; } }
+
+  /* 画面で比べる */
+  .phones { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; align-items: start; margin: 20px 0 8px; }
+  @media (max-width: 1320px) { .phones { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 700px) { .phones { grid-template-columns: 1fr; } }
+  .col .cap { margin: 12px 0 0; font-size: 14px; line-height: 1.6; color: var(--ink-2); max-width: 300px; }
+  .col .cap b { color: var(--ink); }
+  .col .name { font-family: "Shippori Mincho B1", serif; font-size: 18px; font-weight: 700; margin: 0 0 8px; }
+  .col .name .tag { font-family: "IBM Plex Mono", monospace; }
+
+  /* ---- iPhone モックアップ（アプリはダーク固定。この中は色を直書き） ---- */
+  .phone { width: 300px; background: #0B0B0C; border-radius: 40px; padding: 9px; box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 30px rgba(0,0,0,0.25);
+    font-family: -apple-system, "SF Pro Text", "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif; color: #fff; font-size: 14px; line-height: 1.3; letter-spacing: 0; position: relative; }
+  .screen { background: #000; border-radius: 32px; overflow: hidden; height: 600px; position: relative; }
+  .status { height: 32px; display: flex; justify-content: space-between; align-items: center; padding: 8px 24px 0; font-size: 12px; font-weight: 600; }
+  .nav { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 10px; }
+  .nav .title { font-weight: 600; font-size: 16px; }
+  .nav .btn { color: #0A84FF; font-size: 15px; display: flex; align-items: center; gap: 4px; }
+  .nav .btn.bold { font-weight: 600; }
+  .glassbar { display: flex; gap: 6px; }
+  .glass { background: rgba(255,255,255,0.13); border: 1px solid rgba(255,255,255,0.22); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 2px 8px rgba(0,0,0,0.35); backdrop-filter: blur(10px); border-radius: 999px; }
+  .glass.round { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+  .glass.pill { padding: 0 12px; height: 34px; display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
+  .panes { display: flex; gap: 2px; }
+  .pane { flex: 1; position: relative; display: flex; align-items: flex-end; justify-content: center; }
+  .pane.mine { background: radial-gradient(120% 90% at 50% 100%, #2F4032 0%, #17201A 60%, #0B0F0C 100%); }
+  .pane.model { background: radial-gradient(120% 90% at 50% 100%, #333A52 0%, #1A1E2C 60%, #0B0C12 100%); }
+  .pane svg { width: 56px; height: 120px; margin-bottom: 12px; }
+  .pane.empty { background: #0E0E10; align-items: center; }
+  .pane .lab { position: absolute; top: 8px; left: 8px; font-size: 11px; font-weight: 700; color: #fff; background: rgba(0,0,0,0.55); padding: 4px 8px; border-radius: 999px; }
+  .pane .corner { position: absolute; top: 6px; right: 6px; }
+  .pane .bot { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 700; color: #fff; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.35); padding: 4px 8px; border-radius: 999px; white-space: nowrap; }
+  .plus { text-align: center; color: #8E8E93; font-size: 12px; }
+  .plus .big { font-size: 40px; line-height: 1; color: #fff; font-weight: 200; display: block; margin-bottom: 8px; }
+  .ctrl { padding: 6px 12px 0; color: #C7C7CC; }
+  .seg { display: flex; background: #2C2C2E; border-radius: 8px; padding: 2px; font-size: 11px; width: 150px; margin-left: auto; }
+  .seg span { flex: 1; text-align: center; padding: 4px 6px; border-radius: 6px; color: #C7C7CC; }
+  .seg span.on { background: #636366; color: #fff; }
+  .seek { margin: 8px 0 6px; height: 6px; border-radius: 3px; display: flex; overflow: hidden; }
+  .seek i { display: block; height: 100%; }
+  .seek .b { background: #0A84FF; flex: 3; } .seek .d { background: #FF9F0A; flex: 1; } .seek .f { background: #30D158; flex: 1.5; }
+  .transport { display: flex; justify-content: space-between; align-items: center; padding: 2px 6px 8px; color: #fff; font-size: 16px; }
+  .transport .spd { font-size: 12px; color: #C7C7CC; }
+  .faded { opacity: 0.35; }
+
+  /* リストとシート */
+  .sect { padding: 12px 18px 5px; font-size: 12px; color: #8E8E93; text-transform: uppercase; letter-spacing: 0.02em; display: flex; justify-content: space-between; align-items: baseline; }
+  .sect .act { color: #0A84FF; text-transform: none; font-size: 14px; }
+  .group { background: #1C1C1E; border-radius: 10px; margin: 0 14px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; min-height: 58px; position: relative; background: #1C1C1E; }
+  .row + .row::before { content: ""; position: absolute; left: 70px; right: 0; top: 0; height: 1px; background: #38383A; }
+  .row.tall { min-height: 76px; }
+  .row.tall + .row.tall::before { left: 118px; }
+  .row .text { flex: 1; min-width: 0; }
+  .row .t { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .s { font-size: 12px; color: #8E8E93; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .row .chev { color: #5A5A5E; font-size: 16px; }
+  .footer { padding: 6px 30px 0; font-size: 11.5px; color: #8E8E93; }
+  .thumb { display: flex; gap: 2px; flex: none; border-radius: 6px; overflow: hidden; }
+  .thumb.sm { width: 48px; height: 40px; }
+  .thumb.md { width: 96px; height: 64px; border-radius: 8px; }
+  .thumb.card { width: 132px; height: 88px; border-radius: 10px; }
+  .thumb .half { flex: 1; background: linear-gradient(180deg, #2B3A2D 0%, #1E2A21 55%, #3A4A3C 100%); display: flex; align-items: flex-end; justify-content: center; }
+  .thumb .half.model { background: linear-gradient(180deg, #2E3446 0%, #222738 55%, #3B4256 100%); }
+  .thumb.sm svg { width: 16px; height: 32px; }
+  .thumb.md svg { width: 24px; height: 52px; }
+  .thumb.card svg { width: 32px; height: 70px; }
+  .swipe { position: relative; overflow: hidden; background: #FFD60A; }
+  .swipe.pin { background: #FF9F0A; }
+  .swipe.del { background: #FF453A; }
+  .swipe .action { position: absolute; top: 0; bottom: 0; left: 0; width: 76px; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #000; font-size: 10px; font-weight: 600; gap: 2px; }
+  .swipe.pin .action { color: #fff; }
+  .swipe.del .action { left: auto; right: 0; color: #fff; }
+  .swipe .action .ic { font-size: 18px; line-height: 1; }
+  .swipe .row { transform: translateX(76px); }
+  .swipe.del .row { transform: translateX(-76px); }
+  .dimmer { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: #1C1C1E; border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,0.5); }
+  .sheet .grab { width: 36px; height: 5px; border-radius: 3px; background: #5A5A5E; margin: 6px auto 0; }
+  .sheet .group { background: #2C2C2E; }
+  .sheet .row { background: #2C2C2E; }
+  .sheet .row + .row::before { background: #48484A; }
+  .strip { display: flex; gap: 10px; padding: 4px 14px 2px; overflow: hidden; }
+  .cardx { flex: none; width: 132px; }
+  .cardx .c1 { font-size: 12px; font-weight: 600; margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cardx .c2 { font-size: 11px; color: #8E8E93; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pinbadge { position: absolute; top: 6px; left: 6px; font-size: 11px; background: rgba(0,0,0,0.6); color: #FF9F0A; padding: 2px 6px; border-radius: 999px; }
+  .undo { position: absolute; left: 14px; right: 14px; bottom: 16px; background: #2C2C2E; border-radius: 12px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+  .undo b { color: #0A84FF; font-weight: 600; }
+
+  /* 観点で比べる */
+  .matrix td { min-width: 180px; }
+  .matrix td:first-child { min-width: 120px; color: var(--muted); font-weight: 700; font-size: 13px; }
+  .matrix .rec { color: var(--pick); font-weight: 700; }
+  .matrix .neg { color: var(--warn); }
+  .rethink td:nth-child(2) { color: var(--muted); }
+  .decisions { display: grid; gap: 12px; margin: 14px 0; max-width: 780px; }
+  .decision { display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); }
+  .decision .n { font-family: "Shippori Mincho B1", serif; font-size: 20px; font-weight: 700; color: var(--accent-ink); line-height: 1.2; }
+  .decision .q { font-weight: 700; }
+  .decision .r { color: var(--ink-2); font-size: 14.5px; margin-top: 2px; }
+  .decision .r b { color: var(--accent-ink); }
+</style>
+
+<main>
+  <span class="eyebrow">SwingDuet · 設計レビュー · 2026-09-10</span>
+  <h1>履歴とお気に入りの再考</h1>
+  <p class="lede prose">前稿（<a href="https://claude.ai/code/artifact/3f2062ad-4116-4d04-84b1-63ba432e4c69">履歴とお気に入り</a>）を、いまの iOS の作法で読み直した。
+  <strong>骨格（履歴は流れ、留めたいものだけ留める。動画を残す手段はお手本の登録に寄せる）は残す。</strong>
+  変えるのは印と言葉、シートの出し方、削除の戻し方、そして起動直後の空きスペースの使い方。</p>
+
+  <div class="verdict">
+    <div class="keep"><div class="h">残す</div><ul><li>比較は自動で履歴に入る。保存ボタンは置かない</li><li>留めたもの以外は 30 件で流れる</li><li>動画を残すのは「お手本に登録」だけ。左ペインからも登録できる</li><li>同じ 2 本の組み合わせは増やさず既存を開く</li></ul></div>
+    <div class="change"><div class="h">変える</div><ul><li>比較は ★ ではなく<b>ピン留め</b>。★ は動画（お手本）に一本化</li><li>履歴シートは<b>半分の高さ</b>から。背面のステージを見ながらめくる</li><li>削除の確認ダイアログをやめ、<b>「元に戻す」</b>で戻す</li><li>ツールバーとペインの操作を<b>ガラスの丸ボタン</b>に</li></ul></div>
+    <div class="add"><div class="h">足すか決める</div><ul><li>起動直後の空きスペースに<b>ピン留めと最近</b>のカードを並べる（スタートページ）</li></ul></div>
+  </div>
+
+  <section>
+    <span class="eyebrow">§1 いまの iOS が示している作法</span>
+    <h2>前稿をどの物差しで見直したか</h2>
+    <div class="tablewrap"><table>
+      <tr><th>作法</th><th>どこで見られるか</th><th>前稿への影響</th></tr>
+      <tr><td>印は 1 つに 1 つの意味</td><td>Apple Music は iOS 17.1 で「ラブ」と「ライブラリに追加」を <b>★ お気に入り</b> 1 つに統合した。メモ・メッセージは「留める」に<b>ピン</b>を使う</td><td>比較に ★、動画にも ★ は避ける。<b>比較はピン、動画は ★</b> に分けると、両方とも iOS 利用者が知っている印になる</td></tr>
+      <tr><td>留めたものは上、それ以外は時系列</td><td>メモ（ピン留め / メモ）、メッセージ、写真 iOS 18（ピン留めコレクション）、Freeform（最近の項目 / お気に入り）</td><td>前稿の「お気に入り / 履歴」の 2 節はそのまま通用する。名前を「ピン留め / 最近」に</td></tr>
+      <tr><td>シートは半分から。背面を触れる</td><td>マップの検索シート、写真の情報シート、iOS 16 以降の <code>presentationDetents</code> + <code>presentationBackgroundInteraction</code></td><td>履歴を全画面で被せるのをやめ、<b>中間の高さ</b>で出す。行をタップするとステージが後ろで切り替わり、シートは残る</td></tr>
+      <tr><td>確認より取り消し</td><td>メール・写真・メモは削除の確認を出さず「元に戻す」か「最近削除した項目」で戻す</td><td>前稿の「全経路で確認ダイアログ」を撤回。1 件の削除は即時、「消去」は<b>元に戻す</b>のバナー付き</td></tr>
+      <tr><td>Liquid Glass（iOS 26）</td><td>ツールバーはガラスの丸ボタンをまとめたグループ、映像の上の操作もガラス。文字は減らし、アイコンと VoiceOver ラベルで</td><td>「履歴」「＋ 新しいスイング」の文字ボタンを<b>丸いガラス</b>に。ペインのチップも同じ材質に。iOS 17/18 では標準のボタンに落ちる</td></tr>
+      <tr><td>コンテンツ優先・親指の届く位置</td><td>Safari のアドレスバー下段化、写真 iOS 18 の 1 画面化</td><td>ステージ（映像）を主役のまま。履歴は下から、ピン留めは 1 タップ</td></tr>
+      <tr><td>選択モードは残す</td><td>写真・ファイルの「選択」→ 下端のアクションバー</td><td>まとめて消すのは「選択」で。前稿どおり</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§2 画面で比べる</span>
+    <h2>現行と 3 案</h2>
+    <div class="phones">
+
+      <div class="col">
+        <div class="name">現行<span class="tag">main</span></div>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="btn">閉じる</span><span class="title">履歴</span><span style="width:44px"></span></div>
+          <div class="group" style="margin-top:8px">
+            <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">比較 9/10 02:20</div><div class="s">マキロイ · 自分 2.8 : 1 · お手本 3.1 : 1</div></div><span class="chev">›</span></div>
+            <div class="swipe del"><div class="action"><span class="ic">🗑</span>削除</div><div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">比較 9/10 02:05</div><div class="s">マキロイ · 自分 3.1 : 1 · お手本 3.1 : 1</div></div><span class="chev">›</span></div></div>
+            <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">比較 9/10 01:58</div><div class="s">マキロイ · 自分 3.1 : 1 · お手本 3.1 : 1</div></div><span class="chev">›</span></div>
+            <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">比較 9/8 18:40</div><div class="s">マキロイ · 自分 2.9 : 1 · お手本 3.1 : 1</div></div><span class="chev">›</span></div>
+            <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">比較 9/8 18:31</div><div class="s">マキロイ · 自分 3.0 : 1 · お手本 3.1 : 1</div></div><span class="chev">›</span></div>
+            <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">比較 9/8 18:22</div><div class="s">マキロイ · 自分 3.0 : 1 · お手本 3.1 : 1</div></div><span class="chev">›</span></div>
+          </div>
+          <div class="footer" style="margin-top:10px">全画面のシート。片方を選び直すたびに 1 行増え、上限なし。消すのは左スワイプだけ</div>
+        </div></div>
+        <p class="cap">両ペインがそろうたびに自動で 1 件。<b>同じ日の同じお手本が何行も並び、区別は時刻だけ</b>。留める手段は無く、動画を残すのは右ペインの登録のみ。</p>
+      </div>
+
+      <div class="col">
+        <div class="name">案 A<span class="tag">前稿</span></div>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="btn">閉じる</span><span class="title">履歴</span><span class="btn">選択</span></div>
+          <div class="sect"><span>お気に入り</span></div>
+          <div class="group">
+            <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 4M9 12l6-6M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12L2 6M9 12l7-7M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">ドライバー 9/3 レッスン後</div><div class="s">マキロイ · 自分 3.0 : 1 · お手本 3.1 : 1</div></div><span class="chev">›</span></div>
+          </div>
+          <div class="sect"><span>履歴</span><span class="act">消去</span></div>
+          <div class="group">
+            <div class="swipe"><div class="action"><span class="ic">★</span>お気に入り</div><div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12L2 6M9 12l7-7M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">比較 9/10 02:20</div><div class="s">マキロイ · 自分 2.8 : 1 · お手本 3.1 : 1</div></div><span class="chev">›</span></div></div>
+            <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 4M9 12l6-6M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12L2 6M9 12l7-7M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">比較 9/10 02:05</div><div class="s">マキロイ · 自分 3.1 : 1 · お手本 3.1 : 1</div></div><span class="chev">›</span></div>
+            <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L4 4M9 12l5-7M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12L2 6M9 12l7-7M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">比較 9/8 18:40</div><div class="s">マキロイ · 自分 2.9 : 1 · お手本 3.1 : 1</div></div><span class="chev">›</span></div>
+          </div>
+          <div class="footer">お気に入り以外は 30 件まで残ります</div>
+          <div class="footer" style="margin-top:14px">左ペインには「☆ お手本に登録」の文字チップ。削除は全経路で確認ダイアログ</div>
+        </div></div>
+        <p class="cap">構造は正しい。ただし <b>★ が「比較のお気に入り」と「お手本」の両方を連想させる</b>のと、全画面シート・確認ダイアログ・文字チップが 1 世代前の作法。</p>
+      </div>
+
+      <div class="col">
+        <div class="name">案 B<span class="tag pick">推し</span></div>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="glassbar"><span class="glass round">🕘</span></span><span class="glassbar"><span class="glass round" style="color:#FF9F0A">📌</span><span class="glass round">＋</span></span></div>
+          <div class="panes" style="height:250px">
+            <div class="pane mine"><span class="lab">自分 ⌄</span><span class="corner glass round" style="width:30px;height:30px;font-size:13px;color:#FFD60A">☆</span><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg><span class="bot">フェーズ調整</span></div>
+            <div class="pane model"><span class="lab">お手本 · マキロイ ⌄</span><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12L2 6M9 12l7-7M9 19l-4 12M9 19l4 12"/></svg><span class="bot">フェーズ調整</span></div>
+          </div>
+          <div class="dimmer" style="top:76px"></div>
+          <div class="sheet" style="height:330px">
+            <div class="grab"></div>
+            <div class="nav" style="height:38px"><span style="width:44px"></span><span class="title" style="font-size:15px">履歴</span><span class="btn">選択</span></div>
+            <div class="sect" style="padding-top:2px"><span>ピン留め</span></div>
+            <div class="group">
+              <div class="row tall"><div class="thumb md"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">ドライバー 9/3 レッスン後</div><div class="s">マキロイ · 3.0 : 1 / 3.1 : 1</div></div><span class="chev">›</span></div>
+            </div>
+            <div class="sect"><span>最近</span><span class="act">消去</span></div>
+            <div class="group">
+              <div class="swipe pin"><div class="action"><span class="ic">📌</span>ピン留め</div><div class="row tall"><div class="thumb md"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">今日 02:20</div><div class="s">マキロイ · 2.8 : 1 / 3.1 : 1</div></div><span class="chev">›</span></div></div>
+              <div class="row tall"><div class="thumb md"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">9/8 18:40</div><div class="s">マキロイ · 2.9 : 1 / 3.1 : 1</div></div><span class="chev">›</span></div>
+            </div>
+          </div>
+        </div></div>
+        <p class="cap"><b>比較はピン、動画は ★。</b>シートは半分の高さで、行をタップすると後ろのステージが切り替わる。ツールバーはガラスの丸ボタン（履歴 / ピン / ＋）。左ペイン右上の ☆ で自分の動画をお手本に登録。</p>
+      </div>
+
+      <div class="col">
+        <div class="name">案 C<span class="tag">B ＋ スタートページ</span></div>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="glassbar"><span class="glass round">🕘</span></span><span class="glassbar"><span class="glass round" style="opacity:.4">＋</span></span></div>
+          <div class="panes" style="height:200px">
+            <div class="pane mine empty"><span class="lab">自分</span><div class="plus"><span class="big">⊕</span>動画を選ぶ</div></div>
+            <div class="pane model empty"><span class="lab">お手本</span><div class="plus"><span class="big">⊕</span>動画を選ぶ</div></div>
+          </div>
+          <div class="sect" style="padding-top:14px"><span>ピン留め</span></div>
+          <div class="strip">
+            <div class="cardx"><div class="thumb card" style="position:relative"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><span class="pinbadge">📌</span></div><div class="c1">ドライバー 9/3</div><div class="c2">マキロイ</div></div>
+            <div class="cardx"><div class="thumb card" style="position:relative"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><span class="pinbadge">📌</span></div><div class="c1">7I 切り返し</div><div class="c2">自分ベスト 9/3</div></div>
+            <div class="cardx" style="width:40px"><div class="thumb card" style="width:40px"><div class="half"></div></div></div>
+          </div>
+          <div class="sect"><span>最近</span><span class="act">すべて</span></div>
+          <div class="strip">
+            <div class="cardx"><div class="thumb card"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="c1">今日 02:20</div><div class="c2">マキロイ</div></div>
+            <div class="cardx"><div class="thumb card"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="c1">9/8 18:40</div><div class="c2">マキロイ</div></div>
+            <div class="cardx" style="width:40px"><div class="thumb card" style="width:40px"><div class="half"></div></div></div>
+          </div>
+          <div class="undo"><span>「最近」を 12 件消去しました</span><b>元に戻す</b></div>
+        </div></div>
+        <p class="cap">起動直後、いまは薄く描いた偽の操作パネルが占めている場所に<b>ピン留めと最近のカード</b>を並べる。留めた比較は起動して 1 タップ。全リストは「すべて」か左上の履歴から。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§3 観点で比べる</span>
+    <h2>同じ物差しで 3 案を並べる</h2>
+    <div class="tablewrap"><table class="matrix">
+      <tr><th></th><th>案 A（前稿）</th><th>案 B（推し）</th><th>案 C（B ＋ スタートページ）</th></tr>
+      <tr><td>印と言葉</td><td>比較に ★「お気に入り」、動画は「お手本に登録」。<span class="neg">★ がお手本の連想と重なる</span></td><td class="rec">比較に 📌「ピン留め」、動画に ★「お手本」。iOS の慣用と一致</td><td>B と同じ</td></tr>
+      <tr><td>留めた比較を開く</td><td>履歴 → 行（2 タップ）</td><td>履歴 → 行（2 タップ。シートが残るので続けて別の行も）</td><td class="rec">起動直後なら 1 タップ。比較中は B と同じ</td></tr>
+      <tr><td>留める操作</td><td>行の右スワイプ / 長押し / 比較画面の ★</td><td class="rec">行の右スワイプ / 長押し / ツールバーの 📌（比較を見ながら）</td><td>B と同じ</td></tr>
+      <tr><td>動画を残す</td><td>左ペインの文字チップ「☆ お手本に登録」</td><td class="rec">左ペイン右上のガラス丸ボタン ☆ → 名前 → ★。長押しで名前変更・解除</td><td>B と同じ</td></tr>
+      <tr><td>削除</td><td>4 経路 ＋ 消去。<span class="neg">全部に確認ダイアログ</span></td><td class="rec">左スワイプは即時。「消去」と選択削除は「元に戻す」バナー（アプリを閉じるまで戻せる）</td><td>B と同じ</td></tr>
+      <tr><td>流れる上限</td><td>お気に入り以外 30 件</td><td>ピン留め以外 30 件（日数でなく件数。長く休んでも消えない）</td><td>B と同じ</td></tr>
+      <tr><td>履歴の見え方</td><td>全画面シート、小さいサムネイル 44×60</td><td class="rec">半分の高さから。サムネイルは 2 倍（96×64）。行をタップすると後ろのステージが切り替わる</td><td>B ＋ 起動直後のカード（132×88）</td></tr>
+      <tr><td>ツールバー</td><td>現行のまま（文字＋アイコン）</td><td class="rec">ガラスの丸ボタン 3 つ。iOS 26 は <code>glassEffect</code>、iOS 17/18 は標準ボタン</td><td>B と同じ</td></tr>
+      <tr><td>実装量</td><td>中</td><td>中（A ＋ シートの高さ・元に戻す・ガラス）</td><td>中〜大（B ＋ 空ステージの作り替え）</td></tr>
+      <tr><td>懸念</td><td>印の重複。ダイアログの多さ</td><td>ピンは「上に留める」の印で、「大事」の感情は ★ より弱い</td><td>空ステージの役割が「置き場」から「スタートページ」に変わる（決定済みの「起動時は空」は保つ）</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§4 部品ごとの再考</span>
+    <h2>前稿からの変更点</h2>
+    <div class="tablewrap"><table class="rethink">
+      <tr><th>部品</th><th>前稿</th><th>再考</th><th>理由</th></tr>
+      <tr><td>比較を留める印</td><td>★ お気に入り</td><td>📌 ピン留め（<code>pin.fill</code>、systemOrange）</td><td>メモ・メッセージの慣用。「上に留めて流さない」という意味がそのまま伝わる。★ を動画に譲れる</td></tr>
+      <tr><td>動画を残す印</td><td>「お手本に登録」の文字チップ</td><td>★（<code>star</code> / <code>star.fill</code>）。ペイン右上の 44pt 丸ボタン</td><td>Apple Music の ★ と同じ「大事にしてライブラリに入れる」。旧フォームでもお手本の行は ★ だった</td></tr>
+      <tr><td>節の名前</td><td>お気に入り / 履歴</td><td>ピン留め / 最近（シートの題は「履歴」のまま）</td><td>「最近」は流れることを含意する（ファイル・Freeform）。ボタンの「履歴」はユーザーの言葉なので残す</td></tr>
+      <tr><td>シート</td><td>全画面</td><td><code>presentationDetents([.medium, .large])</code> ＋ 背面操作可。行をタップしてもシートを閉じない</td><td>マップと同じ。比較を見ながら次の行を選べる。「めくる」体験になる</td></tr>
+      <tr><td>削除の戻し方</td><td>全経路で確認ダイアログ</td><td>1 件は即時。「消去」「選択して削除」は下端に「元に戻す」（アプリ終了まで保持）</td><td>メール・写真・メモの作法。ダイアログは操作を止めるが、戻せるなら止める必要がない</td></tr>
+      <tr><td>サムネイルの時刻</td><td>トップ</td><td>インパクト（現行どおり）。大きさは 2 倍</td><td>アプリの基準点。行の中で 2 本が同じ瞬間に並び、見分けやすい</td></tr>
+      <tr><td>行の文字</td><td>名前 ＋ テンポ比 2 つ</td><td>名前（無ければ「今日 02:20」）＋ お手本の名前 ＋ テンポ比</td><td>お手本の名前が最大の識別子。現行の行に近い</td></tr>
+      <tr><td>ツールバー</td><td>現行（文字＋アイコン）</td><td>左：履歴（<code>clock.arrow.circlepath</code>）。右：📌（比較中だけ）と ＋。iOS 26 はガラス、以前は標準</td><td>iOS 26 の作法に寄せつつ、iOS 17 を最低 OS のまま保てる（<code>if #available</code>）</td></tr>
+      <tr><td>モーション</td><td>記述なし</td><td>📌 と ★ に <code>symbolEffect(.bounce)</code>、切り替えに <code>contentTransition(.symbolEffect(.replace))</code>、触覚は <code>.sensoryFeedback(.selection)</code></td><td>iOS 17 で使える範囲。押した手応えを画面と指で返す</td></tr>
+      <tr><td>重複の扱い</td><td>同じ 2 本なら既存を開く</td><td>同じ。開いたものは「最近」の先頭へ</td><td>変更なし</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§5 検討して退けた案</span>
+    <h2>他に考えたこと</h2>
+    <div class="tablewrap"><table>
+      <tr><th>案</th><th>退けた理由</th></tr>
+      <tr><td>タブバー（ステージ / 履歴 / お手本）</td><td>iOS 26 のタブバーは映えるが、このアプリは舞台が 1 枚。分けるほど画面が無く、最頻操作が 1 タップ増える</td></tr>
+      <tr><td>履歴をグリッドのカードにする</td><td>視覚的だがスワイプ操作を失う。カードは案 C の起動直後の帯にだけ使い、全リストは行で</td></tr>
+      <tr><td>比較にも動画にも ★</td><td>同じ印が隣の画面で別の意味になる。Apple Music が印を 1 つに減らした方向と逆</td></tr>
+      <tr><td>「最近削除した項目」を持つ</td><td>写真アプリの作法だが、履歴は 30 件で流れるものなので受け皿まで要らない。「元に戻す」で足りる</td></tr>
+      <tr><td>日数で流す（30 日）</td><td>長く休むと全部消える。件数なら残る</td></tr>
+      <tr><td>起動時に前回の比較を開く</td><td>iOS の「続きから」の作法だが、「起動時は空」は決定済み（design/260906_2010 §6）。案 C はその決定を保ったまま近づける</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§6 決めてほしいこと</span>
+    <h2>3 つ</h2>
+    <div class="decisions">
+      <div class="decision"><div class="n">一</div><div><div class="q">比較の印を ★ からピン留めに変えるか</div><div class="r"><b>推奨: 変える（案 B）。</b>★ は動画（お手本）に一本化する。言葉を「お気に入り」のままにしたいなら案 A で、そのときは動画側を「お手本に登録」の文字にして印を分ける。</div></div></div>
+      <div class="decision"><div class="n">二</div><div><div class="q">起動直後のスタートページ（案 C）を今回入れるか</div><div class="r"><b>推奨: 今回は B まで。</b>C は空ステージの作り替えを伴うので、B を使ってから足す。カードの部品は行と共通にしておく。</div></div></div>
+      <div class="decision"><div class="n">三</div><div><div class="q">削除は「元に戻す」か確認ダイアログか</div><div class="r"><b>推奨: 元に戻す。</b>消した項目をメモリに持ち、下端のバナーから戻す。動画ファイルは次回起動時まで消えないので実装は軽い。</div></div></div>
+    </div>
+    <p class="small">同じ内容のリポジトリ側の記録: docs/design/260910_0500-history-design-review.md（前稿の記録は docs/design/260910_0258-comparison-favorites.md）</p>
+  </section>
+</main>

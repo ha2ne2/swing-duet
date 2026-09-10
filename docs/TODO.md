@@ -5,34 +5,20 @@
 
 ## ステータス一覧
 
-- [ ] A. PhotosPicker 経由のスローモーション動画が 30fps レンダリング版になる（2026-09-06 起票）
 - [ ] B. テストが検出ロジックにしかない（2026-09-06 起票）
 - [ ] D. 手首が見えない区間に掛かるトップ・インパクトは推定で、0.15〜0.2 秒ずれる（2026-09-06 起票）
 - [ ] E. 焼き込み済みスロー動画の倍率が分からず、x1 が実速にならない（2026-09-06 起票）
 - [ ] F. 2 セッションが同時に E2E を回すと壊れる（2026-09-06 起票）
+- [ ] G. 2026-09-11 の画面構成の変更後、E2E を通しで回していない（2026-09-11 起票）
 
 ---
-
-### A. PhotosPicker 経由のスローモーション動画が 30fps レンダリング版になる（2026-09-06 起票）
-
-- **背景**: 2026-09-06 のシミュレータ検証で、240fps・3.0 秒の動画を選ぶとアプリには **30fps・14.67 秒**（スロー効果が焼き込まれた再エンコード版）が渡された。
-  写真アプリは 240fps 動画を「スローモーション」として扱い、`FileRepresentation(contentType: .movie)` は編集適用済みの現行バージョンを返すため。
-  README / [SPEC.md](./SPEC.md) §2.1 の「実フレームレート単位でコマ送り」が成り立たず、スロー区間の伸縮でフェーズ時間・テンポ比も歪む。
-  シミュレータの写真アプリでの再現が根拠で、実機の PhotosPicker でも同じ挙動と見込んでいるが未確認。
-- **対象**: `SwingDuet/Services/VideoImporter.swift`（`ImportedMovie`）、`SwingDuet/Views/VideoPickerSheet.swift`（`PhotosPicker` / `loadMovie`）
-- **やること**: `PhotosPicker(..., photoLibrary: .shared())` にして `PhotosPickerItem.itemIdentifier` を取得 →
-  `PHAsset.fetchAssets(withLocalIdentifiers:)` → `PHImageManager.requestAVAsset(forVideo:options:)`（`version = .original`）で
-  元の 240fps ファイルを取り出す。取り出した原本も `ProjectStore.importVideo` → `stripAudio` の経路に通す（音声トラックを残さない）。
-  写真ライブラリの読み取り権限（`NSPhotoLibraryUsageDescription` は設定済み）が必要になるので、
-  拒否時は現行の PhotosPicker 経路（30fps 版）にフォールバックし、その旨を表示する（[AGENTS.md](../AGENTS.md) §6.3）。
-- **やらない理由（今）**: 実機での挙動確認と権限 UX の設計が先。
-- **参照**: [research/260906_1531-simulator-verification.md](./research/260906_1531-simulator-verification.md) §4.1、[research/260906_1723-slow-motion-speed-detection.md](./research/260906_1723-slow-motion-speed-detection.md) §3.3（PhotoKit で取れるもの）
 
 ### B. テストが検出ロジックにしかない（2026-09-06 起票）
 
 - **背景**: MVP はテスト無しで作られた。[AGENTS.md](../AGENTS.md) §5.1 は「最初からテストを書く」前提。
   2026-09-10 に Swift Testing のターゲット `SwingDuetTests` を追加し、`SwingDetector` を合成した手の高さの系列で固定した（実行方法は [guides/build-test.md](./guides/build-test.md)）。
-- **対象**: `SwingDuet/Models/SyncEngine.swift`、`SwingDuet/Models/SwingModels.swift`（`PhaseSet.sanitize` / `assign` / `fallback`）
+  2026-09-11 に `ClipStore`（旧データの移行・上限・相手の解決・元に戻す・同じ動画の共有）のテストを足した。
+- **対象**: `SwingDuet/Models/SyncEngine.swift`、`SwingDuet/Models/Swing.swift`（`PhaseSet.sanitize` / `assign` / `fallback`）
 - **やること**: 上記の純粋ロジックにテストを足す。
 - **参照**: [ROADMAP.md](./ROADMAP.md) フェーズ 3
 
@@ -44,21 +30,23 @@
   それでも Golfboy はトップが 0.15 秒早く、インパクトが 0.15 秒遅い（欠測の両端）。手動修正に頼っている（`lowConfidence` は画面に出ない）。
 - **対象**: `SwingDuet/Services/SwingDetector.swift`（`swingCandidate` の欠測の分岐）
 - **やること**: (1) 実速の自撮り動画では衝突音でインパクトを精密化する（取り込み時の音声削除より前に解析する順序が必要。隣の打席の音は映像の推定 ±0.1 秒で絞る）。
-  (2) クラブヘッド追跡で欠測区間を埋める（[ROADMAP.md](./ROADMAP.md) フェーズ 4）。(3) 240fps の元ファイル取得（A）で欠測そのものを減らす。
-  `build/analyze-swing --series --joints docs/data/*` で検証する。
-- **やらない理由（今）**: 推定と手動修正で運用できる。A が入れば自分の動画側の欠測は減る見込み。
+  (2) クラブヘッド追跡で欠測区間を埋める（[ROADMAP.md](./ROADMAP.md) フェーズ 4）。(3) 写真ライブラリから原本（240fps）を取り込めるようになった
+  （2026-09-11）ので、実機で欠測率がどれだけ減るかを確認する。`build/analyze-swing --series --joints docs/data/*` で検証する。
+- **やらない理由（今）**: 推定と手動修正で運用できる。原本の取り込みで自分の動画側の欠測は減る見込み。
 - **参照**: [research/260910_0215](./research/260910_0215-rear-view-phase-detection.md) §3.2、[research/260906_1641](./research/260906_1641-multi-swing-detection.md) §2.2
 
 ### E. 焼き込み済みスロー動画の倍率が分からず、x1 が実速にならない（2026-09-06 起票）
 
 - **背景**: 再生速度の x1 は「動画のタイムラインを等速で流す」なので、スロー効果が焼き込まれた 30fps 動画（他アプリの書き出し、
   YouTube のスロー動画）では x1 でも実速にならない。焼き込みスローにはフレームレート以外のメタデータが無く、倍率は映像から推定するか手動指定するしかない。
-  写真アプリのスローモーションは PhotoKit で原本（240fps・実速）を取れるので A で解消する。
-- **対象**: `SwingDuet/Models/SwingModels.swift`（`VideoConfig` に倍率を追加）、`SwingDuet/Models/SyncEngine.swift`（共通タイムラインの実秒化）、
-  `SwingDuet/Services/PlaybackController.swift`、`SwingDuet/Views/TransportControlsView.swift`（速度表示）、`SwingDuet/Services/SwingAnalyzer.swift`（倍率の推定）
+  写真ライブラリから取り込む自分の動画は原本（240fps・実速）になった（2026-09-11）ので、対象はお手本側の焼き込みスロー
+  （他アプリの書き出し、YouTube のスロー動画）と、権限を拒否して OS のピッカーから入れた動画に絞られる。
+- **対象**: `SwingDuet/Models/VideoConfig.swift`（`VideoConfig` に倍率を追加）、`SwingDuet/Models/SyncEngine.swift`（共通タイムラインの実秒化）、
+  `SwingDuet/Services/PlaybackController.swift`、`SwingDuet/Views/Stage/TransportControlsView.swift`（速度表示）、`SwingDuet/Services/SwingAnalyzer.swift`（倍率の推定）
 - **やること**: 動画ごとに倍率（動画秒 ÷ 実秒）を持ち、`AVPlayer.rate` に掛けて x1 を実速にする。倍率はダウンスイング長（実速なら 0.2〜0.45 秒）から
   1 / 2 / 4 / 8 に丸めて提案し、手動で選び直せる UI を付ける。8 倍再生が実機で滑らかかを確認する。
-- **やらない理由（今）**: 設計（データモデル・UI）が先。A を先に入れると自分の動画側は倍率 1 に揃い、対象がお手本側の焼き込みスローに絞られる。
+- **やらない理由（今）**: 設計（データモデル・UI）が先。検出を速さに依存しない形にした上で、倍率は再生パラメータとして扱う
+  （atelier ブランチの research/260910_0220-slowmo-detection-failure.md §6）。
 - **参照**: [research/260906_1723-slow-motion-speed-detection.md](./research/260906_1723-slow-motion-speed-detection.md)
 
 ### F. 2 セッションが同時に E2E を回すと壊れる（2026-09-06 起票）
@@ -72,3 +60,12 @@
   `run.sh` は `booted` ではなく名前で端末を選び、無ければ作成・起動・`addmedia` する。
 - **やらない理由（今）**: 運用（worktree の切り方・端末の命名）を決めてから実装する。それまでは `pgrep -f "xcodebuild tes[t]"` で確認して直列に回す。
 - **参照**: [research/260906_1811-parallel-e2e-simulators.md](./research/260906_1811-parallel-e2e-simulators.md)
+
+### G. 2026-09-11 の画面構成の変更後、E2E を通しで回していない（2026-09-11 起票）
+
+- **背景**: 保存単位をクリップに変え、ホーム / 動画を選ぶ / ステージの構成にした際に `FlowTests.swift` を新フローに書き直したが、
+  シミュレータで通しでは回していない（単体テストとビルドのみ）。自前のピッカーは写真ライブラリの権限を使うので、`run.sh` に
+  `simctl privacy grant photos` を足し、ダイアログが出た場合はテスト側で押す（`allowPhotosIfAsked`）ようにしてあるが、どちらも未検証。
+- **対象**: `.claude/skills/e2e-simulator/FlowTests.swift`、同 `make-harness.py`（`run.sh`）、同 `SKILL.md`
+- **やること**: [SKILL.md](../.claude/skills/e2e-simulator/SKILL.md) の手順で 4 テストを回し、識別子・待ち時間・権限の扱いを直す。
+- **参照**: [design/260911_0530](./design/260911_0530-diary-screen-flow.md) §7 STEP 5

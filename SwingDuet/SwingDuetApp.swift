@@ -2,11 +2,11 @@ import SwiftUI
 
 @main
 struct SwingDuetApp: App {
-    @StateObject private var store = ProjectStore()
+    @StateObject private var store = ClipStore()
 
     var body: some Scene {
         WindowGroup {
-            StageView()
+            SwingListView()
                 .environmentObject(store)
                 .preferredColorScheme(.dark)
         }

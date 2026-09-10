@@ -63,7 +63,7 @@ enum VideoError: LocalizedError {
 }
 
 /// 動画 1 本の自動解析の入口：人物追跡（PoseTracker）→ スイング検出（SwingDetector）。
-/// 結果は `SwingAnalysisResult.videoConfig(fileName:)` でプロジェクトに保存する形に変換する
+/// 結果は `SwingAnalysisResult.videoConfig(fileName:)` でクリップに保存する形に変換する
 enum SwingAnalyzer {
 
     static func analyze(url: URL) async throws -> SwingAnalysisResult {

@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 
 /// PhotosPicker から動画ファイルを受け取るための Transferable。
 /// 渡される一時ファイルはクロージャを抜けると消えるので、その場でアプリの一時ディレクトリへコピーする。
-/// 写真アプリのスローモーション動画は 30fps のレンダリング版で渡される（docs/TODO.md A）
+/// 写真アプリのスローモーション動画は 30fps のレンダリング版で渡される。原本が要るときは PhotoLibrary（権限あり）から取り込む
 private struct ImportedMovie: Transferable {
     let url: URL
 
@@ -25,7 +25,7 @@ private struct ImportedMovie: Transferable {
 }
 
 extension PhotosPickerItem {
-    /// 選んだ項目を動画の一時ファイルとして取り出す（あとで `ProjectStore.importVideo` でアプリ管理領域へ移す）
+    /// 選んだ項目を動画の一時ファイルとして取り出す（あとで `ClipStore.importVideo` でアプリ管理領域へ移す）
     func loadMovieURL() async throws -> URL {
         guard let movie = try await loadTransferable(type: ImportedMovie.self) else {
             throw VideoError.unreadable
@@ -36,6 +36,13 @@ extension PhotosPickerItem {
 
 /// 取り込んだ動画ファイルの後処理
 enum VideoImporter {
+
+    /// 動画ファイルの撮影日時（メタデータ）。無ければ nil。
+    /// 写真ライブラリから取り込んだ動画は `PHAsset.creationDate` を使うので、ここを使うのは OS のピッカー経由のとき
+    static func creationDate(of url: URL) async -> Date? {
+        guard let item = try? await AVURLAsset(url: url).load(.creationDate) else { return nil }
+        return try? await item.load(.dateValue)
+    }
 
     /// 動画ファイルを映像トラックだけに書き換える（音声が無ければ何もしない）。書き換えたかどうかを返す。
     ///

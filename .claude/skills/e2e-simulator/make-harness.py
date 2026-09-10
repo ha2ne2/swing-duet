@@ -165,8 +165,10 @@ rsync -a --delete "$REPO/SwingDuet/" "$H/SwingDuet/"
 cp "$REPO/.claude/skills/e2e-simulator/FlowTests.swift" "$H/SwingDuetUITests/FlowTests.swift"
 
 rm -rf "$H/out"; mkdir -p "$H/out"
-# 毎回まっさらな状態から始める（E2E_KEEP_DATA=1 なら保存データを残す。既存プロジェクトを使うテスト用）
+# 毎回まっさらな状態から始める（E2E_KEEP_DATA=1 なら保存データを残す。保存済みのスイングを使うテスト用）
 [ -n "${E2E_KEEP_DATA:-}" ] || xcrun simctl uninstall "$SIM" com.ha2ne2.SwingDuet 2>/dev/null
+# 写真ライブラリの権限を先に許可しておく（「動画」タブが自前のグリッドを出すのに要る。ダイアログが出た場合はテスト側でも押す）
+xcrun simctl privacy "$SIM" grant photos com.ha2ne2.SwingDuet 2>/dev/null
 # E2E_ONLY="SwingDuetUITests/FlowTests/testZoomPanPersistence" のように 1 テストだけ回せる
 only=(); [ -n "${E2E_ONLY:-}" ] && only=(-only-testing:"$E2E_ONLY")
 # TEST_RUNNER_ 接頭辞の環境変数はテストランナーのプロセスへ渡される（ビルド設定として渡しても届かない）

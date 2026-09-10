@@ -17,11 +17,11 @@ SwingDuet は、以下の 4 つのフェーズで進める：
 
 | タスク     | 内容                                                        | 関連ファイル                                                  | ステータス            |
 | ---------- | ----------------------------------------------------------- | ------------------------------------------------------------- | --------------------- |
-| 入力       | PhotosPicker で 2 本読み込み、自動フィット、拡大・位置合わせ | `Views/StageView.swift`、`Views/VideoPickerSheet.swift`、`Views/VideoPaneView.swift` | ✅ 完了（2026-09-06） |
-| 自動検出   | Vision 姿勢推定（手首・腰・首）+ 手の高さによる 4 フェーズ決定、手動修正 | `Services/SwingAnalyzer.swift`、`Views/PhaseEditView.swift`   | ✅ 完了（2026-09-06） |
+| 入力       | 写真ライブラリの動画の取り込み、自動フィット、拡大・位置合わせ | `Views/Home/SwingListView.swift`、`Views/Stage/StageView.swift`、`Views/Picker/VideoPickerSheet.swift`、`Views/Stage/VideoPaneView.swift` | ✅ 完了（2026-09-06） |
+| 自動検出   | Vision 姿勢推定（手首・腰・首）+ 手の高さによる 4 フェーズ決定、手動修正 | `Services/SwingAnalyzer.swift`、`Views/Stage/PhaseEditView.swift` | ✅ 完了（2026-09-06） |
 | 同期       | インパクト基準・区間別倍率、基準側の切替                    | `Models/SyncEngine.swift`                                     | ✅ 完了（2026-09-06） |
 | 再生 UI    | 共通シークバー、テンポ比、ジャンプ、速度、コマ送り、ループ  | `Services/PlaybackController.swift`、`Views/*`                | ✅ 完了（2026-09-06） |
-| 保存       | プロジェクトの保存・再開（JSON + 動画コピー）               | `Services/ProjectStore.swift`                                 | ✅ 完了（2026-09-06） |
+| 保存       | クリップ（スイング / お手本）の保存・再開（JSON + 動画コピー） | `Services/ClipStore.swift`                                    | ✅ 完了（2026-09-06） |
 
 ---
 
@@ -47,8 +47,8 @@ SwingDuet は、以下の 4 つのフェーズで進める：
 
 | タスク                       | 内容                                                                              | ステータス                          |
 | ---------------------------- | --------------------------------------------------------------------------------- | ----------------------------------- |
-| スロー動画の元ファイル取得   | PhotosPicker が 30fps レンダリング版を渡す問題の解消（PhotoKit で元動画を取得）    | ⬜ 未着手（[TODO.md](./TODO.md) A） |
-| テスト整備                   | Swift Testing ターゲットを追加し、SyncEngine / PhaseSet / 検出ロジックを単体テスト | 🔶 一部（`SwingDuetTests` に検出ロジックのテストあり。SyncEngine / PhaseSet は [TODO.md](./TODO.md) B） |
+| スロー動画の元ファイル取得   | PhotosPicker が 30fps レンダリング版を渡す問題の解消（PhotoKit で元動画を取得）    | ✅ 完了（2026-09-11。自前の「動画」タブが原本を取り込む。実機での確認は未） |
+| テスト整備                   | Swift Testing ターゲットを追加し、SyncEngine / PhaseSet / 検出ロジックを単体テスト | 🔶 一部（`SwingDuetTests` に検出ロジックと `ClipStore` のテストあり。SyncEngine / PhaseSet は [TODO.md](./TODO.md) B） |
 
 ---
 
@@ -65,7 +65,9 @@ SwingDuet は、以下の 4 つのフェーズで進める：
 - [x] 比較画面の入口の整理・第 1 段：右上を「＋ 新しいスイング」に、フェーズ調整をペイン下端へ、信頼度の警告と拡大のリセットを削除（2026-09-07、[design/260907_0159](./design/260907_0159-stage-entry-points.md) 案3 の一部）
 - [x] 右上の「＋ 新しいスイング」を、ライブラリを直接開いて左ペインに入れる動きから、両ペインを空に戻して起動直後からやり直す動きに変更（2026-09-10）
 - [x] フェーズ検出を「体に対する手の高さ」で決める方式に置き換え（後方視点・トップでの静止・手首の欠測に対応。2026-09-10、[design/260910_0236](./design/260910_0236-hand-height-phase-detection.md)）
-- [ ] 比較画面の入口の整理・第 2 段以降：ペイン下端の「動画を替える」、取り込み直後の「インパクトはここ？」（同上 案1 / 案4）
+- [x] 保存単位を比較ペアからスイング 1 本ずつ（クリップ）に変え、起動画面をスイングの一覧（★ ベスト・撮影日ごと・60 本で流れる）に。動画を選ぶ画面を「動画」「お手本」の 2 タブの自前ピッカーに（2026-09-11、[design/260911_0530](./design/260911_0530-diary-screen-flow.md)。書き直した E2E は未実行）
+- [ ] 取り込み直後の「インパクトはここ？」（[design/260907_0159](./design/260907_0159-stage-entry-points.md) 案4）
+- [ ] 1 日に何本も撮るときの部品：複数選択の取り込み、ステージのフィルムストリップ（[design/260910_0516](./design/260910_0516-zero-base-structures.md) の D）
 
 ---
 

@@ -42,19 +42,7 @@ struct VideoPaneView: View {
         .accessibilityValue(transformText)
         .accessibilityIdentifier("pane.\(side.rawValue)")
         .overlay(alignment: .topLeading) {
-            Button(action: onTapTitle) {
-                HStack(spacing: 4) {
-                    Text(side.paneTitle(title))
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
-                }
-                .paneChip()
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(side.label)の動画を選び直す")
-            .accessibilityValue(title ?? "")
-            .padding(.horizontal, 6)
+            PaneTitleButton(side: side, title: title, action: onTapTitle)
         }
         .overlay(alignment: .bottom) {
             Button(action: onEditPhases) {
@@ -177,10 +165,27 @@ struct VideoPaneView: View {
 
 // MARK: - ペインに重ねる部品（比較前の SlotPane と共通）
 
-extension VideoSide {
-    /// ペインのラベル。「お手本 · 名前」のように登録済みお手本の名前を添える
-    func paneTitle(_ name: String?) -> String {
-        name.map { "\(label) · \($0)" } ?? label
+/// ペイン上端のラベル「自分 · 14:32 ⌄」。タップでその側の動画を選び直す
+struct PaneTitleButton: View {
+    let side: VideoSide
+    /// 添える名前（クリップの表示名）。無ければ側の名前だけ
+    let title: String?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Text(title.map { "\(side.label) · \($0)" } ?? side.label)
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+            }
+            .paneChip()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(side.label)の動画を選び直す")
+        .accessibilityValue(title ?? "")
+        .padding(.horizontal, 6)
     }
 }
 

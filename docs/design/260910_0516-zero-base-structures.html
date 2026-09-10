@@ -1,0 +1,405 @@
+<title>SwingDuet 骨格 4 案</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --paper: #F3F5F3; --paper-2: #E9EDEA; --ink: #1B2027; --ink-2: #3E4750; --muted: #66707A; --line: #D2D8D4;
+    --accent: #B27A0B; --accent-ink: #7C5406; --accent-soft: #F6E8C4; --code-bg: #E7EBE8;
+    --good: #2F7D4F; --warn: #B0560F; --pick: #1F5F8B; --pick-soft: #DDEAF5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #131618; --paper-2: #1B2023; --ink: #E9EDEB; --ink-2: #C3CAC6; --muted: #97A1A9; --line: #2C3438;
+      --accent: #F0B93A; --accent-ink: #F6CF6E; --accent-soft: #3A2E10; --code-bg: #1B2023;
+      --good: #5FBF85; --warn: #F0A25A; --pick: #7FB6E6; --pick-soft: #162B3C;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #131618; --paper-2: #1B2023; --ink: #E9EDEB; --ink-2: #C3CAC6; --muted: #97A1A9; --line: #2C3438;
+    --accent: #F0B93A; --accent-ink: #F6CF6E; --accent-soft: #3A2E10; --code-bg: #1B2023;
+    --good: #5FBF85; --warn: #F0A25A; --pick: #7FB6E6; --pick-soft: #162B3C;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Zen Kaku Gothic New", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; font-size: 15.5px; line-height: 1.85; -webkit-font-smoothing: antialiased; }
+  main { max-width: 1340px; margin: 0 auto; padding: 48px 24px 96px; }
+  .prose { max-width: 66ch; }
+  h1, h2 { font-family: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif; font-weight: 700; letter-spacing: 0.01em; text-wrap: balance; line-height: 1.35; }
+  h1 { font-size: 34px; margin: 8px 0 14px; }
+  h2 { font-size: 23px; margin: 0 0 14px; }
+  p { margin: 0 0 14px; }
+  .eyebrow { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  section { padding: 40px 0 8px; border-top: 1px solid var(--line); margin-top: 24px; }
+  section > .eyebrow { display: block; margin-bottom: 6px; }
+  .lede { font-size: 18px; line-height: 1.8; color: var(--ink-2); }
+  .lede strong { color: var(--ink); }
+  code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.92em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.4em; margin: 0 0 14px; }
+  li { margin: 4px 0; }
+  li::marker { color: var(--muted); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; line-height: 1.6; margin: 8px 0 20px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px 10px 0; border-bottom: 1px solid var(--line); }
+  th { font-weight: 700; color: var(--muted); font-size: 13px; letter-spacing: 0.04em; }
+  .tablewrap { overflow-x: auto; }
+  .small { font-size: 13.5px; color: var(--muted); }
+  .tag { display: inline-block; font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); vertical-align: middle; margin-left: 6px; }
+  .tag.pick { color: var(--pick); border-color: var(--pick); background: var(--pick-soft); }
+
+  .jobs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 18px 0 8px; }
+  .jobs > div { border-top: 3px solid var(--accent); padding: 10px 2px 0; font-size: 14.5px; line-height: 1.6; }
+  .jobs b { display: block; font-size: 15.5px; margin-bottom: 2px; }
+  @media (max-width: 900px) { .jobs { grid-template-columns: 1fr 1fr; } }
+
+  .phones { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; align-items: start; margin: 20px 0 8px; }
+  .phones.two { grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 900px; }
+  @media (max-width: 1320px) { .phones { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 700px) { .phones, .phones.two { grid-template-columns: 1fr; } }
+  .col .name { font-family: "Shippori Mincho B1", serif; font-size: 19px; font-weight: 700; margin: 0 0 2px; }
+  .col .line { font-size: 13.5px; color: var(--muted); margin: 0 0 10px; min-height: 40px; line-height: 1.5; max-width: 300px; }
+  .col .spec { margin: 12px 0 0; max-width: 300px; font-size: 13.5px; line-height: 1.6; display: grid; grid-template-columns: 58px 1fr; gap: 4px 10px; }
+  .col .spec dt { color: var(--muted); font-weight: 700; font-size: 12px; padding-top: 2px; }
+  .col .spec dd { margin: 0; color: var(--ink-2); }
+  .col .spec dd b { color: var(--ink); }
+
+  /* iPhone モックアップ（アプリはダーク固定。この中は色を直書き） */
+  .phone { width: 300px; background: #0B0B0C; border-radius: 40px; padding: 9px; box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 30px rgba(0,0,0,0.25);
+    font-family: -apple-system, "SF Pro Text", "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif; color: #fff; font-size: 14px; line-height: 1.3; letter-spacing: 0; position: relative; }
+  .screen { background: #000; border-radius: 32px; overflow: hidden; height: 600px; position: relative; }
+  .status { height: 32px; display: flex; justify-content: space-between; align-items: center; padding: 8px 24px 0; font-size: 12px; font-weight: 600; }
+  .nav { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 10px; }
+  .nav .title { font-weight: 600; font-size: 16px; }
+  .nav .title.large { font-size: 24px; font-weight: 700; padding-left: 6px; }
+  .nav .btn { color: #0A84FF; font-size: 15px; }
+  .glassbar { display: flex; gap: 6px; }
+  .glass { background: rgba(255,255,255,0.13); border: 1px solid rgba(255,255,255,0.22); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28), 0 2px 8px rgba(0,0,0,0.35); backdrop-filter: blur(10px); border-radius: 999px; }
+  .glass.round { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; font-size: 15px; }
+  .glass.pill { padding: 0 12px; height: 34px; display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
+  .panes { display: flex; gap: 2px; }
+  .pane { flex: 1; position: relative; display: flex; align-items: flex-end; justify-content: center; }
+  .pane.mine { background: radial-gradient(120% 90% at 50% 100%, #2F4032 0%, #17201A 60%, #0B0F0C 100%); }
+  .pane.model { background: radial-gradient(120% 90% at 50% 100%, #333A52 0%, #1A1E2C 60%, #0B0C12 100%); }
+  .pane svg { width: 56px; height: 120px; margin-bottom: 12px; }
+  .pane .lab { position: absolute; top: 8px; left: 8px; font-size: 11px; font-weight: 700; color: #fff; background: rgba(0,0,0,0.55); padding: 4px 8px; border-radius: 999px; }
+  .pane .corner { position: absolute; top: 6px; right: 6px; }
+  .pane .bot { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 700; color: #fff; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.35); padding: 4px 8px; border-radius: 999px; white-space: nowrap; }
+  .ctrl { padding: 6px 12px 0; color: #C7C7CC; }
+  .seg { display: flex; background: #2C2C2E; border-radius: 8px; padding: 2px; font-size: 11px; width: 150px; margin-left: auto; }
+  .seg span { flex: 1; text-align: center; padding: 4px 6px; border-radius: 6px; color: #C7C7CC; }
+  .seg span.on { background: #636366; color: #fff; }
+  .seek { margin: 8px 0 6px; height: 6px; border-radius: 3px; display: flex; overflow: hidden; }
+  .seek i { display: block; height: 100%; }
+  .seek .b { background: #0A84FF; flex: 3; } .seek .d { background: #FF9F0A; flex: 1; } .seek .f { background: #30D158; flex: 1.5; }
+  .transport { display: flex; justify-content: space-between; align-items: center; padding: 2px 6px 8px; color: #fff; font-size: 16px; }
+  .transport .spd { font-size: 12px; color: #C7C7CC; }
+  .sect { padding: 12px 18px 5px; font-size: 12px; color: #8E8E93; text-transform: uppercase; letter-spacing: 0.02em; display: flex; justify-content: space-between; align-items: baseline; }
+  .sect .act { color: #0A84FF; text-transform: none; font-size: 14px; }
+  .group { background: #1C1C1E; border-radius: 10px; margin: 0 14px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 12px; min-height: 58px; position: relative; background: #1C1C1E; }
+  .row + .row::before { content: ""; position: absolute; left: 66px; right: 0; top: 0; height: 1px; background: #38383A; }
+  .row .text { flex: 1; min-width: 0; }
+  .row .t { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .s { font-size: 12px; color: #8E8E93; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .row .ic { color: #8E8E93; font-size: 16px; width: 26px; text-align: center; }
+  .row .ic.on { color: #FFD60A; }
+  .row .dots { color: #8E8E93; font-size: 18px; width: 22px; text-align: center; letter-spacing: 1px; }
+  .footer { padding: 6px 30px 0; font-size: 11.5px; color: #8E8E93; }
+  .thumb { display: flex; gap: 2px; flex: none; border-radius: 6px; overflow: hidden; }
+  .thumb.one { width: 44px; height: 44px; }
+  .thumb.sm { width: 48px; height: 40px; }
+  .thumb .half { flex: 1; background: linear-gradient(180deg, #2B3A2D 0%, #1E2A21 55%, #3A4A3C 100%); display: flex; align-items: flex-end; justify-content: center; }
+  .thumb .half.model { background: linear-gradient(180deg, #2E3446 0%, #222738 55%, #3B4256 100%); }
+  .thumb .half.dim { opacity: 0.45; }
+  .thumb svg { width: 16px; height: 32px; }
+  .thumb.one svg { width: 18px; height: 36px; }
+  .dimmer { position: absolute; inset: 0; background: rgba(0,0,0,0.45); }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; background: #1C1C1E; border-radius: 16px 16px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,0.5); }
+  .sheet .grab { width: 36px; height: 5px; border-radius: 3px; background: #5A5A5E; margin: 6px auto 0; }
+  .sheet .group { background: #2C2C2E; }
+  .sheet .row { background: #2C2C2E; }
+  .sheet .row + .row::before { background: #48484A; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: #2C2C2E; border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; margin: 4px 14px 0; }
+  .chip .k { color: #8E8E93; font-weight: 500; }
+  .fab { position: absolute; left: 50%; transform: translateX(-50%); bottom: 22px; padding: 0 18px; height: 46px; display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: #fff; background: rgba(10,132,255,0.85); border: 1px solid rgba(255,255,255,0.35); border-radius: 999px; box-shadow: 0 6px 20px rgba(0,0,0,0.45); backdrop-filter: blur(10px); white-space: nowrap; }
+  .card { background: #1C1C1E; border-radius: 12px; margin: 0 14px 10px; padding: 10px 12px; }
+  .card .h { display: flex; justify-content: space-between; align-items: center; }
+  .card .h .t { font-size: 15px; font-weight: 600; }
+  .card .h .s { font-size: 12px; color: #8E8E93; }
+  .card .strip { display: flex; gap: 4px; margin-top: 8px; }
+  .card .strip .thumb { width: 52px; height: 44px; border-radius: 6px; }
+  .card .strip .thumb .half { position: relative; }
+  .starb { position: absolute; top: 2px; right: 3px; font-size: 10px; color: #FFD60A; }
+  .film { display: flex; gap: 4px; padding: 8px 12px 2px; align-items: center; }
+  .film .thumb { width: 38px; height: 46px; border-radius: 5px; border: 2px solid transparent; }
+  .film .thumb.sel { border-color: #fff; }
+  .film .cnt { font-size: 11px; color: #8E8E93; margin-left: auto; white-space: nowrap; }
+  .prog { height: 3px; background: #38383A; border-radius: 2px; margin-top: 4px; overflow: hidden; }
+  .prog i { display: block; height: 100%; width: 60%; background: #0A84FF; }
+  .pane.empty { background: #0E0E10; align-items: center; }
+  .plus { text-align: center; color: #8E8E93; font-size: 12px; }
+  .plus .big { font-size: 40px; line-height: 1; color: #fff; font-weight: 200; display: block; margin-bottom: 8px; }
+
+  .matrix td { min-width: 150px; }
+  .matrix td:first-child { min-width: 130px; color: var(--muted); font-weight: 700; font-size: 13px; }
+  .matrix .rec { color: var(--pick); font-weight: 700; }
+  .matrix .neg { color: var(--warn); }
+  .path { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 14px 0 8px; max-width: 900px; }
+  .path > div { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: var(--paper-2); font-size: 14.5px; }
+  .path .h { font-weight: 700; margin-bottom: 4px; }
+  .path .n { font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--muted); letter-spacing: 0.1em; }
+  @media (max-width: 800px) { .path { grid-template-columns: 1fr; } }
+  .decisions { display: grid; gap: 12px; margin: 14px 0; max-width: 780px; }
+  .decision { display: grid; grid-template-columns: 28px 1fr; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); }
+  .decision .n { font-family: "Shippori Mincho B1", serif; font-size: 20px; font-weight: 700; color: var(--accent-ink); line-height: 1.2; }
+  .decision .q { font-weight: 700; }
+  .decision .r { color: var(--ink-2); font-size: 14.5px; margin-top: 2px; }
+  .decision .r b { color: var(--accent-ink); }
+</style>
+
+<main>
+  <span class="eyebrow">SwingDuet · 設計 · 2026-09-10</span>
+  <h1>履歴・お気に入り・お手本を、骨格から 4 案</h1>
+  <p class="lede prose">前 2 稿は「比較の履歴」を前提に磨いていた。ここでは前提を外し、<strong>何を保存単位にして、起動直後に何を見せるか</strong>から選び直す。
+  4 案はどれも同じ再生ステージと解析を使う。違うのは、その周りに何を置くか。</p>
+
+  <div class="jobs">
+    <div><b>今日の 1 本をいつものお手本と</b>練習場で撮って、すぐ見比べる。いちばん多い操作</div>
+    <div><b>先週のあの比較をもう一度</b>調整したフェーズや位置合わせごと開き直す</div>
+    <div><b>良かったスイングを残す</b>お手本として使えるように。プロの動画も同じ棚に</div>
+    <div><b>溜まらない、消せる</b>試し撮りや失敗は自然に流れ、消すときは見える操作で</div>
+  </div>
+
+  <section>
+    <span class="eyebrow">§1 4 つの骨格</span>
+    <h2>主役を何にするか</h2>
+    <div class="phones">
+
+      <div class="col">
+        <div class="name">A ツール型</div>
+        <p class="line">アプリは道具。ライブラリは写真アプリ。履歴は持たない</p>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="glassbar"><span class="glass pill">★ お手本</span></span><span class="glassbar"><span class="glass round">＋</span></span></div>
+          <div class="panes" style="height:300px">
+            <div class="pane mine"><span class="lab">自分 ⌄</span><span class="corner glass round" style="width:30px;height:30px;font-size:13px;color:#FFD60A">☆</span><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg><span class="bot">フェーズ調整</span></div>
+            <div class="pane model"><span class="lab">お手本 · マキロイ ⌄</span><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12L2 6M9 12l7-7M9 19l-4 12M9 19l4 12"/></svg><span class="bot">フェーズ調整</span></div>
+          </div>
+          <div class="ctrl"><div class="seg"><span>自分基準</span><span class="on">お手本基準</span></div><div class="seek"><i class="b"></i><i class="d"></i><i class="f"></i></div></div>
+          <div class="transport"><span>A</span><span>T</span><span>I</span><span>‹</span><span>▶</span><span>›</span><span class="spd">x0.3</span><span>↻</span></div>
+          <div class="footer" style="margin-top:26px;text-align:center">起動すると前回の比較がそのまま出る。<br>履歴は無い。過去の 1 本は写真アプリで選び直す。<br>解析と手直しはキャッシュから戻るので待たない</div>
+        </div></div>
+        <dl class="spec">
+          <dt>保存</dt><dd>お手本の棚（自分の ★ も入る）、最後の比較の状態、<b>解析キャッシュ</b>（動画の指紋 → フェーズ・手直し・位置合わせ。上限つきで自動）</dd>
+          <dt>残す</dt><dd>左ペインの ☆ → お手本の棚の「自分」に入る</dd>
+          <dt>流す</dt><dd>溜まる場所が無い</dd>
+          <dt>消す</dt><dd>お手本の棚の「…」だけ</dd>
+          <dt>実装</dt><dd><b>小</b>。履歴を削り、キャッシュと復元を足す</dd>
+        </dl>
+      </div>
+
+      <div class="col">
+        <div class="name">B 作品型</div>
+        <p class="line">比較は作品。自動で履歴に残り、留めたいものに 🔖</p>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="glassbar"><span class="glass round">🕘</span></span><span class="glassbar"><span class="glass round">🔖</span><span class="glass round">＋</span></span></div>
+          <div class="panes" style="height:240px">
+            <div class="pane mine"><span class="lab">自分 ⌄</span><span class="corner glass round" style="width:30px;height:30px;font-size:13px;color:#FFD60A">☆</span><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg></div>
+            <div class="pane model"><span class="lab">お手本 · マキロイ ⌄</span><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12L2 6M9 12l7-7M9 19l-4 12M9 19l4 12"/></svg></div>
+          </div>
+          <div class="dimmer" style="top:76px"></div>
+          <div class="sheet" style="height:340px">
+            <div class="grab"></div>
+            <div class="nav" style="height:38px"><span style="width:44px"></span><span class="title" style="font-size:15px">履歴</span><span class="btn">選択</span></div>
+            <div class="sect" style="padding-top:2px"><span>お気に入り</span></div>
+            <div class="group">
+              <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">ドライバー 9/3</div><div class="s">マキロイ · 3.0 : 1 / 3.1 : 1</div></div><span class="dots">···</span></div>
+            </div>
+            <div class="sect"><span>最近</span><span class="act">消去</span></div>
+            <div class="group">
+              <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">今日 14:32</div><div class="s">マキロイ · 2.8 : 1 / 3.1 : 1</div></div><span class="dots">···</span></div>
+              <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">今日 14:20</div><div class="s">マキロイ · 3.1 : 1 / 3.1 : 1</div></div><span class="dots">···</span></div>
+              <div class="row"><div class="thumb sm"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div><div class="half model"><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12l-6 8M9 12l6 8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">9/8 18:40</div><div class="s">マキロイ · 2.9 : 1 / 3.1 : 1</div></div><span class="dots">···</span></div>
+            </div>
+            <div class="footer">お気に入り以外は 30 件まで残ります</div>
+          </div>
+        </div></div>
+        <dl class="spec">
+          <dt>保存</dt><dd>比較（自動）とお手本の棚。いまの形の延長</dd>
+          <dt>残す</dt><dd>🔖（比較）と ★（動画をお手本に）。<b>印が 2 つ</b>残る</dd>
+          <dt>流す</dt><dd>🔖 以外は 30 件。同じ 2 本は増やさない</dd>
+          <dt>消す</dt><dd>行の「…」、選択、消去、元に戻す。スワイプは近道扱い</dd>
+          <dt>実装</dt><dd><b>中</b>。現行に足す</dd>
+        </dl>
+      </div>
+
+      <div class="col">
+        <div class="name">C 日記型<span class="tag pick">推し</span></div>
+        <p class="line">主役は自分のスイングの記録。お手本は設定。★ は 1 つ</p>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="title large">スイング</span><span class="glassbar"><span class="glass round">選</span></span></div>
+          <div class="chip"><span class="k">お手本</span> マキロイ ⌄</div>
+          <div class="sect"><span>★ ベスト</span></div>
+          <div class="group">
+            <div class="row"><div class="thumb one"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 4M9 12l6-6M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">9/3 レッスン後</div><div class="s">3.0 : 1 · vs マキロイ</div></div><span class="ic on">★</span><span class="dots">···</span></div>
+          </div>
+          <div class="sect"><span>今日</span></div>
+          <div class="group">
+            <div class="row"><div class="thumb one"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">14:32</div><div class="s">2.8 : 1 · vs マキロイ</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+            <div class="row"><div class="thumb one"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L4 4M9 12l5-7M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">14:20</div><div class="s">3.1 : 1 · vs マキロイ</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+            <div class="row"><div class="thumb one"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 4M9 12l6-6M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">14:05</div><div class="s">3.2 : 1 · vs マキロイ</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+          </div>
+          <div class="sect"><span>9月8日（月）</span></div>
+          <div class="group">
+            <div class="row"><div class="thumb one"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">18:40</div><div class="s">2.9 : 1 · vs 自分ベスト 9/3</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+          </div>
+          <div class="fab">＋ スイングを追加</div>
+        </div></div>
+        <dl class="spec">
+          <dt>保存</dt><dd>スイング 1 本ずつ（解析・手直し・位置合わせ・相手にしたお手本・★）、お手本の棚、選択中のお手本</dd>
+          <dt>残す</dt><dd><b>★ 1 つ</b>。行でもステージでも見える。★ のスイングは「自分のベスト」としてお手本の棚にも並ぶ。ペアの記憶（相手と位置合わせ）も一緒に残る</dd>
+          <dt>流す</dt><dd>★ 以外は 60 本。1 本 1 行なので重複しない</dd>
+          <dt>消す</dt><dd>行の「…」、選択</dd>
+          <dt>実装</dt><dd><b>中〜大</b>。保存単位とホームが変わる。ステージと解析はそのまま</dd>
+        </dl>
+      </div>
+
+      <div class="col">
+        <div class="name">D セッション型</div>
+        <p class="line">練習日が単位。まとめて入れて、同じお手本相手にめくる</p>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="title large">練習</span><span class="glassbar"><span class="glass pill">★ ベスト</span></span></div>
+          <div class="sect" style="padding-top:6px"><span>今日</span></div>
+          <div class="card">
+            <div class="h"><div><div class="t">9月10日（火）</div><div class="s">8 スイング · vs マキロイ · ★ 1</div></div><span class="dots" style="color:#8E8E93;font-size:18px">···</span></div>
+            <div class="strip">
+              <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg><span class="starb">★</span></div></div>
+              <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L4 4M9 12l5-7M9 19l-4 12M9 19l4 12"/></svg></div></div>
+              <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 4M9 12l6-6M9 19l-4 12M9 19l4 12"/></svg></div></div>
+              <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg></div></div>
+              <div class="thumb" style="align-items:center;justify-content:center;background:#2C2C2E;color:#8E8E93;font-size:11px">+4</div>
+            </div>
+          </div>
+          <div class="sect"><span>先週</span></div>
+          <div class="card">
+            <div class="h"><div><div class="t">9月8日（月）</div><div class="s">5 スイング · vs 自分ベスト 9/3</div></div><span class="dots" style="color:#8E8E93;font-size:18px">···</span></div>
+            <div class="strip">
+              <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg></div></div>
+              <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L4 4M9 12l5-7M9 19l-4 12M9 19l4 12"/></svg></div></div>
+              <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 4M9 12l6-6M9 19l-4 12M9 19l4 12"/></svg></div></div>
+              <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg></div></div>
+              <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L4 4M9 12l5-7M9 19l-4 12M9 19l4 12"/></svg></div></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="h"><div><div class="t">9月3日（水）</div><div class="s">6 スイング · vs マキロイ · ★ 2</div></div><span class="dots" style="color:#8E8E93;font-size:18px">···</span></div>
+          </div>
+          <div class="footer">★ の無いセッションは 10 個まで残ります</div>
+          <div class="fab">＋ 今日のスイング</div>
+        </div></div>
+        <dl class="spec">
+          <dt>保存</dt><dd>セッション（日付・お手本・スイングの並び）と、C と同じスイング</dd>
+          <dt>残す</dt><dd>★（C と同じ）。★ のあるセッションは流れない</dd>
+          <dt>流す</dt><dd>10 セッション。1 日に何本撮っても 1 枚</dd>
+          <dt>消す</dt><dd>セッションの「…」、中で選択</dd>
+          <dt>実装</dt><dd><b>大</b>。C ＋ 一括取り込み・ステージのフィルムストリップ・セッション</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§2 C と D の要になる 2 画面</span>
+    <h2>まとめて入れる、めくる</h2>
+    <div class="phones two">
+      <div class="col">
+        <div class="name" style="font-size:16px">取り込み中（C・D）</div>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="title large">スイング</span><span class="glassbar"><span class="glass round">選</span></span></div>
+          <div class="chip"><span class="k">お手本</span> マキロイ ⌄</div>
+          <div class="sect"><span>今日</span><span class="act" style="color:#8E8E93">解析中 2 / 5</span></div>
+          <div class="group">
+            <div class="row"><div class="thumb one"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">14:32</div><div class="s">2.8 : 1 · vs マキロイ</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+            <div class="row"><div class="thumb one"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L4 4M9 12l5-7M9 19l-4 12M9 19l4 12"/></svg></div></div><div class="text"><div class="t">14:20</div><div class="s">3.1 : 1 · vs マキロイ</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+            <div class="row"><div class="thumb one"><div class="half dim"></div></div><div class="text"><div class="t" style="color:#8E8E93">14:05</div><div class="prog"><i></i></div></div></div>
+            <div class="row"><div class="thumb one"><div class="half dim"></div></div><div class="text"><div class="t" style="color:#8E8E93">13:58</div><div class="s">待機中</div></div></div>
+            <div class="row"><div class="thumb one"><div class="half dim"></div></div><div class="text"><div class="t" style="color:#8E8E93">13:51</div><div class="s">待機中</div></div></div>
+          </div>
+          <div class="footer">写真アプリで 5 本選ぶと、上から順に解析される。<br>終わった行からタップして開ける</div>
+          <div class="fab">＋ スイングを追加</div>
+        </div></div>
+        <p class="small" style="max-width:300px">PhotosPicker の複数選択（<code>maxSelectionCount</code>）で 1 回のピッカーに。解析は 1 本ずつ直列で、行の中に進捗を出す。</p>
+      </div>
+      <div class="col">
+        <div class="name" style="font-size:16px">ステージのフィルムストリップ（D。C にも足せる）</div>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="btn">‹ 練習</span><span class="title">9月10日 · 3 / 8</span><span class="glassbar"><span class="glass round" style="color:#FFD60A">☆</span></span></div>
+          <div class="panes" style="height:260px">
+            <div class="pane mine"><span class="lab">自分 14:20</span><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg><span class="bot">フェーズ調整</span></div>
+            <div class="pane model"><span class="lab">お手本 · マキロイ ⌄</span><svg viewBox="0 0 18 34" fill="none" stroke="#D9DDEB" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#D9DDEB" stroke="none"/><path d="M9 8v11M9 12L2 6M9 12l7-7M9 19l-4 12M9 19l4 12"/></svg><span class="bot">フェーズ調整</span></div>
+          </div>
+          <div class="film">
+            <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg></div></div>
+            <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L4 4M9 12l5-7M9 19l-4 12M9 19l4 12"/></svg></div></div>
+            <div class="thumb sel"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 4M9 12l6-6M9 19l-4 12M9 19l4 12"/></svg></div></div>
+            <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 5M9 12l5-8M9 19l-4 12M9 19l4 12"/></svg></div></div>
+            <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L4 4M9 12l5-7M9 19l-4 12M9 19l4 12"/></svg></div></div>
+            <div class="thumb"><div class="half"><svg viewBox="0 0 18 34" fill="none" stroke="#DCE6DD" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="5" r="3" fill="#DCE6DD" stroke="none"/><path d="M9 8v11M9 12L3 4M9 12l6-6M9 19l-4 12M9 19l4 12"/></svg></div></div>
+            <span class="cnt">+2</span>
+          </div>
+          <div class="ctrl"><div class="seg"><span>自分基準</span><span class="on">お手本基準</span></div><div class="seek"><i class="b"></i><i class="d"></i><i class="f"></i></div></div>
+          <div class="transport"><span>A</span><span>T</span><span>I</span><span>‹</span><span>▶</span><span>›</span><span class="spd">x0.3</span><span>↻</span></div>
+        </div></div>
+        <p class="small" style="max-width:300px">右はそのまま、左だけ替わる。ペインの横スワイプはピンチ・ドラッグとぶつかるので、ストリップのタップとコマ送りの隣の「‹ ›」で送る。☆ は見ている左のスイングに付く。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§3 観点で比べる</span>
+    <h2>同じ物差しで</h2>
+    <div class="tablewrap"><table class="matrix">
+      <tr><th></th><th>A ツール型</th><th>B 作品型</th><th>C 日記型</th><th>D セッション型</th></tr>
+      <tr><td>保存単位</td><td>状態とお手本だけ</td><td>比較</td><td class="rec">スイング</td><td>セッション ＋ スイング</td></tr>
+      <tr><td>起動直後</td><td>前回の比較</td><td>空のステージ（現行）</td><td>記録の一覧</td><td>セッションの一覧</td></tr>
+      <tr><td>今日の 1 本をいつものお手本と</td><td class="rec">左ラベル → 写真。1 タップ ＋ ピッカー</td><td class="neg">右 ＋ → 前回 → 左 ＋ → 写真。3 タップ ＋ ピッカー</td><td class="rec">＋ → 写真。1 タップ ＋ ピッカー（複数可）</td><td class="rec">同左</td></tr>
+      <tr><td>先週の比較をもう一度</td><td class="neg">写真アプリで探して選び直す（キャッシュ内なら即時）</td><td>履歴 → 行</td><td>一覧の日付 → 行</td><td>セッション → ストリップ</td></tr>
+      <tr><td>残す印</td><td>★（お手本の棚へ）</td><td class="neg">🔖 と ★ の 2 つ</td><td class="rec">★ 1 つ。相手と位置合わせも一緒に残る</td><td class="rec">★ 1 つ</td></tr>
+      <tr><td>「お手本」との重なり</td><td>無い</td><td>残る</td><td>無い（★ のスイング = お手本にも選べる）</td><td>無い</td></tr>
+      <tr><td>溜まらない仕組み</td><td class="rec">溜まる場所が無い</td><td>30 件で流れる。同じ 2 本は増えない</td><td>60 本で流れる。1 本 1 行</td><td class="rec">10 セッション。1 日 1 枚</td></tr>
+      <tr><td>消す</td><td>お手本の「…」</td><td>「…」・選択・消去</td><td>「…」・選択</td><td>セッションの「…」・中で選択</td></tr>
+      <tr><td>取り込み</td><td>1 本</td><td>1 本</td><td>複数可</td><td>複数が前提</td></tr>
+      <tr><td>変わる決定</td><td>「起動時は空」を捨てる</td><td>保つ</td><td>「画面は 1 枚」を捨てる（一覧 ＋ ステージ）</td><td>同左</td></tr>
+      <tr><td>実装量</td><td class="rec">小</td><td>中</td><td>中〜大</td><td class="neg">大</td></tr>
+      <tr><td>向く</td><td>自分だけが使い、写真アプリで管理する</td><td>いまの形を活かしたい</td><td>上達を記録したい</td><td>練習場で 1 日 10 本撮る</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§4 推奨</span>
+    <h2>C を骨格に、D の部品を後から</h2>
+    <div class="prose">
+      <p><strong>C 日記型を推す。</strong>理由は 3 つ。★ が 1 つで済んで「お手本」と重ならない。1 本 1 行なので重複が生まれず、日付で並ぶ一覧が「上達の記録」になる。最頻操作が 1 タップ ＋ ピッカーになる。</p>
+      <p>D はその上に「まとめて入れる」「めくる」を足したもので、練習場での使い方には最も合う。ただし C の一覧を日付ごとに畳めば見た目は近づくので、まず C を使い、1 日に何本も撮るのが常態なら D の部品（複数選択、フィルムストリップ）を足す。</p>
+      <p>A は本気の選択肢として残す。自分ひとりが使い、写真アプリのアルバムで管理するなら、履歴を持たないのがいちばん軽い。B はいまの形を壊さない代わりに、印が 2 つ残る。</p>
+    </div>
+    <div class="path">
+      <div><div class="n">STEP 1</div><div class="h">保存単位をスイングに</div>比較の JSON をスイング ＋ お手本 ＋ 選択中のお手本に組み替える。既存の比較は左右を 1 本ずつスイングとお手本へ移す</div>
+      <div><div class="n">STEP 2</div><div class="h">一覧をホームに</div>日付の節、★ ベストの節、行の ☆ と「…」、選択、下端の「＋ スイングを追加」。ステージはそのまま 1 タップ先</div>
+      <div><div class="n">STEP 3</div><div class="h">D の部品</div>複数選択の取り込み、ステージのフィルムストリップ、日ごとの畳み込み</div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§5 決めてほしいこと</span>
+    <h2>4 つ</h2>
+    <div class="decisions">
+      <div class="decision"><div class="n">一</div><div><div class="q">骨格を A / B / C / D のどれにするか</div><div class="r"><b>推奨: C。</b>D を最初から狙うなら STEP 1 と 2 は同じで、3 を続けて実装する。</div></div></div>
+      <div class="decision"><div class="n">二</div><div><div class="q">起動直後は一覧か、前回の比較か</div><div class="r"><b>推奨: 一覧。</b>「起動時は空」の決定は、一覧が起点になるので自然に外れる。前回をそのまま開きたいなら A の考え方。</div></div></div>
+      <div class="decision"><div class="n">三</div><div><div class="q">★ のスイングをお手本の棚にも並べるか</div><div class="r"><b>推奨: 並べる。</b>これで「動画のお気に入り」と「お手本」が 1 つになる。プロの動画は棚に直接追加する。</div></div></div>
+      <div class="decision"><div class="n">四</div><div><div class="q">流す上限</div><div class="r"><b>推奨: ★ 以外 60 本。</b>1 日 10 本でも 1 週間は残る。フッターに明記し、定数 1 つで変えられるようにする。</div></div></div>
+    </div>
+    <p class="small">同じ内容のリポジトリ側の記録: docs/design/260910_0516-zero-base-structures.md（前稿: 260910_0500-history-design-review.md、260910_0258-comparison-favorites.md）</p>
+  </section>
+</main>

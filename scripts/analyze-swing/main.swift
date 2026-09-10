@@ -1,7 +1,7 @@
 // スイング検出を macOS 上で実行する開発用 CLI（実機なしで検出ロジックを確認する。Vision は Mac でも動く）。
 //
 // ビルド:  swiftc -O -o build/analyze-swing SwingDuet/Services/{SwingAnalyzer,PoseTracker,SwingDetector}.swift \
-//              SwingDuet/Models/{SwingModels,Geometry}.swift scripts/analyze-swing/main.swift
+//              SwingDuet/Models/*.swift scripts/analyze-swing/main.swift
 // 使い方:  build/analyze-swing [--series] [--joints] <動画>...
 //          --series  手の高さ（腰 = 0、首 = 1）と速度（体の大きさ/秒）の系列も出す（# の長さは速度）
 //          --joints  左右の手首・腰・首の生の位置と信頼度を出す（手首が隠れる区間を調べるとき）

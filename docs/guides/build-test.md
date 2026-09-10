@@ -39,8 +39,8 @@ xcrun simctl addmedia booted docs/data/*.mp4     # docs/data/ はサンプル動
 ```
 
 - 合成のスイング風動画が欲しいときは `.claude/skills/e2e-simulator/gen-swing-video.swift`（使い方は SKILL.md）
-- **240fps の動画は写真アプリで「スローモーション」扱いになり、PhotosPicker からは 30fps のレンダリング版が渡る**
-  （[docs/TODO.md](../TODO.md) A）。240fps のまま解析・コマ送りする確認は現状できない
+- アプリの「動画」タブは写真ライブラリの権限を求める。許可すれば 240fps のスローモーション動画も原本のまま取り込める
+  （拒否したときの OS ピッカー経由は 30fps のレンダリング版）。E2E の `run.sh` は `xcrun simctl privacy booted grant photos com.ha2ne2.SwingDuet` で先に許可する
 
 ### シミュレータの制約
 
@@ -53,7 +53,7 @@ xcrun simctl addmedia booted docs/data/*.mp4     # docs/data/ はサンプル動
 # アプリのエラー・fault ログ（直近 10 分）
 xcrun simctl spawn booted log show --predicate 'process == "SwingDuet" AND (messageType == error OR messageType == fault)' \
   --last 10m --style compact
-# 保存データ（projects.json と Videos/）
+# 保存データ（library.json と Videos/）
 ls "$(xcrun simctl get_app_container booted com.ha2ne2.SwingDuet data)/Documents"
 ```
 
@@ -63,7 +63,7 @@ Vision はシミュレータでは動かないが Mac では動くので、ア�
 
 ```bash
 swiftc -O -o build/analyze-swing SwingDuet/Services/{SwingAnalyzer,PoseTracker,SwingDetector}.swift \
-  SwingDuet/Models/{SwingModels,Geometry}.swift scripts/analyze-swing/main.swift
+  SwingDuet/Models/*.swift scripts/analyze-swing/main.swift
 build/analyze-swing docs/data/*.mp4            # 候補ごとの A/T/I/F・採点・採用（★）・推定したフェーズ・人物範囲
 build/analyze-swing --series docs/data/x.mp4   # 手の高さ（腰 0・首 1）と速度の系列も出す（閾値を調整するとき）
 build/analyze-swing --joints docs/data/x.mp4   # 左右の手首・腰・首の生の位置と信頼度（手首が隠れる区間を調べるとき）
@@ -73,7 +73,7 @@ build/analyze-swing --joints docs/data/x.mp4   # 左右の手首・腰・首の�
 
 ## 単体テスト
 
-検出ロジック（`SwingDetector`）など純粋計算の Swift Testing（`SwingDuetTests/`）。アプリをホストにするのでシミュレータで走る:
+検出ロジック（`SwingDetector`）と保存（`ClipStore`：旧データの移行・上限・相手の解決）の Swift Testing（`SwingDuetTests/`）。アプリをホストにするのでシミュレータで走る:
 
 ```bash
 xcodebuild test -project SwingDuet.xcodeproj -scheme SwingDuetTests \

@@ -60,11 +60,11 @@ struct SyncEngine: Equatable {
 }
 
 extension SyncEngine {
-    init(project: ComparisonProject) {
+    init(mine: VideoConfig, model: VideoConfig, reference: VideoSide) {
         self.init(
-            minePhases: project.mine.phases,
-            modelPhases: project.model.phases,
-            reference: project.reference,
-            referenceFrameDuration: project.config(for: project.reference).frameDuration)
+            minePhases: mine.phases,
+            modelPhases: model.phases,
+            reference: reference,
+            referenceFrameDuration: (reference == .mine ? mine : model).frameDuration)
     }
 }

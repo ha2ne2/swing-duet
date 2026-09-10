@@ -165,7 +165,7 @@ research / design / review の Markdown ファイルの命名規則：
 
 #### 外部依存ゼロを維持する（根幹制約）
 
-現在の依存は Apple 標準フレームワークのみ（SwiftUI / AVFoundation / Vision / PhotosUI / CoreTransferable）。
+現在の依存は Apple 標準フレームワークのみ（SwiftUI / AVFoundation / Vision / Photos / PhotosUI / CoreTransferable）。
 SPM パッケージ・CocoaPods は使っていない。
 
 - 標準フレームワークで実現できることは標準フレームワークで実装する
@@ -195,7 +195,7 @@ SPM パッケージ・CocoaPods は使っていない。
 
 | パス                        | 内容                                                       |
 | --------------------------- | ---------------------------------------------------------- |
-| `SwingDuet/`                | アプリ本体（Models / Services / Views）                    |
+| `SwingDuet/`                | アプリ本体（Models / Services / Views。Views は画面ごとに Home / Stage / Picker / Shared） |
 | `SwingDuet.xcodeproj/`      | Xcode プロジェクト（手書き管理）                           |
 | `docs/`                     | ドキュメント（セクション 2.1）                             |
 | `.claude/`                  | Claude Code 用のコマンド（`commands/`）とスキル（`skills/`） |
@@ -218,7 +218,7 @@ SPM パッケージ・CocoaPods は使っていない。
 ### 4.4 技術スタックと開発の前提
 
 - **技術スタック**: SwiftUI + AVFoundation（再生・フレーム読み出し）+ Vision（`VNDetectHumanBodyPoseRequest` による手首追跡）
-  + PhotosUI（`PhotosPicker`）。iOS 17 以降 / Swift 5 言語モード。詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+  + Photos（PhotoKit。写真ライブラリの動画の一覧と原本の取り込み）+ PhotosUI（権限が無いときの `PhotosPicker`）。iOS 17 以降 / Swift 5 言語モード。詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 - **ビルド・動作確認手順**: [docs/guides/build-test.md](./docs/guides/build-test.md)。
   シミュレータで通しの自動 E2E を回すときは [.claude/skills/e2e-simulator/SKILL.md](./.claude/skills/e2e-simulator/SKILL.md)
 - **シミュレータの制約**: Vision の姿勢推定はシミュレータでは動作しない（常にフォールバック位相＋ `lowConfidence` になる）。
@@ -266,7 +266,7 @@ SPM パッケージ・CocoaPods は使っていない。
 
 - 強制アンラップ（`!`）や `try?` によるエラーの握りつぶしは最小限にする。やむを得ず使う場合は、なぜ安全か・どうすれば将来排除できるかを `TODO` / `NOTE` コメント（日本語）で明記
 - UI の更新と `AVPlayer` の操作は `@MainActor` で行う。重い処理（Vision 解析・動画の読み込み）はメインスレッドを塞がない
-- `Codable` モデル（`Documents/projects.json`）の保存形式を変えるときは、既存データの読み込みが壊れないことを確認する
+- `Codable` モデル（`Documents/library.json`）の保存形式を変えるときは、既存データの読み込みが壊れないことを確認する
 
 ### 5.5 品質とアクセシビリティ
 
@@ -304,7 +304,7 @@ SPM パッケージ・CocoaPods は使っていない。
 
 ### 6.1 データの扱い
 
-- 当面は**ローカル保存のみ**を前提とする（動画は `Documents/Videos/`、設定は `Documents/projects.json`）
+- 当面は**ローカル保存のみ**を前提とする（動画は `Documents/Videos/`、設定は `Documents/library.json`）
 - スイング動画は撮影した人物が写る**パーソナルな情報**である
 
 エージェントは、コード提案の際に以下を守ること：
@@ -328,9 +328,10 @@ SPM パッケージ・CocoaPods は使っていない。
 
 **権限管理**：
 
-- `PhotosPicker` はアプリ外プロセスで動くため写真ライブラリの権限は不要。
-  写真ライブラリ全体へのアクセス（PhotoKit。例：スローモーション動画の元ファイル取得）を実装する場合は、
-  権限が拒否されたときの UI / UX・リカバリー手段・再要求フローを設計してから実装する
+- 「動画」タブは写真ライブラリの読み取り権限（PhotoKit）を使う（動画だけの一覧と、スローモーション動画の原本の取り込みのため）。
+  拒否されたときは設定への案内と、権限の要らない `PhotosPicker`（アプリ外プロセスで動く）に落とす。限定アクセスは許可した動画だけを出し
+  「さらに選ぶ」で OS の選択画面を開く（設計は [docs/design/260911_0530](./docs/design/260911_0530-diary-screen-flow.md) §2）。
+  権限の扱いを変えるときは、この 3 状態（許可 / 限定 / 拒否）の UI を同時に見直す
 
 **エラーハンドリングの基本方針**：
 

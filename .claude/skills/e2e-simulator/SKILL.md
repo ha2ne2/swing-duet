@@ -1,11 +1,12 @@
 ---
 name: e2e-simulator
-description: iOS シミュレータで SwingDuet をビルド・起動し、空のステージ → 動画 2 本の選択 → 解析 → 同期再生 → 履歴からの復元までを XCUITest で自動操作して動作確認する手順（テスト動画の投入・ハーネス生成・スクリーンショット検証）。「エミュレータで動作確認」「シミュレータで E2E」「通しで動かして」と言われたら使う。
+description: iOS シミュレータで SwingDuet をビルド・起動し、ホーム（スイングの一覧）→ ＋ で動画を 1 本選ぶ → 解析 → 右にお手本を入れて比較 → 同期再生 → 一覧からの開き直しまでを XCUITest で自動操作して動作確認する手順（テスト動画の投入・ハーネス生成・スクリーンショット検証）。「エミュレータで動作確認」「シミュレータで E2E」「通しで動かして」と言われたら使う。
 ---
 
 # iOS シミュレータ E2E 動作確認手順
 
-2026-09-06 に実際に動作確認済みの手順。所要時間の目安: ビルド約 1 分 + E2E 約 2 分。
+2026-09-06 に実際に動作確認済みの手順（2026-09-11 の画面構成の変更に合わせてテストを書き直したが、その後の通しの実行は未確認）。
+所要時間の目安: ビルド約 1 分 + E2E 約 2 分。
 
 ## 前提知識
 
@@ -13,7 +14,8 @@ description: iOS シミュレータで SwingDuet をビルド・起動し、空�
 - 動作確認済みデバイス: iPhone 16e（iOS 26.2）。UDID は `xcrun simctl list devices available` で確認
 - **Vision の姿勢推定はシミュレータで動かない**。解析は常にフォールバック位相（テンポ 3.0 : 1）になる（`lowConfidence` は記録のみで画面には出ない）。
   E2E で検証できるのは「フロー・UI・再生同期・永続化」であって検出精度ではない（精度は実機で確認）
-- 240fps の動画は PhotosPicker から 30fps のレンダリング版で渡る（[docs/TODO.md](../../../docs/TODO.md) A）
+- 「動画」タブは写真ライブラリの権限（PhotoKit）を使う自前のグリッド。`run.sh` が `simctl privacy grant photos` で先に許可する。
+  権限があれば 240fps のスローモーション動画も原本のまま取り込める（拒否時の OS ピッカー経由は 30fps のレンダリング版）
 
 ## 1. シミュレータ起動とスモークテスト
 
@@ -23,12 +25,12 @@ xcodebuild build -project SwingDuet.xcodeproj -scheme SwingDuet \
   -destination 'platform=iOS Simulator,name=iPhone 16e' -derivedDataPath build -quiet
 xcrun simctl install booted build/Build/Products/Debug-iphonesimulator/SwingDuet.app
 xcrun simctl launch booted com.ha2ne2.SwingDuet
-xcrun simctl io booted screenshot /tmp/launch.png     # 空状態の一覧画面が出ていればOK
+xcrun simctl io booted screenshot /tmp/launch.png     # 空のホーム（「スイングはまだありません」）が出ていればOK
 ```
 
 ## 2. テスト動画の投入
 
-写真アプリに動画が無いと PhotosPicker で選べない。どちらかを投入する:
+写真アプリに動画が無いと「動画」タブに何も出ない。どちらかを投入する:
 
 ```bash
 # 実サンプル（docs/data/ は gitignore。人物が写るので共有しない）
@@ -41,7 +43,7 @@ build/gen-swing-video build/model_60fps.mov 60 3.0 0.42 0.52
 xcrun simctl addmedia booted build/self_240fps.mov build/model_60fps.mov
 ```
 
-ピッカーは**撮影日時（動画の作成日）の新しい順**に並ぶ。addmedia した順番ではないので、合成動画（今日の日付）と
+「動画」タブは**撮影日時（動画の作成日）の新しい順**に並ぶ。addmedia した順番ではないので、合成動画（今日の日付）と
 古い実サンプルが混在すると合成動画が先頭に来る。E2E で選ぶ動画は `E2E_MINE_MATCH` / `E2E_MODEL_MATCH`（下記）で日付指定するのが確実。
 
 ## 3. 自動 E2E（XCUITest ハーネス）
@@ -60,43 +62,45 @@ build/e2e-harness/run.sh                               # 起動中のシミュ�
   - `<テスト名>_NN_*.png` … 各段階のスクリーンショット（例 `FullFlow_09_playing.png`。目視で確認する）
   - `*.txt` … 画面の要素階層ダンプ（ボタンのラベルを調べるときに読む）
   - `../xcodebuild.log` … xcodebuild の全出力
-- テスト内容は [FlowTests.swift](./FlowTests.swift)。アプリは起動時に空のステージ（左右のペインに +）で、右（お手本）→ 左（自分）の順に入れると比較になる:
-  - `testFullFlow`: 起動 → 右ペインの + →「ライブラリから選ぶ」→ 名前を確定（解析）→ 左ペインの + → ライブラリ → 比較 →
-    再生（再生中に基準切替・ループ範囲変更が効くこと）→ 停止 → フェーズジャンプ → コマ送り → 基準切替 → 速度切替 → ループ設定 →
-    区間ループ再生 → フェーズ調整シート → 「履歴」から開き直し → 再起動（ステージは空）→ 履歴から開き直し
-  - `testModelLibrary`: お手本に名前を付けて登録 → 比較中に右ペインのラベルから登録済みを選んで入れ替え（解析なし）→ 履歴が 2 件 →
-    ピッカーのカードを長押しして名前を変更 → ペインのラベルに反映
-  - `testZoomPanPersistence`: ペインをピンチで拡大 / 縮小・ドラッグで移動 → 履歴から開き直す → 再起動、で状態が残ること。
+- テスト内容は [FlowTests.swift](./FlowTests.swift)。アプリは起動時にホーム（スイングの一覧）で、＋ から 1 本入れるとステージが開く:
+  - `testFullFlow`: 起動 → ＋ →「動画」タブのセル → プレビュー →「この動画を使う」→ ステージ（左が解析中）→ 右の ⊕ →「動画」タブへ切り替え →
+    セル → プレビュー →「お手本にする」→ 名前を確定（解析）→ 比較（自動で再生が始まる。再生中に基準切替・ループ範囲変更が効くこと）→ 停止 →
+    フェーズジャンプ → コマ送り → 基準切替 → 速度切替 → ループ設定 → 区間ループ再生 → フェーズ調整シート → ★ ベスト →
+    一覧に戻って開き直し → 再起動（ホーム）→ 開き直し
+  - `testModelLibrary`: お手本に名前を付けて登録 → 右ラベルから「お手本」タブのカードを選んで入れ替え（解析なし）→ 一覧は 1 本のまま →
+    カードの「…」から名前を変更 → ペインのラベルに反映
+  - `testZoomPanPersistence`: ペインをピンチで拡大 / 縮小・ドラッグで移動 → 一覧から開き直す → 再起動、で状態が残ること。
     ペインの状態は `accessibilityValue`（`x1.50 (12, -30)` = 自動フィットに対する拡大率と位置）で読む
-  - `testPhaseEditCandidates`: 履歴から保存済みの比較を開き、フェーズ調整の「スイング候補」を切り替える。Vision が動かないので
-    候補は `projects.json` に直接入れる（下記）。`E2E_KEEP_DATA=1` で回す（アンインストールしない）
-  - 主な識別子: 空ペインの + は `slot.mine.add` / `slot.model.add`、解析中の表示は `slot.model.analyzing`、
-    比較中のペインのラベルは「自分の動画を選び直す」/「お手本の動画を選び直す」（`value` に登録名）、
-    ペイン下端のフェーズ調整は `pane.mine.editPhases` / `pane.model.editPhases`、名前欄は `modelName`
+  - `testPhaseEditCandidates`: 保存済みのスイングを開き、フェーズ調整の「スイング候補」を切り替える。Vision が動かないので
+    候補は `library.json` に直接入れる（下記）。`E2E_KEEP_DATA=1` で回す（アンインストールしない）
+  - 主な識別子: ホームの追加ボタンは `list.addSwing`、一覧の行は `swing.<UUID>`、「動画」タブのセルは `library.cell`（ラベルは「ビデオ, 9/5 23:09, 4秒, スロー」）、
+    プレビューの決定は `preview.use`、名前欄は `modelName`、空の右ペインの ⊕ は `slot.model.add`、解析中の表示は `slot.mine.analyzing` / `slot.model.analyzing`、
+    ペインのラベルは「自分の動画を選び直す」/「お手本の動画を選び直す」（`value` に表示名）、ペイン下端のフェーズ調整は `pane.mine.editPhases` / `pane.model.editPhases`、
+    ステージの ★ は `stage.favorite`、「…」は `stage.menu`、「お手本」タブのカードの「…」は「<名前> のメニュー」
 - 1 テストだけ回す: `E2E_ONLY="SwingDuetUITests/FlowTests/testZoomPanPersistence" build/e2e-harness/run.sh`
 - 候補 UI の確認手順: `testFullFlow` を回した後、
-  `python3 - <<'EOF'` 等で `$(xcrun simctl get_app_container booted com.ha2ne2.SwingDuet data)/Documents/projects.json` の
-  `model.candidates` に PhaseSet の配列（`build/analyze-swing docs/data/*.mp4` の出力から作る）を入れ、
+  `python3 - <<'EOF'` 等で `$(xcrun simctl get_app_container booted com.ha2ne2.SwingDuet data)/Documents/library.json` の
+  お手本のクリップ（`role` が `model`）の `video.candidates` に PhaseSet の配列（`build/analyze-swing docs/data/*.mp4` の出力から作る）を入れ、
   `E2E_KEEP_DATA=1 E2E_ONLY="SwingDuetUITests/FlowTests/testPhaseEditCandidates" build/e2e-harness/run.sh`
 - `run.sh` は他のセッションが同じシミュレータで E2E を回していると衝突する（アプリのアンインストールと `out/` の削除で互いのランナーが落ち、
   「Restarting after unexpected exit」「Executed 0 tests」になる）。実行前に `pgrep -f "xcodebuild tes[t]"` で確認する
-- ピッカーで選ぶ動画は環境変数で指定する。ラベル（`uitest_trace.log` の `picker: N video cells: [...]` に出る "ビデオ, 四秒, 9月05日, 23:09" 等）に
+- 「動画」タブで選ぶ動画は環境変数で指定する。ラベル（`uitest_trace.log` の `library: N cells: [...]` に出る "ビデオ, 9/5 23:09, 4秒" 等）に
   含まれる文字列で選ぶのが確実:
-  `E2E_MINE_MATCH="9月05日" E2E_MODEL_MATCH="8月30日" build/e2e-harness/run.sh`
+  `E2E_MINE_MATCH="9/5 " E2E_MODEL_MATCH="8/30 " build/e2e-harness/run.sh`
   指定が無ければ `E2E_MINE_INDEX` / `E2E_MODEL_INDEX`（新しい順のセル番号。既定 1 / 0）
 
 ## 4. 検証のコツ
 
 - 各操作後のスクリーンショットを必ず目視する。再生の進みはシークバーの再生ヘッド位置で判断する（時刻ラベルは無い）。
   2 秒 × 0.3 倍 → 共通時間 0.6 秒。共通時間の長さは基準側のスイング区間長
-- PhotosPicker のセルは表示アニメーション中 `isHittable == false` になる。`coordinate(...).tap()` なら押せる（実装済み）
 - 画面遷移中に全要素を列挙すると "Failed to get matching snapshot" で落ちる。`texts()` は存在確認しながらリトライしている
 - ピンチは `element.pinch(withScale:velocity:)`（要素の中心が基準。倍率は指定どおりにならず 2.0 指定で 3 倍前後になる）、
   ドラッグは `coordinate.press(forDuration: 0.1, thenDragTo:)`。手動で試すときは Simulator.app で Option を押しながらドラッグ（Option+Shift で中心を移動）
+- 写真の権限ダイアログが出たら（`simctl privacy grant` が効かなかったとき）テストは springboard の「フルアクセスを許可」を押す（`allowPhotosIfAsked`）
 - エラーログの確認:
   `xcrun simctl spawn booted log show --predicate 'process == "SwingDuet" AND (messageType == error OR messageType == fault)' --last 10m --style compact`
-- 保存データ: `$(xcrun simctl get_app_container booted com.ha2ne2.SwingDuet data)/Documents/{projects.json,Videos/}`
+- 保存データ: `$(xcrun simctl get_app_container booted com.ha2ne2.SwingDuet data)/Documents/{library.json,Videos/}`
 
 ## 5. 手動で触る
 
-E2E 後はプロジェクトが 1 件入った状態でアプリが残るので、Simulator.app でそのまま操作できる。
+E2E 後はスイングが 1 本入った状態でアプリが残るので、Simulator.app でそのまま操作できる。

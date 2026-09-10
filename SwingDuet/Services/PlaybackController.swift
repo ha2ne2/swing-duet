@@ -134,6 +134,18 @@ final class PlaybackController: NSObject {
         hardSeek()   // 止まった位置のコマを正確に出す
     }
 
+    /// 両方の動画が再生できる状態になってから再生を始める（ステージを開いた直後の自動再生用）。
+    /// 準備できる前に rate を立てると最初の数コマが飛ぶので待つ。3 秒待っても準備できなければ始めない（ユーザーが再生ボタンで始められる）
+    func playWhenReady() async {
+        for _ in 0..<60 where !Task.isCancelled {
+            if VideoSide.allCases.allSatisfy({ player(for: $0).currentItem?.status == .readyToPlay }) {
+                play()
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     /// 時計とレートを止める（シークはしない）
     private func stop() {
         stopDisplayLink()
