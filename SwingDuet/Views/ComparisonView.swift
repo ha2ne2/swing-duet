@@ -6,17 +6,17 @@ import SwiftUI
 /// NOTE: `@State` の初期値は View が作り直されるたびに評価されるので、init で作ると親（StageView）の再描画（履歴の保存時）ごとに
 ///       AVPlayer 2 つを持つ使い捨ての PlaybackController ができる。`State` のドキュメントが勧めるとおり `task` で遅延生成する
 struct ComparisonView: View {
+    @EnvironmentObject private var store: ProjectStore
     let project: ComparisonProject
-    let store: ProjectStore
     /// ペインのラベルをタップしたとき（その側の動画を選び直す）
-    let onSelectVideo: (ReferenceSide) -> Void
+    let onSelectVideo: (VideoSide) -> Void
 
     @State private var controller: PlaybackController?
 
     var body: some View {
         Group {
             if let controller {
-                ComparisonContent(project: project, store: store, controller: controller, onSelectVideo: onSelectVideo)
+                ComparisonContent(project: project, controller: controller, onSelectVideo: onSelectVideo)
             } else {
                 Color.black.task {
                     controller = PlaybackController(
@@ -31,16 +31,15 @@ struct ComparisonView: View {
 
 /// 比較画面の本体。project の編集（基準・フェーズ・表示変換）を保存し、同期設定の変更を controller に反映する
 private struct ComparisonContent: View {
+    @EnvironmentObject private var store: ProjectStore
     @State private var project: ComparisonProject
-    @ObservedObject private var store: ProjectStore
     private let controller: PlaybackController
-    private let onSelectVideo: (ReferenceSide) -> Void
+    private let onSelectVideo: (VideoSide) -> Void
 
-    @State private var editingSide: ReferenceSide?
+    @State private var editingSide: VideoSide?
 
-    init(project: ComparisonProject, store: ProjectStore, controller: PlaybackController, onSelectVideo: @escaping (ReferenceSide) -> Void) {
+    init(project: ComparisonProject, controller: PlaybackController, onSelectVideo: @escaping (VideoSide) -> Void) {
         _project = State(initialValue: project)
-        self.store = store
         self.controller = controller
         self.onSelectVideo = onSelectVideo
     }
@@ -53,13 +52,13 @@ private struct ComparisonContent: View {
             // 動画ペイン（左右並び）
             HStack(spacing: 2) {
                 VideoPaneView(
-                    player: controller.minePlayer,
+                    player: controller.player(for: .mine),
                     config: $project.mine,
                     side: .mine,
                     onTapTitle: { onSelectVideo(.mine) },
                     onEditPhases: { editPhases(.mine) })
                 VideoPaneView(
-                    player: controller.modelPlayer,
+                    player: controller.player(for: .model),
                     config: $project.model,
                     side: .model,
                     title: linkedModel?.name,
@@ -69,15 +68,7 @@ private struct ComparisonContent: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
 
-            ReferencePicker(reference: $project.reference)
-                .padding(.horizontal)
-
-            SeekBarView(controller: controller)
-                .padding(.horizontal)
-
-            TransportControlsView(controller: controller)
-                .padding(.horizontal)
-                .padding(.bottom, 6)
+            ControlPanelView(controller: controller, reference: $project.reference)
         }
         .onChange(of: project) { _, newValue in
             store.update(newValue)
@@ -94,24 +85,8 @@ private struct ComparisonContent: View {
         }
     }
 
-    private func editPhases(_ side: ReferenceSide) {
+    private func editPhases(_ side: VideoSide) {
         controller.pause()
         editingSide = side
-    }
-}
-
-/// 同期の基準（自分基準 / お手本基準）の切り替え。操作パネルの行の右端に置く
-struct ReferencePicker: View {
-    @Binding var reference: ReferenceSide
-
-    var body: some View {
-        Picker("基準", selection: $reference) {
-            ForEach(ReferenceSide.allCases) { side in
-                Text("\(side.label)基準").tag(side)
-            }
-        }
-        .pickerStyle(.segmented)
-        .frame(width: 170)
-        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }

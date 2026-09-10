@@ -49,7 +49,7 @@
 | **本ドキュメント（AGENTS.md）**                    | エージェントの行動規範                           | 作業の前提ルールを確認したいとき                       |
 
 **docs/ の構成**：実装が iOS ネイティブ 1 本なのでプラットフォーム別の階層は設けず、`docs/` 直下に
-`research/`・`design/`・`review/`・`spec/`・`guides/` を置く。
+`research/`・`design/`・`review/`・`guides/` を置く。
 `docs/data/` は検証用のサンプル動画置き場で gitignore 済み（サイズが大きく、人物が写るため共有しない）。
 
 ### 2.2 ドキュメント整合性維持
@@ -195,7 +195,7 @@ SPM パッケージ・CocoaPods は使っていない。
 
 | パス                        | 内容                                                       |
 | --------------------------- | ---------------------------------------------------------- |
-| `SwingDuet/`                | アプリ本体（Models / Services / Playback / Views）         |
+| `SwingDuet/`                | アプリ本体（Models / Services / Views）                    |
 | `SwingDuet.xcodeproj/`      | Xcode プロジェクト（手書き管理）                           |
 | `docs/`                     | ドキュメント（セクション 2.1）                             |
 | `.claude/`                  | Claude Code 用のコマンド（`commands/`）とスキル（`skills/`） |

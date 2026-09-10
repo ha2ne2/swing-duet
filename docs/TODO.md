@@ -55,7 +55,7 @@
   YouTube のスロー動画）では x1 でも実速にならない。焼き込みスローにはフレームレート以外のメタデータが無く、倍率は映像から推定するか手動指定するしかない。
   写真アプリのスローモーションは PhotoKit で原本（240fps・実速）を取れるので A で解消する。
 - **対象**: `SwingDuet/Models/SwingModels.swift`（`VideoConfig` に倍率を追加）、`SwingDuet/Models/SyncEngine.swift`（共通タイムラインの実秒化）、
-  `SwingDuet/Playback/PlaybackController.swift`、`SwingDuet/Views/TransportControlsView.swift`（速度表示）、`SwingDuet/Services/SwingAnalyzer.swift`（倍率の推定）
+  `SwingDuet/Services/PlaybackController.swift`、`SwingDuet/Views/TransportControlsView.swift`（速度表示）、`SwingDuet/Services/SwingAnalyzer.swift`（倍率の推定）
 - **やること**: 動画ごとに倍率（動画秒 ÷ 実秒）を持ち、`AVPlayer.rate` に掛けて x1 を実速にする。倍率はダウンスイング長（実速なら 0.2〜0.45 秒）から
   1 / 2 / 4 / 8 に丸めて提案し、手動で選び直せる UI を付ける。8 倍再生が実機で滑らかかを確認する。
 - **やらない理由（今）**: 設計（データモデル・UI）が先。A を先に入れると自分の動画側は倍率 1 に揃い、対象がお手本側の焼き込みスローに絞られる。

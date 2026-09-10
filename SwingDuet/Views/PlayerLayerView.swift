@@ -25,5 +25,6 @@ struct PlayerLayerView: UIViewRepresentable {
 
 final class PlayerContainerView: UIView {
     override static var layerClass: AnyClass { AVPlayerLayer.self }
+    /// NOTE: `layerClass` で AVPlayerLayer を指定しているので、この強制キャストは必ず成功する
     var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
 }

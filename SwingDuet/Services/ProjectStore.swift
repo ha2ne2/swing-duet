@@ -3,7 +3,10 @@ import Combine
 
 /// 比較の履歴（プロジェクト）と登録済みお手本の永続化（Documents/projects.json・models.json + Documents/Videos/）。
 /// 動画ファイルは取り込み後に書き換えないので、比較や登録済みお手本の間で同じファイルを共有する。
-/// JSON のどこからも参照されなくなったファイルは起動時に消す（`removeUnreferencedVideos`）
+/// JSON のどこからも参照されなくなったファイルは起動時に消す（`removeUnreferencedVideos`）。
+///
+/// NOTE: JSON の読み書きと後片付けの失敗は `try?` で握りつぶす。読めなければ空の状態から始まり、書けなくても次の保存で上書きされ、
+///       消し損ねたファイルは次回起動時にまた対象になる。どれもユーザーに知らせて回復できる種類の失敗ではない
 @MainActor
 final class ProjectStore: ObservableObject {
     /// 比較の履歴（新しい順）。両方の動画がそろった比較が自動で入る
@@ -55,11 +58,11 @@ final class ProjectStore: ObservableObject {
         return fileName
     }
 
-    /// 取り込んだ動画を映像トラックだけにする（理由は `stripAudioTrack` 参照）。
+    /// 取り込んだ動画を映像トラックだけにする（理由は `VideoImporter.stripAudioTrack` 参照）。
     /// 失敗しても取り込みは続ける（音声付きのまま再生はでき、実機でカクつきが残るだけ）
     func stripAudio(_ fileName: String) async {
         do {
-            _ = try await stripAudioTrack(at: videoURL(for: fileName))
+            _ = try await VideoImporter.stripAudioTrack(at: videoURL(for: fileName))
         } catch {
             print("音声トラックの除去に失敗: \(fileName) \(error.localizedDescription)")
         }

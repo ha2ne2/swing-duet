@@ -21,26 +21,26 @@ SwingDuet の技術スタック・モジュール構成・主要な仕組み（�
 ```
 SwingDuet/
 ├── SwingDuetApp.swift            # エントリ。ProjectStore を環境に注入、ダーク固定。ルートは StageView
-├── Models/
-│   ├── SwingModels.swift         # SwingPhase / SwingSegment / PhaseSet / VideoConfig / ComparisonProject
+├── Models/                       # 他に依存しない純粋な値型
+│   ├── SwingModels.swift         # SwingPhase / SwingSegment / PhaseSet / VideoSide / VideoConfig / ModelVideo / ComparisonProject
 │   ├── SyncEngine.swift          # 共通タイムライン ⇔ 各動画時刻の区間別線形写像（§3）
 │   └── Geometry.swift            # CGPoint / CGRect の小さな補助（距離・外接矩形）
-├── Services/
-│   ├── SwingAnalyzer.swift       # 自動解析の入口。PoseTracker → SwingDetector をつなぎ、保存用の VideoConfig にする（§5）
-│   ├── PoseTracker.swift         # Vision の姿勢推定で人物を追跡（手首位置・関節の外接矩形）
-│   ├── SwingDetector.swift       # 手首の動きからスイング区間・4 フェーズを検出し候補を採点（純粋計算）
-│   ├── VideoImporter.swift       # PhotosPicker 用 Transferable（ImportedMovie）・映像だけへの書き換え（stripAudioTrack）
-│   └── ProjectStore.swift        # 比較の履歴と登録済みお手本の永続化（JSON + 動画ファイル管理）
-├── Playback/
+├── Services/                     # 入出力・解析・再生制御
+│   ├── SwingAnalyzer.swift       # 自動解析の入口。PoseTracker → SwingDetector をつなぎ、保存用の VideoConfig にする（§5）。動画を読めないときの VideoError
+│   ├── PoseTracker.swift         # Vision の姿勢推定で人物を追跡（手首・腰・首の位置、関節の外接矩形）
+│   ├── SwingDetector.swift       # 手の高さの系列からスイング区間・4 フェーズを検出し候補を採点（純粋計算）
+│   ├── VideoImporter.swift       # PhotosPicker から動画を受け取る（ImportedMovie）・映像トラックだけへの書き換え（stripAudioTrack）
+│   ├── ProjectStore.swift        # 比較の履歴と登録済みお手本の永続化（JSON + 動画ファイル管理）
 │   └── PlaybackController.swift  # CADisplayLink マスタークロック + 区間別レート再生（§4）
 └── Views/
     ├── StageView.swift           # 唯一の画面。空 / 解析中 / 準備済みのペイン → 両方そろうと ComparisonView。履歴・ピッカーのシート
     ├── VideoPickerSheet.swift    # ペインに入れる動画を選ぶ（登録済みお手本のカード + ライブラリから選ぶ + 名前付け）
     ├── HistoryView.swift         # 比較の履歴（開き直し・削除）
     ├── VideoThumbnail.swift      # 動画の 1 コマを非同期に描くサムネイル
-    ├── ComparisonView.swift      # 比較（ペイン・基準切替・シークバー・操作）
+    ├── ComparisonView.swift      # 比較（ペイン 2 つ + 操作パネル）。project の編集を保存し、同期設定を controller に反映
     ├── VideoPaneView.swift       # 動画ペイン（自動フィット・拡大縮小・位置合わせ。上端に選び直しのラベル、下端中央にフェーズ調整）
-    ├── SeekBarView.swift         # 区間色分きの共通シークバー
+    ├── ControlPanelView.swift    # 操作パネル（基準切替 + シークバー + 再生操作）。比較前のステージにも飾りとして出す
+    ├── SeekBarView.swift         # 区間色分けの共通シークバー
     ├── TransportControlsView.swift # フェーズジャンプ / コマ送り / 再生 / 速度 / ループ
     ├── HoldRepeatButton.swift    # 押した瞬間と離した瞬間を伝えるボタン（コマ送りの長押し用）
     ├── PhaseEditView.swift       # フェーズ手動修正（マーカードラッグ・±コマ・スイング候補の切り替え）
@@ -48,7 +48,7 @@ SwingDuet/
     └── SwingSegment+Color.swift  # 区間の色（SwiftUI 依存を Models に持ち込まないための拡張）
 ```
 
-依存方向は Views → Playback / Services → Models。Models は他に依存しない純粋な値型。
+依存方向は Views → Services → Models。`ProjectStore` は `@EnvironmentObject` でルートから全 View に配る。
 
 ペインの初期表示は、解析時に得た人物の範囲（`VideoConfig.focusRect`。採用スイングの間に見えていた関節の外接矩形）が余白付きで収まる
 拡大率・位置に自動フィットする（縮小はしない。映像の端がペインに入って黒帯が出る手前で止める）。
@@ -72,9 +72,9 @@ SwingDuet/
 ## 3. 同期の仕組み（SyncEngine）
 
 - **共通タイムライン**の長さは基準側（`reference`）のスイング区間（アドレス〜フィニッシュ）と同じ
-- トップ・インパクトの位置（`topBoundary` / `impactBoundary`）も基準側で決まる
-- 非基準側は各区間（バックスイング / ダウンスイング / フォロー）を線形に伸縮して写像する（`videoTime(at:for:)`）。
-  これにより 4 点が必ず一致する
+- 各フェーズの位置（`commonTime(of:)`）も基準側で決まる（基準側のアドレスが 0）
+- 非基準側は各区間（バックスイング / ダウンスイング / フォロー。区間の始点・終点は `SwingSegment.start / end`）を
+  線形に伸縮して写像する（`videoTime(at:for:)`）。これにより 4 点が必ず一致する
 - 区間ごとの速度倍率 `rateMultiplier(for:in:)` = その側の区間長 ÷ 基準側の区間長（基準側は常に 1.0）
 - コマ送りの 1 ステップは基準側動画の 1 フレーム（`referenceFrameDuration`）
 
@@ -98,6 +98,8 @@ SwingDuet/
   `@Observable` なら `commonTime` を読むシークバーだけが再描画される（`ProjectStore` は更新頻度が低いので `ObservableObject` のまま）。
   `ComparisonView` は controller を `task` で 1 度だけ作る薄いラッパーで、本体は `ComparisonContent`
   （`@State` の初期値は View の作り直しごとに評価されるため、init で作ると保存のたびに使い捨ての AVPlayer ができる）
+- 比較前のステージは、動画を持たない `PlaybackController.placeholder` で同じ `ControlPanelView` を操作できない飾りとして出す
+  （両ペインがそろった瞬間にパネルの高さが変わらないように。形を真似た別の View だと、パネルを変えたときにずれる）
 
 ## 5. フェーズ検出の仕組み（SwingAnalyzer）
 
@@ -151,7 +153,7 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
 - コード内のコメントは**日本語**で記述し、`TODO:` / `FIXME:` / `NOTE:` を用途に応じて使い分ける
 - 複雑なロジックには「なぜそうしたか」を説明するコメントを付ける（行動規範は [AGENTS.md](../AGENTS.md) §5.3）
 - 命名は Swift 標準に従う：型は UpperCamelCase、変数・関数は lowerCamelCase。View は `〜View`、
-  ロジックの置き場は役割で分ける（`Models/` 値型と写像、`Services/` 入出力と解析、`Playback/` 再生制御）
+  ロジックの置き場は役割で分ける（`Models/` 値型と写像、`Services/` 入出力・解析・再生制御）
 - 1 ファイル 1 型を基本とし、ファイル内だけで使う補助 View は `private` にする
 
 ## 7. 検証と既知の制約

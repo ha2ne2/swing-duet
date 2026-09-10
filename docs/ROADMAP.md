@@ -20,7 +20,7 @@ SwingDuet は、以下の 4 つのフェーズで進める：
 | 入力       | PhotosPicker で 2 本読み込み、自動フィット、拡大・位置合わせ | `Views/StageView.swift`、`Views/VideoPickerSheet.swift`、`Views/VideoPaneView.swift` | ✅ 完了（2026-09-06） |
 | 自動検出   | Vision 姿勢推定（手首・腰・首）+ 手の高さによる 4 フェーズ決定、手動修正 | `Services/SwingAnalyzer.swift`、`Views/PhaseEditView.swift`   | ✅ 完了（2026-09-06） |
 | 同期       | インパクト基準・区間別倍率、基準側の切替                    | `Models/SyncEngine.swift`                                     | ✅ 完了（2026-09-06） |
-| 再生 UI    | 共通シークバー、テンポ比、ジャンプ、速度、コマ送り、ループ  | `Playback/PlaybackController.swift`、`Views/*`                | ✅ 完了（2026-09-06） |
+| 再生 UI    | 共通シークバー、テンポ比、ジャンプ、速度、コマ送り、ループ  | `Services/PlaybackController.swift`、`Views/*`                | ✅ 完了（2026-09-06） |
 | 保存       | プロジェクトの保存・再開（JSON + 動画コピー）               | `Services/ProjectStore.swift`                                 | ✅ 完了（2026-09-06） |
 
 ---

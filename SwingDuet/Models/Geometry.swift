@@ -15,12 +15,3 @@ extension CGRect {
         self.init(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
-
-extension Collection where Element == Double {
-    /// 中央値（要素が無ければ nil）。外れ値に引きずられない代表値が欲しいときに使う
-    var median: Double? {
-        guard !isEmpty else { return nil }
-        let sorted = self.sorted()
-        return sorted[sorted.count / 2]
-    }
-}

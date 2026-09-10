@@ -41,25 +41,25 @@ struct SwingCandidate {
 enum SwingDetector {
 
     /// これ未満なら手が「低い」（アドレス・インパクト）。実測はアドレス −0.2〜0.1
-    static let lowHeight = 0.3
+    private static let lowHeight = 0.3
     /// これ以上なら手が「高い」（トップ・フィニッシュ）。実測は 0.7〜1.9
-    static let highHeight = 0.5
+    private static let highHeight = 0.5
     /// 手首が見えない時間がこれ以上なら欠測として扱う（解析は 30fps なので 6 フレーム。欠測明けのサンプルは速度が nil）
-    static let gapDuration = 0.2
+    private static let gapDuration = 0.2
     /// アドレス：低い区間で最も低い高さからこの範囲内にいるサンプルのうち、
     /// 速度がバックスイングの最大の `addressSpeedRatio` 以下（まだ動き出していない）である最後のもの
-    static let restBand = 0.1
-    static let addressSpeedRatio = 0.15
+    private static let restBand = 0.1
+    private static let addressSpeedRatio = 0.15
     /// トップ（切り返し）：最も高い点の後、高さが下がりながら速度がダウンスイングの最大のこの割合に達したところ
-    static let descentOnsetRatio = 0.3
+    private static let descentOnsetRatio = 0.3
     /// フィニッシュ：フォローで手が最も高くなる（そこから `finishDrop` 下がるまでの山の）高さの、この割合に最初に達したところ
-    static let finishHeightRatio = 0.9
-    static let finishDrop = 0.3
+    private static let finishHeightRatio = 0.9
+    private static let finishDrop = 0.3
     /// フォローの後に手が低く戻る速さが、フォローで上がった速さのこの倍以上なら、その高い区間は別のスイングのトップ
     /// （切り返しの後のダウンスイングは、その前の上がりより速い。フィニッシュから下ろす動きは上がりより遅い）
-    static let anotherSwingRatio = 1.0
+    private static let anotherSwingRatio = 1.0
     /// トップが見えないときの置き場所（バックスイング : ダウンスイング = 3 : 1）
-    static let backswingShare = 0.75
+    private static let backswingShare = 0.75
 
     static func detect(track: PoseTrack, duration: Double) -> [SwingCandidate] {
         let samples = handSamples(track: track)
@@ -117,7 +117,7 @@ enum SwingDetector {
     }
 
     /// 手が低い（height < lowHeight）サンプルの連なり
-    static func lowRegions(_ samples: [HandSample]) -> [ClosedRange<Int>] {
+    private static func lowRegions(_ samples: [HandSample]) -> [ClosedRange<Int>] {
         var regions: [ClosedRange<Int>] = []
         var start: Int? = nil
         for i in samples.indices {

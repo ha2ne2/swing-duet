@@ -8,6 +8,31 @@
 import Foundation
 import Vision
 
+/// 追跡対象の人物の主要関節の生の位置と信頼度（`--joints`）
+struct JointFrame {
+    var time: Double
+    var joints: [VNHumanBodyPoseObservation.JointName: VNRecognizedPoint]
+}
+
+extension SwingAnalyzer {
+    /// 追跡対象の人物の左右手首・腰・首を、信頼度による足切りをせずそのまま返す
+    static func jointDump(url: URL) async throws -> [JointFrame] {
+        let video = try await loadVideo(url: url)
+        let names: [VNHumanBodyPoseObservation.JointName] = [.leftWrist, .rightWrist, .root, .neck]
+        var frames: [JointFrame] = []
+        try PoseTracker.forEachTrackedPerson(
+            asset: video.asset, videoTrack: video.track, frameRate: video.frameRate, orientation: video.orientation
+        ) { time, person in
+            var joints: [VNHumanBodyPoseObservation.JointName: VNRecognizedPoint] = [:]
+            for name in names {
+                if let point = try? person?.recognizedPoint(name) { joints[name] = point }
+            }
+            frames.append(JointFrame(time: time, joints: joints))
+        }
+        return frames
+    }
+}
+
 func describe(_ p: PhaseSet) -> String {
     String(format: "A=%.2f T=%.2f I=%.2f F=%.2f (テンポ %@)", p.address, p.top, p.impact, p.finish, p.tempoText)
 }

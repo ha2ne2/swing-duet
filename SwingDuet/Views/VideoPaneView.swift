@@ -8,7 +8,7 @@ import AVFoundation
 struct VideoPaneView: View {
     let player: AVPlayer
     @Binding var config: VideoConfig
-    let side: ReferenceSide
+    let side: VideoSide
     /// ラベルに添える名前（登録済みお手本の名前など）
     var title: String? = nil
     /// ラベルをタップしたとき（動画を選び直す）
@@ -177,7 +177,7 @@ struct VideoPaneView: View {
 
 // MARK: - ペインに重ねる部品（比較前の SlotPane と共通）
 
-extension ReferenceSide {
+extension VideoSide {
     /// ペインのラベル。「お手本 · 名前」のように登録済みお手本の名前を添える
     func paneTitle(_ name: String?) -> String {
         name.map { "\(label) · \($0)" } ?? label

@@ -21,7 +21,7 @@ struct HistoryView: View {
                                 onOpen(project)
                                 dismiss()
                             } label: {
-                                HistoryRow(project: project, store: store)
+                                HistoryRow(project: project)
                             }
                             .buttonStyle(.plain)
                         }
@@ -41,18 +41,18 @@ struct HistoryView: View {
 }
 
 private struct HistoryRow: View {
+    @EnvironmentObject private var store: ProjectStore
     let project: ComparisonProject
-    let store: ProjectStore
 
     var body: some View {
         HStack(spacing: 12) {
             HStack(spacing: 2) {
-                VideoThumbnail(url: store.videoURL(for: project.mine.fileName), time: project.mine.phases.impact, aspect: 44 / 60)
-                    .frame(width: 44, height: 60)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                VideoThumbnail(url: store.videoURL(for: project.model.fileName), time: project.model.phases.impact, aspect: 44 / 60)
-                    .frame(width: 44, height: 60)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                ForEach(VideoSide.allCases) { side in
+                    let config = project.config(for: side)
+                    VideoThumbnail(url: store.videoURL(for: config.fileName), time: config.phases.impact, aspect: 44 / 60)
+                        .frame(width: 44, height: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text(project.name)

@@ -1,13 +1,20 @@
 import SwiftUI
 import PhotosUI
 
+/// ピッカーで選ばれた動画（`VideoPickerSheet` の結果）
+enum PickedVideo {
+    case registered(ModelVideo)
+    /// ライブラリの動画（右ペインでは名前を付けて登録する。左ペインでは name は nil）
+    case library(URL, name: String?)
+}
+
 /// ペインに入れる動画を選ぶシート：登録済みお手本（サムネイル付き）と「ライブラリから選ぶ」。
 /// 右ペイン（お手本）でライブラリから選ぶと名前を付けるステップを挟み、解析後に登録済みへ入る。
 /// カードの長押しで名前の変更・削除
 struct VideoPickerSheet: View {
     @EnvironmentObject private var store: ProjectStore
     @Environment(\.dismiss) private var dismiss
-    let side: ReferenceSide
+    let side: VideoSide
     let onPick: (PickedVideo) -> Void
 
     @State private var libraryItem: PhotosPickerItem?

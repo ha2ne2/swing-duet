@@ -43,8 +43,14 @@ final class PlaybackController: NSObject {
     /// 押しっぱなしのコマ送り：連続中のコマの間隔（秒）。10 コマ/秒はキーリピートと同じ速さで、1 コマずつ目で追える
     private static let stepRepeatInterval = 0.1
 
-    let minePlayer = AVPlayer()
-    let modelPlayer = AVPlayer()
+    /// 動画を持たない不活性なコントローラ。比較前のステージで、比較画面と同じ操作パネルを飾りとして出すのに使う
+    /// （形を真似た別の View を持つと、操作パネルを変えたときに高さがずれる）
+    static let placeholder = PlaybackController(sync: SyncEngine(
+        minePhases: .fallback(duration: 1), modelPhases: .fallback(duration: 1),
+        reference: .model, referenceFrameDuration: 1.0 / 30.0))
+
+    private let minePlayer = AVPlayer()
+    private let modelPlayer = AVPlayer()
 
     private(set) var commonTime: Double = 0
     private(set) var isPlaying = false
@@ -69,7 +75,7 @@ final class PlaybackController: NSObject {
     @ObservationIgnored private var currentSegment: SwingSegment?
     @ObservationIgnored private var wasPlayingBeforeScrub = false
     /// 側ごとの実行中のシーク数（`seek` で増やし、完了ハンドラで減らす）。0 でない側はドリフト補正しない
-    @ObservationIgnored private var pendingSeeks: [ReferenceSide: Int] = [:]
+    @ObservationIgnored private var pendingSeeks: [VideoSide: Int] = [:]
     /// 押しっぱなしのコマ送りを進めている Task（`beginStepping` で作り、`endStepping` で取り消す）
     @ObservationIgnored private var stepRepeatTask: Task<Void, Never>?
 
@@ -78,17 +84,27 @@ final class PlaybackController: NSObject {
         pendingSeeks.values.contains { $0 > 0 }
     }
 
-    init(mineURL: URL, modelURL: URL, sync: SyncEngine) {
+    convenience init(mineURL: URL, modelURL: URL, sync: SyncEngine) {
+        self.init(sync: sync)
+        minePlayer.replaceCurrentItem(with: AVPlayerItem(url: mineURL))
+        modelPlayer.replaceCurrentItem(with: AVPlayerItem(url: modelURL))
+        hardSeek()
+    }
+
+    /// プレーヤーに動画を入れない（`placeholder` 用）
+    private init(sync: SyncEngine) {
         self.sync = sync
         super.init()
-
-        for (player, url) in [(minePlayer, mineURL), (modelPlayer, modelURL)] {
-            player.replaceCurrentItem(with: AVPlayerItem(url: url))
+        for side in VideoSide.allCases {
+            let player = player(for: side)
             player.isMuted = true
             player.automaticallyWaitsToMinimizeStalling = false
             player.actionAtItemEnd = .pause
         }
-        hardSeek()
+    }
+
+    func player(for side: VideoSide) -> AVPlayer {
+        side == .mine ? minePlayer : modelPlayer
     }
 
     /// 現在のループ範囲（共通タイムライン上の秒）
@@ -122,8 +138,7 @@ final class PlaybackController: NSObject {
     private func stop() {
         stopDisplayLink()
         isPlaying = false
-        minePlayer.rate = 0
-        modelPlayer.rate = 0
+        for side in VideoSide.allCases { player(for: side).rate = 0 }
     }
 
     // MARK: - 再生速度
@@ -258,19 +273,19 @@ final class PlaybackController: NSObject {
 
     private func applyRates() {
         let segment = sync.segment(at: commonTime)
-        for (player, side) in playerSides() {
-            player.rate = Float(speed * sync.rateMultiplier(for: side, in: segment))
+        for side in VideoSide.allCases {
+            player(for: side).rate = Float(speed * sync.rateMultiplier(for: side, in: segment))
         }
     }
 
     /// シーク中の側は補正しない。シーク中は `currentTime` が進まないので、それをドリフトと見なして補正すると
     /// そのシークがまた時計を止め、シークが連鎖して映像が止まっては飛ぶ
     private func correctDrift() {
-        for (player, side) in playerSides() where pendingSeeks[side, default: 0] == 0 {
+        for side in VideoSide.allCases where pendingSeeks[side, default: 0] == 0 {
             let expected = sync.videoTime(at: commonTime, for: side)
-            let actual = player.currentTime().seconds
+            let actual = player(for: side).currentTime().seconds
             if abs(actual - expected) > Self.driftThreshold {
-                seek(player, side: side, to: expected, tolerance: Self.seekTolerance)
+                seek(side, to: expected, tolerance: Self.seekTolerance)
             }
         }
     }
@@ -282,24 +297,20 @@ final class PlaybackController: NSObject {
 
     private func seekBoth(precise: Bool) {
         let tolerance = precise ? CMTime.zero : Self.seekTolerance
-        for (player, side) in playerSides() {
-            seek(player, side: side, to: sync.videoTime(at: commonTime, for: side), tolerance: tolerance)
+        for side in VideoSide.allCases {
+            seek(side, to: sync.videoTime(at: commonTime, for: side), tolerance: tolerance)
         }
     }
 
-    private func seek(_ player: AVPlayer, side: ReferenceSide, to seconds: Double, tolerance: CMTime) {
+    private func seek(_ side: VideoSide, to seconds: Double, tolerance: CMTime) {
         pendingSeeks[side, default: 0] += 1
-        player.seek(
+        player(for: side).seek(
             to: CMTime(seconds: seconds, preferredTimescale: 6000),
             toleranceBefore: tolerance, toleranceAfter: tolerance
         ) { [weak self] _ in
             // 次のシークに置き換えられて中断したときも（finished = false で）必ず呼ばれる
             Task { @MainActor in self?.pendingSeeks[side, default: 0] -= 1 }
         }
-    }
-
-    private func playerSides() -> [(AVPlayer, ReferenceSide)] {
-        [(minePlayer, .mine), (modelPlayer, .model)]
     }
 
     deinit {

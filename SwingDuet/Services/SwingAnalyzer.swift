@@ -49,14 +49,15 @@ struct SwingAnalysisResult {
     }
 }
 
-enum SwingAnalyzerError: LocalizedError {
+/// 動画ファイルを読めないときのエラー（解析と取り込みで共通）
+enum VideoError: LocalizedError {
     case noVideoTrack
-    case readerFailed
+    case unreadable
 
     var errorDescription: String? {
         switch self {
         case .noVideoTrack: return "動画トラックが見つかりませんでした。"
-        case .readerFailed: return "動画の読み込みに失敗しました。"
+        case .unreadable: return "動画を読み込めませんでした。別の動画を選択してください。"
         }
     }
 }
@@ -71,20 +72,14 @@ enum SwingAnalyzer {
             asset: video.asset, videoTrack: video.track, frameRate: video.frameRate, orientation: video.orientation)
         return SwingAnalysisResult(
             duration: video.duration,
-            frameRate: video.frameRate > 1 ? video.frameRate : 30,
+            frameRate: video.frameRate,
             videoAspect: video.aspect,
             pose: pose,
             candidates: SwingDetector.detect(track: pose, duration: video.duration))
     }
 
-    /// 調査用（`analyze-swing --joints`）：追跡対象の人物の主要関節を信頼度付きでそのまま返す
-    static func jointDump(url: URL) async throws -> [JointFrame] {
-        let video = try await loadVideo(url: url)
-        return try PoseTracker.jointDump(
-            asset: video.asset, videoTrack: video.track, frameRate: video.frameRate, orientation: video.orientation)
-    }
-
-    private struct Video {
+    /// 解析に使う動画の情報（`loadVideo` で読む）
+    struct Video {
         var asset: AVURLAsset
         var track: AVAssetTrack
         var duration: Double
@@ -94,12 +89,12 @@ enum SwingAnalyzer {
         var orientation: CGImagePropertyOrientation
     }
 
-    /// 解析に必要な動画の情報をまとめて読む
-    private static func loadVideo(url: URL) async throws -> Video {
+    /// 解析に必要な動画の情報をまとめて読む。解析 CLI（scripts/analyze-swing）の関節ダンプからも使うので private にしない
+    static func loadVideo(url: URL) async throws -> Video {
         let asset = AVURLAsset(url: url)
         let duration = try await asset.load(.duration).seconds
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
-            throw SwingAnalyzerError.noVideoTrack
+            throw VideoError.noVideoTrack
         }
         let (nominalFrameRate, naturalSize, transform) = try await track.load(.nominalFrameRate, .naturalSize, .preferredTransform)
         let shownSize = naturalSize.applying(transform)   // 回転メタデータ適用後の大きさ（符号は向きなので絶対値で使う）

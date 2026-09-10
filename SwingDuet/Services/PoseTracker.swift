@@ -36,10 +36,13 @@ struct PoseTrack {
     }
 }
 
-/// 調査用（`analyze-swing --joints`）：追跡対象の人物の主要関節の生の位置と信頼度
-struct JointFrame {
-    var time: Double
-    var joints: [VNHumanBodyPoseObservation.JointName: VNRecognizedPoint]
+private extension Collection where Element == Double {
+    /// 中央値（要素が無ければ nil）
+    var median: Double? {
+        guard !isEmpty else { return nil }
+        let sorted = self.sorted()
+        return sorted[sorted.count / 2]
+    }
 }
 
 /// Vision の人体姿勢推定で動画の人物を追跡し、フレームごとの手首・腰・首の位置と関節の外接矩形を得る。
@@ -75,25 +78,6 @@ enum PoseTracker {
         return PoseTrack(frames: frames)
     }
 
-    /// 調査用：追跡対象の人物の左右手首・腰・首を、信頼度による足切りをせずそのまま返す
-    static func jointDump(
-        asset: AVURLAsset,
-        videoTrack: AVAssetTrack,
-        frameRate: Double,
-        orientation: CGImagePropertyOrientation
-    ) throws -> [JointFrame] {
-        let names: [VNHumanBodyPoseObservation.JointName] = [.leftWrist, .rightWrist, .root, .neck]
-        var frames: [JointFrame] = []
-        try forEachTrackedPerson(asset: asset, videoTrack: videoTrack, frameRate: frameRate, orientation: orientation) { time, person in
-            var joints: [VNHumanBodyPoseObservation.JointName: VNRecognizedPoint] = [:]
-            for name in names {
-                if let point = try? person?.recognizedPoint(name) { joints[name] = point }
-            }
-            frames.append(JointFrame(time: time, joints: joints))
-        }
-        return frames
-    }
-
     /// 動画の回転メタデータ（preferredTransform）を Vision に渡す向きに直す
     static func orientation(from t: CGAffineTransform) -> CGImagePropertyOrientation {
         if t.a == 0 && t.b == 1 && t.c == -1 && t.d == 0 { return .right }
@@ -104,8 +88,9 @@ enum PoseTracker {
 
     // MARK: - フレームの読み出しと人物の追跡
 
-    /// 解析レートに間引いたフレームごとに、追跡対象の人物（見つからなければ nil）を時刻とともに渡す
-    private static func forEachTrackedPerson(
+    /// 解析レートに間引いたフレームごとに、追跡対象の人物（見つからなければ nil）を時刻とともに渡す。
+    /// 解析 CLI（scripts/analyze-swing）の関節ダンプからも使うので private にしない
+    static func forEachTrackedPerson(
         asset: AVURLAsset, videoTrack: AVAssetTrack, frameRate: Double, orientation: CGImagePropertyOrientation,
         _ body: (Double, VNHumanBodyPoseObservation?) -> Void
     ) throws {
@@ -114,9 +99,9 @@ enum PoseTracker {
             track: videoTrack,
             outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange])
         output.alwaysCopiesSampleData = false
-        guard reader.canAdd(output) else { throw SwingAnalyzerError.readerFailed }
+        guard reader.canAdd(output) else { throw VideoError.unreadable }
         reader.add(output)
-        guard reader.startReading() else { throw SwingAnalyzerError.readerFailed }
+        guard reader.startReading() else { throw VideoError.unreadable }
 
         let request = VNDetectHumanBodyPoseRequest()
         let stride = max(1, Int((frameRate / sampleRate).rounded()))
@@ -138,7 +123,7 @@ enum PoseTracker {
             }
         }
         if reader.status == .failed {
-            throw SwingAnalyzerError.readerFailed
+            throw VideoError.unreadable
         }
     }
 

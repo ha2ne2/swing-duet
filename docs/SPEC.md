@@ -119,7 +119,7 @@
 | `PhaseSet`          | 4 フェーズの時刻（秒）。`address < top < impact < finish` を `sanitize` / `assign` で保証。`tempoRatio` = バックスイング長 ÷ ダウンスイング長 |
 | `SwingPhase`        | `address` / `top` / `impact` / `finish`                                                |
 | `SwingSegment`      | `backswing` / `downswing` / `follow`（区間の色も持つ）                                 |
-| `ReferenceSide`     | `mine` / `model`                                                                       |
+| `VideoSide`         | `mine` / `model`（自分 / お手本。`reference` の値にも使う）                             |
 
 ---
 

@@ -14,13 +14,6 @@ enum Slot {
     }
 }
 
-/// ピッカーで選ばれた動画
-enum PickedVideo {
-    case registered(ModelVideo)
-    /// ライブラリの動画（右ペインでは名前を付けて登録する。左ペインでは name は nil）
-    case library(URL, name: String?)
-}
-
 /// アプリの唯一の画面。起動時は 2 つのペインが空で、それぞれの + から動画を選ぶ。
 /// 両方そろうと比較（`ComparisonView`）になり、履歴に自動で残る。
 /// ツールバーは「履歴」と「新しいスイング」（両ペインと開いている比較を空に戻し、起動直後の状態からやり直す）
@@ -31,7 +24,7 @@ struct StageView: View {
     @State private var model: Slot = .empty
     /// いま開いている比較。両ペインがそろって作ったか、履歴から開いたもの
     @State private var projectID: UUID?
-    @State private var picking: ReferenceSide?
+    @State private var picking: VideoSide?
     @State private var showingHistory = false
     @State private var errorMessage: String?
 
@@ -48,12 +41,12 @@ struct StageView: View {
         NavigationStack {
             Group {
                 if let project {
-                    ComparisonView(project: project, store: store) { side in
+                    ComparisonView(project: project) { side in
                         picking = side
                     }
                     .id(project.id)
                 } else {
-                    SetupStageView(mine: mine, model: model, store: store) { side in
+                    SetupStageView(mine: mine, model: model) { side in
                         picking = side
                     }
                 }
@@ -112,11 +105,11 @@ struct StageView: View {
 
     // MARK: - ペインの更新
 
-    private func slot(_ side: ReferenceSide) -> Slot {
+    private func slot(_ side: VideoSide) -> Slot {
         side == .mine ? mine : model
     }
 
-    private func set(_ side: ReferenceSide, _ slot: Slot) {
+    private func set(_ side: VideoSide, _ slot: Slot) {
         if side == .mine { mine = slot } else { model = slot }
     }
 
@@ -139,7 +132,7 @@ struct StageView: View {
         model = .ready(project.model, modelID: project.modelID)
     }
 
-    private func load(_ picked: PickedVideo, into side: ReferenceSide) {
+    private func load(_ picked: PickedVideo, into side: VideoSide) {
         // 開いている比較の動画は、フェーズ修正や位置合わせを反映した最新の状態で引き継ぐ
         if let project { fill(from: project) }
         projectID = nil
@@ -158,7 +151,7 @@ struct StageView: View {
         }
     }
 
-    private func analyze(fileName: String, name: String?, side: ReferenceSide) async {
+    private func analyze(fileName: String, name: String?, side: VideoSide) async {
         do {
             // 解析より先に音声を落とす（解析が保存する duration を、以後ずっと読む書き換え後のファイルから取るため）
             await store.stripAudio(fileName)
@@ -193,75 +186,34 @@ struct StageView: View {
     }
 }
 
-/// 両ペインがそろう前のステージ。ペインは空（+）・解析中・準備済みのどれかで、操作パネルは薄く表示する
+/// 両ペインがそろう前のステージ。ペインは空（+）・解析中・準備済みのどれかで、操作パネルは操作できない飾りとして薄く出す
 private struct SetupStageView: View {
     let mine: Slot
     let model: Slot
-    let store: ProjectStore
-    let onSelect: (ReferenceSide) -> Void
+    let onSelect: (VideoSide) -> Void
 
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 2) {
-                SlotPane(side: .mine, slot: mine, store: store) { onSelect(.mine) }
-                SlotPane(side: .model, slot: model, store: store) { onSelect(.model) }
+                SlotPane(side: .mine, slot: mine) { onSelect(.mine) }
+                SlotPane(side: .model, slot: model) { onSelect(.model) }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
 
-            placeholderControls
+            ControlPanelView(controller: .placeholder, reference: .constant(.model))
                 .opacity(0.35)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
-        }
-    }
-
-    /// 比較画面の操作パネルと同じ形の飾り（高さをそろえて、そろった瞬間にペインが動かないようにする）
-    private var placeholderControls: some View {
-        VStack(spacing: 8) {
-            ReferencePicker(reference: .constant(.model))
-                .padding(.horizontal)
-
-            VStack(spacing: 3) {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(.quaternary)
-                    .frame(height: 28)
-                SegmentLegend()
-            }
-            .padding(.horizontal)
-
-            VStack(spacing: 10) {
-                HStack(spacing: 8) {
-                    ForEach([SwingPhase.address, .top, .impact]) { phase in
-                        Text(phase.label)
-                            .font(.caption)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(.quaternary, in: Capsule())
-                    }
-                }
-                HStack(spacing: 22) {
-                    Image(systemName: "repeat").font(.title3)
-                    Image(systemName: "backward.frame.fill").font(.title3).frame(width: 44, height: 44)
-                    Image(systemName: "play.circle.fill").font(.system(size: 44))
-                    Image(systemName: "forward.frame.fill").font(.title3).frame(width: 44, height: 44)
-                    Text("x0.30")
-                        .font(.caption.monospacedDigit())
-                        .frame(width: 52, height: 30)
-                        .background(.quaternary, in: Capsule())
-                }
-            }
-            .padding(.horizontal)
-            .padding(.bottom, 6)
         }
     }
 }
 
 /// 1 つのペイン（空・解析中・準備済み）
 private struct SlotPane: View {
-    let side: ReferenceSide
+    @EnvironmentObject private var store: ProjectStore
+    let side: VideoSide
     let slot: Slot
-    let store: ProjectStore
     let onTap: () -> Void
 
     var body: some View {
