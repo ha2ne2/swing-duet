@@ -23,18 +23,12 @@ struct Pairing: Codable, Equatable {
     var offsetY: Double = 0
     /// 相手を決めた日時。「いつものお手本」（最後に比べた相手）を決めるのに使う
     var pairedAt: Date = Date()
+}
 
+extension Pairing {
     /// 右ペインの位置合わせを `config` から写す
     init(partnerID: UUID, transformOf config: VideoConfig, pairedAt: Date) {
         self.init(partnerID: partnerID, scale: config.scale, offsetX: config.offsetX, offsetY: config.offsetY, pairedAt: pairedAt)
-    }
-
-    init(partnerID: UUID, scale: Double = 1.0, offsetX: Double = 0, offsetY: Double = 0, pairedAt: Date = Date()) {
-        self.partnerID = partnerID
-        self.scale = scale
-        self.offsetX = offsetX
-        self.offsetY = offsetY
-        self.pairedAt = pairedAt
     }
 }
 
@@ -74,6 +68,11 @@ struct Clip: Codable, Identifiable, Equatable {
     }
 
     var isAnalyzed: Bool { analysis == .done }
+
+    /// サムネイルに出すコマの時刻。解析が済んでいなければ先頭
+    func thumbnailTime(of phase: SwingPhase) -> Double {
+        isAnalyzed ? video.phases.time(of: phase) : 0
+    }
 
     /// 右ペインに出す相手の設定：相手の解析結果に、このクリップとの位置合わせ（`pairing`）を重ねたもの。
     /// 相手が `pairing` と違えば自動フィットどおり（位置は相手ごとに違う）

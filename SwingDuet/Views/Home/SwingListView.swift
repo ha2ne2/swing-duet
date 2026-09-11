@@ -78,7 +78,7 @@ struct SwingListView: View {
                 }
             }
             let sections = days
-            ForEach(Array(sections.enumerated()), id: \.element.day) { index, group in
+            ForEach(sections, id: \.day) { group in
                 Section {
                     ForEach(group.items) { clip in
                         row(clip, showsDate: false)
@@ -86,7 +86,7 @@ struct SwingListView: View {
                 } header: {
                     Text(group.day.dayLabel)
                 } footer: {
-                    if index == sections.count - 1 {
+                    if group.day == sections.last?.day {
                         Text("★ 以外は \(ClipStore.swingLimit) 本まで残ります")
                     }
                 }
@@ -104,7 +104,6 @@ struct SwingListView: View {
     }
 
     /// 下端：通常は「＋ スイングを追加」、選択中はまとめて ★ / 削除。削除の直後は「元に戻す」
-    @ViewBuilder
     private var bottomBar: some View {
         VStack(spacing: 10) {
             if !store.lastDeleted.isEmpty {
@@ -243,7 +242,7 @@ private struct SwingRow: View {
     }
 
     private func thumbnail(of clip: Clip) -> some View {
-        VideoThumbnail(url: store.videoURL(for: clip.fileName), time: clip.isAnalyzed ? clip.video.phases.impact : 0, aspect: 44 / 60)
+        VideoThumbnail(url: store.videoURL(of: clip), time: clip.thumbnailTime(of: .impact), aspect: 44 / 60)
             .frame(width: 44, height: 60)
             .clipShape(RoundedRectangle(cornerRadius: 6))
     }

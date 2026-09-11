@@ -10,7 +10,7 @@ import Photos
 ///       消し損ねたファイルは次回起動時にまた対象になる。どれもユーザーに知らせて回復できる種類の失敗ではない
 @MainActor
 final class ClipStore: ObservableObject {
-    /// ★ の無いスイングをいくつまで残すか（超えた分は古い順に消える）。フッターの文言と合わせる
+    /// ★ の無いスイングをいくつまで残すか（超えた分は古い順に消える。一覧のフッターにこの数を出す）
     static let swingLimit = 60
 
     @Published private(set) var clips: [Clip] = []
@@ -112,7 +112,11 @@ final class ClipStore: ObservableObject {
 
     // MARK: - 動画ファイル
 
-    func videoURL(for fileName: String) -> URL {
+    func videoURL(of clip: Clip) -> URL {
+        videoURL(for: clip.fileName)
+    }
+
+    private func videoURL(for fileName: String) -> URL {
         videosDirectory.appendingPathComponent(fileName)
     }
 
@@ -167,9 +171,7 @@ final class ClipStore: ObservableObject {
         if let twin = existingClip(assetID: assetID), twin.isAnalyzed {
             clip.video = twin.video
             clip.video.fileName = fileName
-            clip.video.scale = 1
-            clip.video.offsetX = 0
-            clip.video.offsetY = 0
+            clip.video.resetTransform()
             clip.analysis = .done
         }
         if role == .swing, let partner = partnerID.flatMap({ self.clip(id: $0) }) ?? usualPartner() {
@@ -257,7 +259,7 @@ final class ClipStore: ObservableObject {
     }
 
     private func analyze(_ clip: Clip) async {
-        let url = videoURL(for: clip.fileName)
+        let url = videoURL(of: clip)
         // 解析より先に音声を落とす（解析が保存する duration を、以後ずっと読む書き換え後のファイルから取るため）。
         // 失敗しても解析は続ける（音声付きのまま再生はでき、実機でカクつきが残るだけ）
         do {
@@ -345,9 +347,7 @@ final class ClipStore: ObservableObject {
                 ?? clips.first { $0.role == .model && $0.fileName == project.model.fileName }?.id
                 ?? {
                     var video = project.model
-                    video.scale = 1
-                    video.offsetX = 0
-                    video.offsetY = 0
+                    video.resetTransform()
                     let model = Clip(role: .model, name: "お手本 \(project.createdAt.compactLabel)", createdAt: project.createdAt, video: video)
                     clips.append(model)
                     return model.id

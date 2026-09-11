@@ -224,8 +224,8 @@ SPM パッケージ・CocoaPods は使っていない。
 - **シミュレータの制約**: Vision の姿勢推定はシミュレータでは動作しない（常にフォールバック位相＋ `lowConfidence` になる）。
   検出精度に関わる変更は実機で確認する
 - **署名**: `DEVELOPMENT_TEAM` は pbxproj に設定済み（自動署名）
-- **テスト**: Swift Testing のターゲット `SwingDuetTests`（検出ロジック `SwingDetector` の単体テスト。実行方法は build-test.md）。
-  SyncEngine / PhaseSet のテストは未整備（[docs/TODO.md](./docs/TODO.md) B）
+- **テスト**: Swift Testing のターゲット `SwingDuetTests`（検出ロジック・同期・動画の速さ・保存・ジョグホイールの単体テスト。実行方法は build-test.md）。
+  `PhaseSet` のテストは未整備（[docs/TODO.md](./docs/TODO.md) B）
 - コメント規約（セクション 5.3、日本語コメント）は Swift コードにも適用する
 
 ---

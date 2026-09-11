@@ -2,29 +2,34 @@ import Foundation
 
 // 画面に出す日時・時間の表記と、日付ごとの節への分け方
 
+/// 使い回す DateFormatter（作るのが重いので、一覧の行ごとに作らない）
+private enum Formatters {
+    static let compact = make("M/d HH:mm")
+    static let time = make("HH:mm")
+    static let day = make("M月d日（E）")
+    static let dayWithYear = make("y年M月d日（E）")
+
+    private static func make(_ format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = format
+        return formatter
+    }
+}
+
 extension Date {
     /// 「9/10 14:32」。クリップの表示名（名前が無いとき）と、動画の一覧のラベルに使う
-    var compactLabel: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "M/d HH:mm"
-        return formatter.string(from: self)
-    }
+    var compactLabel: String { Formatters.compact.string(from: self) }
 
     /// 「14:32」。日付の節の中の行に使う
-    var timeLabel: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: self)
-    }
+    var timeLabel: String { Formatters.time.string(from: self) }
 
     /// 日付の節の見出し：「今日」「昨日」、それ以外は「9月8日（月）」（年が違えば「2025年12月3日（水）」）
     var dayLabel: String {
         let calendar = Calendar.current
         if calendar.isDateInToday(self) { return "今日" }
         if calendar.isDateInYesterday(self) { return "昨日" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = calendar.isDate(self, equalTo: Date(), toGranularity: .year) ? "M月d日（E）" : "y年M月d日（E）"
-        return formatter.string(from: self)
+        let sameYear = calendar.isDate(self, equalTo: Date(), toGranularity: .year)
+        return (sameYear ? Formatters.day : Formatters.dayWithYear).string(from: self)
     }
 }
 

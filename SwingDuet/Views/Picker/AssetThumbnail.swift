@@ -7,6 +7,7 @@ struct AssetThumbnail: View {
     /// 要求する画像の大きさ（pt）。画面の倍率を掛けて px にする
     var targetSize = CGSize(width: 200, height: 200)
 
+    @Environment(\.displayScale) private var displayScale
     @State private var image: UIImage?
     @State private var requestID: PHImageRequestID?
 
@@ -28,8 +29,7 @@ struct AssetThumbnail: View {
         options.deliveryMode = .opportunistic   // まず粗い画像、続けて精細な画像が届く
         options.resizeMode = .fast
         options.isNetworkAccessAllowed = true
-        let scale = UIScreen.main.scale
-        let size = CGSize(width: targetSize.width * scale, height: targetSize.height * scale)
+        let size = CGSize(width: targetSize.width * displayScale, height: targetSize.height * displayScale)
         requestID = PHImageManager.default().requestImage(for: asset, targetSize: size, contentMode: .aspectFill, options: options) { result, _ in
             guard let result else { return }
             DispatchQueue.main.async { image = result }
@@ -38,19 +38,5 @@ struct AssetThumbnail: View {
 
     private func cancel() {
         if let requestID { PHImageManager.default().cancelImageRequest(requestID) }
-    }
-}
-
-/// ライブラリの動画のサムネイル（出どころに応じて PhotoKit か AVFoundation で描く）
-struct SourceThumbnail: View {
-    let source: LibrarySource
-
-    var body: some View {
-        switch source {
-        case .asset(let asset):
-            AssetThumbnail(asset: asset, targetSize: CGSize(width: 140, height: 186))
-        case .file(let url):
-            VideoThumbnail(url: url, time: 0.5, aspect: 140 / 186)
-        }
     }
 }

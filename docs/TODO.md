@@ -5,7 +5,7 @@
 
 ## ステータス一覧
 
-- [ ] B. テストが検出ロジックにしかない（2026-09-06 起票）
+- [ ] B. `PhaseSet` の純粋ロジックにテストが無い（2026-09-06 起票）
 - [ ] D. 手首が見えない区間に掛かるトップ・インパクトは推定で、0.15〜0.2 秒ずれる（2026-09-06 起票）
 - [ ] F. 2 セッションが同時に E2E を回すと壊れる（2026-09-06 起票）
 - [ ] G. 2026-09-11 の画面構成の変更後、E2E を通しで回していない（2026-09-11 起票）
@@ -13,13 +13,14 @@
 
 ---
 
-### B. テストが検出ロジックにしかない（2026-09-06 起票）
+### B. `PhaseSet` の純粋ロジックにテストが無い（2026-09-06 起票）
 
 - **背景**: MVP はテスト無しで作られた。[AGENTS.md](../AGENTS.md) §5.1 は「最初からテストを書く」前提。
   2026-09-10 に Swift Testing のターゲット `SwingDuetTests` を追加し、`SwingDetector` を合成した手の高さの系列で固定した（実行方法は [guides/build-test.md](./guides/build-test.md)）。
-  2026-09-11 に `ClipStore`（旧データの移行・上限・相手の解決・元に戻す・同じ動画の共有）のテストを足した。
-- **対象**: `SwingDuet/Models/SyncEngine.swift`、`SwingDuet/Models/Swing.swift`（`PhaseSet.sanitize` / `assign` / `fallback`）
-- **やること**: 上記の純粋ロジックにテストを足す。
+  2026-09-11 に `ClipStore`（旧データの移行・上限・相手の解決・元に戻す・同じ動画の共有）、`SyncEngine`（実秒の共通タイムラインと速度倍率）、
+  `SlowFactor`（動画の速さの推定）、`JogRotation`（ジョグホイールの目盛りとギア）のテストを足した。
+- **対象**: `SwingDuet/Models/Swing.swift`（`PhaseSet.sanitize` / `assign` / `fallback`）
+- **やること**: 上記の純粋ロジックにテストを足す。`SyncEngine` は区間の写像（`videoTime` / `segment(at:)`）の境界もまだ薄い。
 - **参照**: [ROADMAP.md](./ROADMAP.md) フェーズ 3
 
 ### D. 手首が見えない区間に掛かるトップ・インパクトは推定で、0.15〜0.2 秒ずれる（2026-09-06 起票）

@@ -49,7 +49,7 @@ SwingDuet は、以下の 4 つのフェーズで進める：
 | ---------------------------- | --------------------------------------------------------------------------------- | ----------------------------------- |
 | スロー動画の元ファイル取得   | PhotosPicker が 30fps レンダリング版を渡す問題の解消（PhotoKit で元動画を取得）    | ✅ 完了（2026-09-11。自前の「動画」タブが原本を取り込む。実機での確認は未） |
 | 焼き込みスロー動画の倍率     | 動画の速さ（実速〜1/32）をフェーズのダウンスイング長から推定し、手動で選び直せる。再生速度の x1 を実速に統一 | ✅ 完了（2026-09-11、[design/260911_0805](./design/260911_0805-slow-factor-on-clips.md)。8 倍速の滑らかさは実機で確認中） |
-| テスト整備                   | Swift Testing ターゲットを追加し、SyncEngine / PhaseSet / 検出ロジックを単体テスト | 🔶 一部（`SwingDuetTests` に検出ロジックと `ClipStore` のテストあり。SyncEngine / PhaseSet は [TODO.md](./TODO.md) B） |
+| テスト整備                   | Swift Testing ターゲットを追加し、SyncEngine / PhaseSet / 検出ロジックを単体テスト | 🔶 一部（`SwingDuetTests` に検出ロジック・`SyncEngine`・動画の速さ・`ClipStore`・`JogRotation` のテストあり。`PhaseSet` は [TODO.md](./TODO.md) B） |
 
 ---
 

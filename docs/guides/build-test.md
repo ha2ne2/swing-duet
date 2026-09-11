@@ -73,7 +73,8 @@ build/analyze-swing --joints docs/data/x.mp4   # 左右の手首・腰・首の�
 
 ## 単体テスト
 
-検出ロジック（`SwingDetector`）と保存（`ClipStore`：旧データの移行・上限・相手の解決）の Swift Testing（`SwingDuetTests/`）。アプリをホストにするのでシミュレータで走る:
+Swift Testing（`SwingDuetTests/`）。検出ロジック（`SwingDetector`）、同期（`SyncEngine`）、動画の速さの推定（`SlowFactor`）、
+保存（`ClipStore`：旧データの移行・上限・相手の解決）、ジョグホイールの回転（`JogRotation`）を固定している。アプリをホストにするのでシミュレータで走る:
 
 ```bash
 xcodebuild test -project SwingDuet.xcodeproj -scheme SwingDuetTests \

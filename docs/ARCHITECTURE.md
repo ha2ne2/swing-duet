@@ -32,7 +32,7 @@ SwingDuet/
 │   ├── SwingAnalyzer.swift       # 自動解析の入口。PoseTracker → SwingDetector をつなぎ、保存用の VideoConfig にする（§5）。動画を読めないときの VideoError
 │   ├── PoseTracker.swift         # Vision の姿勢推定で人物を追跡（手首・腰・首の位置、関節の外接矩形）
 │   ├── SwingDetector.swift       # 手の高さの系列からスイング区間・4 フェーズを検出し候補を採点（純粋計算）
-│   ├── PhotoLibrary.swift        # 写真ライブラリ（PhotoKit）：権限、動画の一覧、原本の書き出し。ピッカーで選んだ動画の出どころ LibrarySource
+│   ├── PhotoLibrary.swift        # 写真ライブラリ（PhotoKit）：権限と動画の一覧（変更に追従）、限定アクセスの選び直し、原本の書き出し。ピッカーで選んだ動画の出どころ LibrarySource
 │   ├── VideoImporter.swift       # OS のピッカー（PhotosPicker）から動画を受け取る・撮影日時・映像トラックだけへの書き換え（stripAudioTrack）
 │   ├── ClipStore.swift           # クリップの永続化（JSON + 動画ファイル管理）、旧データの移行、解析キュー、上限、元に戻す
 │   └── PlaybackController.swift  # CADisplayLink マスタークロック + 区間別レート再生（§4）
@@ -42,22 +42,24 @@ SwingDuet/
     ├── Stage/
     │   ├── StageView.swift       # ステージ。左のスイングと相手（右）。両方の解析が済めば ComparisonView、それまでは解析中 / お手本なし / 失敗の表示
     │   ├── ComparisonView.swift  # 比較（ペイン 2 つ + 操作パネル）。左右の編集をクリップに保存し、同期設定を controller に反映
-    │   ├── VideoPaneView.swift   # 動画ペイン（自動フィット・拡大縮小・位置合わせ。上端に名前と「替える」、下端中央にフェーズ調整）
+    │   ├── VideoPaneView.swift   # 動画ペイン（自動フィット・拡大縮小・位置合わせ。下端中央にフェーズ調整）
+    │   ├── PaneHeader.swift      # ペイン上端の名前と「替える」（比較前の SlotPane と共通）。動画に重ねるカプセル paneChip
     │   ├── ControlPanelView.swift # 操作パネル（基準切替 + シークバー + 再生操作）。比較前のステージにも飾りとして出す
     │   ├── SeekBarView.swift     # 区間色分けの共通シークバー
     │   ├── TransportControlsView.swift # フェーズジャンプ / ジョグホイール / 速度 / ループ
-    │   ├── JogWheelView.swift    # 再生ボタンを中心にしたジョグホイール（回してコマ送り、左右タップで ±1、触覚）。回転を目盛りに数える JogRotation
+    │   ├── JogWheelView.swift    # 再生ボタンを中心にしたジョグホイール（回してコマ送り、左右タップで ±1、触覚）
+    │   ├── JogRotation.swift     # 回転を目盛りに数え、周回でギア（1 目盛りのコマ数）を上げる純粋計算
     │   └── PhaseEditView.swift   # フェーズ手動修正（マーカードラッグ・±コマ・スイング候補の切り替え）
     ├── Picker/
-    │   ├── VideoPickerSheet.swift # 動画を選ぶシート（「動画」「お手本」の 2 タブ。押した側のペインに入る）。名前付けのステップ
+    │   ├── VideoPickerSheet.swift # 動画を選ぶシート（「動画」「お手本」の 2 タブ。押した側のペインに入る）。お手本に名前を付けるステップ
     │   ├── LibraryGridView.swift # 「動画」タブ：写真ライブラリの動画のグリッド（権限の 3 状態、限定アクセス、拒否時の OS ピッカー）
     │   ├── LibraryPreviewView.swift # 選んだ動画のプレビュー（原本を等速で繰り返し再生、下端の進捗バーでシーク）
     │   ├── ModelShelfView.swift  # 「お手本」タブ：登録済みお手本と ★ ベストのカード（「…」で名前の変更・削除・★ から外す）
-    │   └── AssetThumbnail.swift  # 写真ライブラリの動画のサムネイル（PhotoKit）と、出どころで描き分ける SourceThumbnail
+    │   └── AssetThumbnail.swift  # 写真ライブラリの動画のサムネイル（PhotoKit）
     └── Shared/
         ├── VideoThumbnail.swift  # 動画ファイルの 1 コマを非同期に描くサムネイル
         ├── PlayerLayerView.swift # AVPlayerLayer ラッパー
-        ├── Alerts.swift          # 名前を付けるアラート・エラーのアラート
+        ├── Alerts.swift          # 名前を付けるアラート・エラーのアラート。Optional を isPresented に変える Binding.isPresent
         └── SwingSegment+Color.swift # 区間の色（SwiftUI 依存を Models に持ち込まないための拡張）
 ```
 
@@ -85,7 +87,7 @@ JSON のどこからも参照されなくなったファイルを起動時に `C
 選んだ動画は `PhotoLibrary.exportOriginal`（`PHAssetResourceManager`）で原本を一時ファイルへ書き出し、`ClipStore.importVideo` で
 `Documents/Videos/` へ移す。権限が無いときは `PhotosPicker`（30fps のレンダリング版）に落ちる。同じ写真ライブラリの動画（`assetID`）を
 既に持っていれば書き出さずにファイルを共有し、解析済みなら結果も写す（`ClipStore.obtain`）。解析は `ClipStore` のキューが取り込み順に
-1 本ずつ行い（`stripAudio` → `SwingAnalyzer.analyze`。理由は §4）、途中で終了しても次回起動時に `pending` のものから再開する。
+1 本ずつ行い（`VideoImporter.stripAudioTrack` → `SwingAnalyzer.analyze`。理由は §4）、途中で終了しても次回起動時に `pending` のものから再開する。
 
 **ステージ**（`StageView`）は左のクリップ 1 本と、`ClipStore.partner(of:)` で解決した相手（最後に比べた相手 → いつものお手本 → 無し）を持ち、
 両方の解析が済めば `ComparisonView`、それまでは解析中・お手本なし（右が ⊕）・失敗の表示。ペイン上端の「替える」（`PaneHeader`）から「動画を選ぶ」シートを

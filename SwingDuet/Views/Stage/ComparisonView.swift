@@ -21,8 +21,8 @@ struct ComparisonView: View {
             } else {
                 Color.black.task {
                     controller = PlaybackController(
-                        mineURL: store.videoURL(for: left.fileName),
-                        modelURL: store.videoURL(for: right.fileName),
+                        mineURL: store.videoURL(of: left),
+                        modelURL: store.videoURL(of: right),
                         sync: SyncEngine(mine: left.video, model: left.pairedConfig(of: right), reference: store.reference))
                 }
             }
@@ -52,10 +52,6 @@ private struct ComparisonContent: View {
         _model = State(initialValue: left.pairedConfig(of: right))
     }
 
-    private var reference: Binding<VideoSide> {
-        Binding(get: { store.reference }, set: { store.reference = $0 })
-    }
-
     var body: some View {
         VStack(spacing: 8) {
             // 動画ペイン（左右並び）
@@ -78,7 +74,7 @@ private struct ComparisonContent: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
 
-            ControlPanelView(controller: controller, reference: reference)
+            ControlPanelView(controller: controller, reference: $store.reference)
         }
         .onChange(of: mine) { _, newValue in
             var clip = left
@@ -87,6 +83,7 @@ private struct ComparisonContent: View {
             updateSync()
         }
         .onChange(of: model) { _, newValue in
+            // 相手には解析結果だけを写し、位置合わせは pairing に持つ（相手が ★ ベストのスイングなら、そのスイング自身の位置合わせを壊さない）
             var partner = right
             partner.video.phases = newValue.phases
             partner.video.candidates = newValue.candidates
@@ -110,7 +107,7 @@ private struct ComparisonContent: View {
         .sheet(item: $editingSide) { side in
             PhaseEditView(
                 config: side == .mine ? $mine : $model,
-                videoURL: store.videoURL(for: side == .mine ? left.fileName : right.fileName),
+                videoURL: store.videoURL(of: side == .mine ? left : right),
                 side: side)
         }
     }

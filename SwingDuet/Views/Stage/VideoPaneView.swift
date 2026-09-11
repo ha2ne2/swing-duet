@@ -1,7 +1,7 @@
 import SwiftUI
 import AVFoundation
 
-/// 1本の動画の表示ペイン。
+/// 1 本の動画の表示ペイン。
 /// 初期表示は検出した人物（`config.focusRect`）が収まるように自動で拡大する。ピンチで拡大縮小（ピンチした位置を中心に）、
 /// ドラッグで位置合わせでき、拡大率と位置は自動フィットからの相対値として、指を離した時点で config に確定・保存される。
 /// この動画への操作は動画の上に重ねる。上端に名前と「替える」（動画を選び直す）、下端中央に「フェーズ調整」
@@ -160,50 +160,5 @@ struct VideoPaneView: View {
             return base.translated(by: drag.translation)
         }
         return base
-    }
-}
-
-// MARK: - ペインに重ねる部品（比較前の SlotPane と共通）
-
-/// ペイン上端：左に名前（読むだけ）、右に「替える」（押すとその側の動画を選び直す）。
-/// ラベルと操作を分けて、押せるものが枠付きの「替える」だけに見えるようにする。「自分」「お手本」は左右の並びが固定なので書かない
-struct PaneHeader: View {
-    let side: VideoSide
-    /// 名前（クリップの表示名と倍率）
-    let title: String
-    let onSwap: () -> Void
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Text(title)
-                .lineLimit(1)
-                .paneChip()
-            Spacer(minLength: 0)
-            Button(action: onSwap) {
-                HStack(spacing: 4) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                    Text("替える")
-                }
-                .paneChip(bordered: true)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("動画を替える")
-            .accessibilityValue(title)
-            .accessibilityIdentifier("pane.\(side.rawValue).swap")
-        }
-        .padding(.horizontal, 6)
-    }
-}
-
-extension View {
-    /// 動画の上に重ねる半透明のカプセル。高さ 44pt でタッチ領域を確保し、ボタンには枠を付けてラベルと見分ける
-    func paneChip(bordered: Bool = false) -> some View {
-        font(.caption.bold())
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.black.opacity(0.55), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(bordered ? 0.35 : 0)))
-            .foregroundStyle(.white)
-            .frame(minHeight: 44)
     }
 }

@@ -38,7 +38,7 @@ struct ModelShelfView: View {
         .renameAlert($renaming)
         .confirmationDialog(
             "「\(deleting?.displayName ?? "")」を削除",
-            isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
+            isPresented: $deleting.isPresent(),
             titleVisibility: .visible,
             presenting: deleting
         ) { clip in
@@ -77,7 +77,7 @@ private struct ClipCard<MenuContent: View>: View {
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 6) {
-                VideoThumbnail(url: store.videoURL(for: clip.fileName), time: clip.isAnalyzed ? clip.video.phases.address : 0, aspect: 1, maxSize: 400)
+                VideoThumbnail(url: store.videoURL(of: clip), time: clip.thumbnailTime(of: .address), aspect: 1, maxSize: 400)
                     .aspectRatio(1, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(alignment: .topLeading) {

@@ -1,13 +1,5 @@
 import SwiftUI
 
-/// 「動画を選ぶ」シートのタブ
-enum PickerTab: Hashable {
-    /// 写真ライブラリの動画（1 本選んでプレビュー → 使う）
-    case library
-    /// 登録済みのお手本と ★ ベスト（そのまま使う）
-    case models
-}
-
 /// ピッカーで選ばれた動画（`VideoPickerSheet` の結果）
 enum PickedVideo {
     /// 既にあるクリップ（登録済みお手本か ★ ベスト）
@@ -19,6 +11,14 @@ enum PickedVideo {
 /// ペインに入れる動画を選ぶシート。上に「動画」「お手本」の 2 タブがあり、どちらから選んでも `destination` の側に入る。
 /// 左の＋からは「動画」タブ、右の＋からは「お手本」タブで開く。「動画」タブはセルをタップ → プレビュー → 使う（右ならさらに名前を付ける）
 struct VideoPickerSheet: View {
+    /// 上の 2 タブ
+    enum Tab: Hashable {
+        /// 写真ライブラリの動画（1 本選んでプレビュー → 使う）
+        case library
+        /// 登録済みのお手本と ★ ベスト（そのまま使う）
+        case models
+    }
+
     @Environment(\.dismiss) private var dismiss
     /// 選んだ動画を入れる側
     let destination: VideoSide
@@ -26,7 +26,7 @@ struct VideoPickerSheet: View {
     var currentPartnerID: UUID? = nil
     let onPick: (PickedVideo) -> Void
 
-    @State private var tab: PickerTab
+    @State private var tab: Tab
     @State private var steps: [Step] = []
 
     /// 「動画」タブの中の段階（プレビュー → 名前付け）
@@ -35,7 +35,7 @@ struct VideoPickerSheet: View {
         case naming(LibrarySource)
     }
 
-    init(destination: VideoSide, initialTab: PickerTab, currentPartnerID: UUID? = nil, onPick: @escaping (PickedVideo) -> Void) {
+    init(destination: VideoSide, initialTab: Tab, currentPartnerID: UUID? = nil, onPick: @escaping (PickedVideo) -> Void) {
         self.destination = destination
         self.currentPartnerID = currentPartnerID
         self.onPick = onPick
@@ -46,8 +46,8 @@ struct VideoPickerSheet: View {
         NavigationStack(path: $steps) {
             VStack(spacing: 0) {
                 Picker("タブ", selection: $tab) {
-                    Text("動画").tag(PickerTab.library)
-                    Text("お手本").tag(PickerTab.models)
+                    Text("動画").tag(Tab.library)
+                    Text("お手本").tag(Tab.models)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
@@ -149,5 +149,19 @@ private struct NewModelNameStep: View {
     private func confirm() {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         onConfirm(trimmed.isEmpty ? "お手本 \(Date().compactLabel)" : trimmed)
+    }
+}
+
+/// 名前を付けるステップに出す、選んだ動画のサムネイル（出どころに応じて PhotoKit か AVFoundation で描く）
+private struct SourceThumbnail: View {
+    let source: LibrarySource
+
+    var body: some View {
+        switch source {
+        case .asset(let asset):
+            AssetThumbnail(asset: asset, targetSize: CGSize(width: 140, height: 186))
+        case .file(let url):
+            VideoThumbnail(url: url, time: 0.5, aspect: 140 / 186)
+        }
     }
 }

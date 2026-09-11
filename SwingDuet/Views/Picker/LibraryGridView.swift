@@ -8,7 +8,7 @@ import PhotosUI
 struct LibraryGridView: View {
     let onSelect: (LibrarySource) -> Void
 
-    @StateObject private var library = PhotoLibraryVideos()
+    @StateObject private var library = PhotoLibrary()
     @State private var fallbackItem: PhotosPickerItem?
     @State private var loadingFallback = false
     @State private var errorMessage: String?
@@ -180,39 +180,5 @@ struct LibraryGridView: View {
                 errorMessage = error.localizedDescription
             }
         }
-    }
-}
-
-/// 写真ライブラリの動画の一覧。権限を求め、ライブラリの変更（限定アクセスで選び直したときなど）に追従する
-@MainActor
-final class PhotoLibraryVideos: NSObject, ObservableObject, PHPhotoLibraryChangeObserver {
-    @Published private(set) var status: PHAuthorizationStatus = PhotoLibrary.authorization
-    @Published private(set) var assets: [PHAsset] = []
-
-    func load() async {
-        if status == .notDetermined {
-            status = await PhotoLibrary.requestAuthorization()
-        }
-        refetch()
-        PHPhotoLibrary.shared().register(self)
-    }
-
-    private func refetch() {
-        status = PhotoLibrary.authorization
-        guard status == .authorized || status == .limited else {
-            assets = []
-            return
-        }
-        let result = PhotoLibrary.fetchVideos()
-        assets = result.objects(at: IndexSet(0..<result.count))
-    }
-
-    nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
-        // 差分は見ず取り直す（動画の一覧は数百件までで、取り直しは十分に速い）
-        Task { @MainActor [weak self] in self?.refetch() }
-    }
-
-    deinit {
-        PHPhotoLibrary.shared().unregisterChangeObserver(self)
     }
 }

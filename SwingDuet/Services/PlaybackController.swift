@@ -12,8 +12,8 @@ import UIKit
 /// 区間の切り替わりでレートを更新し、ドリフトが閾値を超えたらシークで補正する（シーク中の側は補正しない）。
 ///
 /// NOTE: `ObservableObject` ではなく `@Observable` にしている。`commonTime` は再生中に毎 tick（最大 60Hz）変わるので、
-/// `ObservableObject` だと比較画面の View がすべて毎 tick 再描画され、再生中はループ範囲の Menu の項目が押せなくなる
-/// （基準の Picker が再生中に効かないのも同じ原因とみている）。`@Observable` なら `commonTime` を読む View（シークバー）だけが再描画される。
+/// `ObservableObject` だと比較画面の View がすべて毎 tick 再描画され、再生中はループ範囲の Menu の項目が押せなくなる。
+/// `@Observable` なら `commonTime` を読む View（シークバー）だけが再描画される。
 @MainActor
 @Observable
 final class PlaybackController: NSObject {

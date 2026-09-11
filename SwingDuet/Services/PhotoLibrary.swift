@@ -1,33 +1,54 @@
 import Foundation
+import Combine
 import Photos
 import UIKit
 
-/// 写真ライブラリ（PhotoKit）へのアクセス：権限、動画の一覧、原本の書き出し。
+/// 写真ライブラリ（PhotoKit）。動画の一覧（権限を求め、限定アクセスで選び直したときなどの変更に追従する）と、原本の書き出し。
 ///
 /// 権限を取る理由は 2 つ。動画だけを撮影日順に並べた自前のピッカーを出すことと、
-/// スローモーション動画の原本（120 / 240fps・実速）を取り込むこと。権限の要らない `PhotosPicker` は
+/// スローモーション動画の原本（120 / 240fps・実速）を取り込むこと（`exportOriginal`）。権限の要らない `PhotosPicker` は
 /// スローモーション動画を 30fps のレンダリング版（スロー効果の焼き込み）で渡すので、原本はここからしか取れない
-enum PhotoLibrary {
-
+@MainActor
+final class PhotoLibrary: NSObject, ObservableObject, PHPhotoLibraryChangeObserver {
     /// 読み取りの権限（PhotoKit に読み取り専用のレベルは無く、`readWrite` が読み取りの権限）
-    static var authorization: PHAuthorizationStatus {
-        PHPhotoLibrary.authorizationStatus(for: .readWrite)
+    @Published private(set) var status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+    /// 動画だけを撮影日の新しい順に。権限が無ければ空
+    @Published private(set) var assets: [PHAsset] = []
+
+    /// 権限を求め（未決定なら OS のダイアログが出る）、一覧を取り、以後の変更を追う
+    func load() async {
+        if status == .notDetermined {
+            status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
+        }
+        refetch()
+        PHPhotoLibrary.shared().register(self)
     }
 
-    static func requestAuthorization() async -> PHAuthorizationStatus {
-        await PHPhotoLibrary.requestAuthorization(for: .readWrite)
-    }
-
-    /// 動画だけを撮影日の新しい順に
-    static func fetchVideos() -> PHFetchResult<PHAsset> {
+    private func refetch() {
+        status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        guard status == .authorized || status == .limited else {
+            assets = []
+            return
+        }
         let options = PHFetchOptions()
         options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.video.rawValue)
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        return PHAsset.fetchAssets(with: options)
+        let result = PHAsset.fetchAssets(with: options)
+        assets = result.objects(at: IndexSet(0..<result.count))
     }
 
+    nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
+        // 差分は見ず取り直す（動画の一覧は数百件までで、取り直しは十分に速い）
+        Task { @MainActor [weak self] in self?.refetch() }
+    }
+
+    deinit {
+        PHPhotoLibrary.shared().unregisterChangeObserver(self)
+    }
+
+    // MARK: - 一覧以外
+
     /// 限定アクセス（「写真を選択」で許可）のとき、許可する動画を選び直す OS の画面を出す
-    @MainActor
     static func presentLimitedLibraryPicker() {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         guard let root = scenes.first(where: { $0.activationState == .foregroundActive })?.keyWindow?.rootViewController else { return }
@@ -38,7 +59,7 @@ enum PhotoLibrary {
 
     /// 原本のファイルを一時ディレクトリへ書き出す（iCloud にしか無ければダウンロードする）。
     /// スローモーション動画は `.video` が高フレームレートの原本で、`.fullSizeVideo` は編集適用済みの書き出し
-    static func exportOriginal(_ asset: PHAsset) async throws -> URL {
+    nonisolated static func exportOriginal(_ asset: PHAsset) async throws -> URL {
         let resources = PHAssetResource.assetResources(for: asset)
         guard let resource = resources.first(where: { $0.type == .video }) ?? resources.first(where: { $0.type == .fullSizeVideo }) else {
             throw VideoError.noVideoTrack

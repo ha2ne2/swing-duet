@@ -63,6 +63,13 @@ struct VideoConfig: Codable, Equatable {
     /// 自動検出で見つかったスイング候補（時系列順）。素振りなど複数のスイングが写る動画で、フェーズ調整画面から選び直せる
     var candidates: [PhaseSet] = []
 
+    /// 拡大率と位置を自動フィットどおり（1 と 0）に戻す
+    mutating func resetTransform() {
+        scale = 1
+        offsetX = 0
+        offsetY = 0
+    }
+
     /// 1 フレームの長さ（秒）。コマ送りの単位。フレームレートが取れていなければ 30fps とみなす
     var frameDuration: Double {
         frameRate > 1 ? 1.0 / frameRate : 1.0 / 30.0

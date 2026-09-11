@@ -76,7 +76,7 @@ enum VideoImporter {
         let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + url.pathExtension)
         session.outputURL = output
         session.outputFileType = fileType
-        // NOTE: `export()` は iOS 18 で `export(to:as:)` に置き換わった。最低 OS を 18 以上にしたら移行する
+        // TODO: 最低 OS を iOS 18 以上にしたら、非推奨になった `export()` を `export(to:as:)` に置き換える
         await session.export()
         guard session.status == .completed else {
             try? FileManager.default.removeItem(at: output)

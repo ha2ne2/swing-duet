@@ -146,7 +146,7 @@ private struct SetupStageView: View {
     }
 }
 
-/// 1 つのペイン（空・解析待ち・解析中・失敗・準備済み）。上端の名前と「替える」は比較画面（VideoPaneView）と同じ部品
+/// 1 つのペイン（空・解析待ち・解析中・失敗・準備済み）。上端の名前と「替える」は比較画面と同じ `PaneHeader`
 private struct SlotPane: View {
     @EnvironmentObject private var store: ClipStore
     let side: VideoSide
@@ -157,7 +157,7 @@ private struct SlotPane: View {
         ZStack {
             Color.black
             if let clip {
-                VideoThumbnail(url: store.videoURL(for: clip.fileName), time: clip.isAnalyzed ? clip.video.phases.address : 0, maxSize: 800)
+                VideoThumbnail(url: store.videoURL(of: clip), time: clip.thumbnailTime(of: .address), maxSize: 800)
                 status(of: clip)
             } else {
                 Button(action: onTap) {
