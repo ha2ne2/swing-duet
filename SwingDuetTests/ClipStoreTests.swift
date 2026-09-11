@@ -85,6 +85,33 @@ struct ClipStoreTests {
         #expect(store.swings.first?.pairing?.partnerID == modelID)
     }
 
+    // MARK: - 保存形式の版上げ
+
+    @Test func loadingAVersionOneLibraryKeepsOnlyUserChosenSlowFactors() throws {
+        let estimatedID = UUID()
+        let manualID = UUID()
+        let uncertainID = UUID()
+        // 版 1 の library.json：推定値（4）のまま・ユーザーが 8 を選んだ・信頼度が低くて 1 のまま（ダウンスイングはどれも動画上 1.2 秒）
+        try write("""
+        {"version":1,"reference":"model","clips":[
+          {"id":"\(estimatedID.uuidString)","role":"model","name":"A","createdAt":"2026-09-10T00:00:00Z","isFavorite":false,"analysis":{"done":{}},
+           "video":{"fileName":"a.mov","duration":20,"frameRate":30,"slowFactor":4,"phases":{"address":2,"top":8.4,"impact":9.6,"finish":14}}},
+          {"id":"\(manualID.uuidString)","role":"model","name":"B","createdAt":"2026-09-10T00:00:00Z","isFavorite":false,"analysis":{"done":{}},
+           "video":{"fileName":"b.mov","duration":20,"frameRate":30,"slowFactor":8,"phases":{"address":2,"top":8.4,"impact":9.6,"finish":14}}},
+          {"id":"\(uncertainID.uuidString)","role":"model","name":"C","createdAt":"2026-09-10T00:00:00Z","isFavorite":false,"analysis":{"done":{}},
+           "video":{"fileName":"c.mov","duration":20,"frameRate":30,"slowFactor":1,"lowConfidence":true,"phases":{"address":2,"top":8.4,"impact":9.6,"finish":14}}}
+        ]}
+        """, to: "library.json")
+
+        let store = makeStore()
+        #expect(store.clip(id: estimatedID)?.video.slowFactor == nil)          // 推定に従う
+        #expect(store.clip(id: estimatedID)?.video.effectiveSlowFactor == 4)
+        #expect(store.clip(id: manualID)?.video.slowFactor == 8)               // 選んだ値は残る
+        #expect(store.clip(id: uncertainID)?.video.slowFactor == nil)          // 信頼度が低くても、手で置いたフェーズからは推定する
+        #expect(store.clip(id: uncertainID)?.video.effectiveSlowFactor == 4)
+        #expect(makeStore().clip(id: estimatedID)?.video.slowFactor == nil)    // 版が上がって保存される
+    }
+
     // MARK: - 追加と上限
 
     @Test func swingsBeyondTheLimitFlowOutOldestFirstButFavoritesStay() {

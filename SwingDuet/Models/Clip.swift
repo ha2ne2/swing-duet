@@ -67,6 +67,12 @@ struct Clip: Codable, Identifiable, Equatable {
     /// 表示する題。名前が無ければ日時（「9/10 14:32」）
     var displayName: String { name.isEmpty ? sortDate.compactLabel : name }
 
+    /// ペインのラベルに添える題。焼き込みスローなら倍率も（「マキロイ · 1/8」）
+    var paneTitle: String {
+        let factor = video.effectiveSlowFactor
+        return factor == 1 ? displayName : "\(displayName) · \(SlowFactor.label(factor))"
+    }
+
     var isAnalyzed: Bool { analysis == .done }
 
     /// 右ペインに出す相手の設定：相手の解析結果に、このクリップとの位置合わせ（`pairing`）を重ねたもの。
@@ -83,7 +89,25 @@ struct Clip: Codable, Identifiable, Equatable {
 
 /// 保存する全体（Documents/library.json）
 struct Library: Codable {
+    /// 保存形式の版。読み込んだものがこれより古ければ `ClipStore` が組み替える（2: 動画の速さをユーザーの選択だけ保存する）
+    static let currentVersion = 2
+
+    var version: Int = Library.currentVersion
     var clips: [Clip] = []
     /// 同期の基準側（アプリ全体で 1 つ）
     var reference: VideoSide = .model
+}
+
+extension Library {
+    private enum CodingKeys: String, CodingKey {
+        case version, clips, reference
+    }
+
+    /// `version` を書く前のデータ（版 0）も読めるようにする
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
+        clips = try c.decode([Clip].self, forKey: .clips)
+        reference = try c.decode(VideoSide.self, forKey: .reference)
+    }
 }

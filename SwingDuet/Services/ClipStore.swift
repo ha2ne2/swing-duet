@@ -37,16 +37,31 @@ final class ClipStore: ObservableObject {
         self.autoAnalyze = autoAnalyze
         try? fileManager.createDirectory(at: videosDirectory, withIntermediateDirectories: true)
         if let library = read(Library.self, from: libraryURL) {
-            clips = library.clips
-            reference = library.reference
+            load(library)
         } else if let migrated = migrateLegacy() {
-            clips = migrated.clips
-            reference = migrated.reference
-            persist()
+            load(migrated)
             removeLegacyFiles()
         }
         removeUnreferencedVideos()
         processQueue()
+    }
+
+    /// 読み込んだものが古い版なら組み替えて保存し直す
+    private func load(_ library: Library) {
+        clips = library.clips
+        reference = library.reference
+        guard library.version < Library.currentVersion else { return }
+        if library.version < 2 {
+            // 版 2: 動画の速さはユーザーの選択だけを保存し、無ければ推定に従う。
+            // 版 1 は推定値（信頼度が低ければ 1）を全クリップに書いていたので、その値のままのものは選択ではないとみなして消す
+            for i in clips.indices {
+                let video = clips[i].video
+                if video.slowFactor == (video.lowConfidence ? 1 : video.estimatedSlowFactor) {
+                    clips[i].video.slowFactor = nil
+                }
+            }
+        }
+        persist()
     }
 
     // MARK: - 参照
@@ -343,7 +358,7 @@ final class ClipStore: ObservableObject {
             clips.append(Clip(id: project.id, role: .swing, createdAt: project.createdAt, video: project.mine, pairing: pairing))
             reference = project.reference ?? .model
         }
-        return Library(clips: clips, reference: reference)
+        return Library(version: 0, clips: clips, reference: reference)
     }
 
     private func removeLegacyFiles() {

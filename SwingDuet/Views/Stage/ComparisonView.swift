@@ -31,7 +31,7 @@ struct ComparisonView: View {
 }
 
 /// 比較画面の本体。左右の編集（フェーズ・表示変換）と基準を保存し、同期設定の変更を controller に反映する。
-/// 左の編集はスイングに、右のフェーズはお手本そのもの（そのお手本を使うすべてのスイングに効く）に、右の位置合わせはスイングの `pairing` に書く
+/// 左の編集はスイングに、右のフェーズと速さはお手本そのもの（そのお手本を使うすべてのスイングに効く）に、右の位置合わせはスイングの `pairing` に書く
 private struct ComparisonContent: View {
     @EnvironmentObject private var store: ClipStore
     private let left: Clip
@@ -64,14 +64,14 @@ private struct ComparisonContent: View {
                     player: controller.player(for: .mine),
                     config: $mine,
                     side: .mine,
-                    title: left.displayName,
+                    title: left.paneTitle,
                     onTapTitle: { onSelectVideo(.mine) },
                     onEditPhases: { editPhases(.mine) })
                 VideoPaneView(
                     player: controller.player(for: .model),
                     config: $model,
                     side: .model,
-                    title: right.displayName,
+                    title: right.paneTitle,
                     onTapTitle: { onSelectVideo(.model) },
                     onEditPhases: { editPhases(.model) })
             }
@@ -91,6 +91,7 @@ private struct ComparisonContent: View {
             partner.video.phases = newValue.phases
             partner.video.candidates = newValue.candidates
             partner.video.lowConfidence = newValue.lowConfidence
+            partner.video.slowFactor = newValue.slowFactor
             store.update(partner)
             var clip = left
             clip.pairing = Pairing(partnerID: right.id, transformOf: newValue, pairedAt: left.pairing?.pairedAt ?? Date())

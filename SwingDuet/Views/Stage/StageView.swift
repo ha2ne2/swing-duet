@@ -178,7 +178,7 @@ private struct SlotPane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)   // 左右のペインは常に同じ幅
         .overlay(alignment: .topLeading) {
-            PaneTitleButton(side: side, title: clip?.displayName, action: onTap)
+            PaneTitleButton(side: side, title: clip?.paneTitle, action: onTap)
         }
     }
 

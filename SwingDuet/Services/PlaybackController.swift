@@ -6,8 +6,9 @@ import UIKit
 
 /// 2 本の動画を 1 つの共通タイムラインで駆動する再生コントローラ。
 ///
-/// CADisplayLink をマスタークロックとして共通時刻を進め、各動画は
+/// CADisplayLink をマスタークロックとして共通時刻（実秒）を進め、各動画は
 /// 現在の区間（バックスイング / ダウンスイング / フォロー）ごとの速度倍率で再生する。
+/// 倍率は基準側の速さ（焼き込みスローの戻し）と区間長の比を含むので、`speed` 1.0 でどちらの動画も実速で流れる。
 /// 区間の切り替わりでレートを更新し、ドリフトが閾値を超えたらシークで補正する（シーク中の側は補正しない）。
 ///
 /// NOTE: `ObservableObject` ではなく `@Observable` にしている。`commonTime` は再生中に毎 tick（最大 60Hz）変わるので、
@@ -34,7 +35,7 @@ final class PlaybackController: NSObject {
 
     /// タップで切り替える再生速度（この順に巡回する）
     static let speedPresets: [Double] = [0.1, 0.2, 0.3, 0.5, 1.0]
-    /// 実時刻と期待時刻のずれがこれ（秒）を超えたらシークで補正する
+    /// 実時刻と期待時刻のずれがこれ（実秒）を超えたらシークで補正する。動画秒で比べるときは rate を掛ける
     private static let driftThreshold = 0.08
     /// 再生中のシーク（スクラブ・ドリフト補正）の許容幅。ゼロにすると精密シークになり、コマ単位の復号で重くなる
     private static let seekTolerance = CMTime(seconds: 0.02, preferredTimescale: 6000)
@@ -47,14 +48,14 @@ final class PlaybackController: NSObject {
     /// （形を真似た別の View を持つと、操作パネルを変えたときに高さがずれる）
     static let placeholder = PlaybackController(sync: SyncEngine(
         minePhases: .fallback(duration: 1), modelPhases: .fallback(duration: 1),
-        reference: .model, referenceFrameDuration: 1.0 / 30.0))
+        reference: .model, referenceFrameDuration: 1.0 / 30.0, referenceSlowFactor: 1))
 
     private let minePlayer = AVPlayer()
     private let modelPlayer = AVPlayer()
 
     private(set) var commonTime: Double = 0
     private(set) var isPlaying = false
-    /// 再生速度（基準側動画のタイムラインに対する倍率。x1 で基準側の動画を等速で流す）
+    /// 再生速度（実速に対する倍率。x1 で実世界の速さ。焼き込みスローでも `SyncEngine` が戻す）
     var speed: Double = 0.3 {
         didSet {
             if isPlaying { applyRates() }
@@ -291,12 +292,14 @@ final class PlaybackController: NSObject {
     }
 
     /// シーク中の側は補正しない。シーク中は `currentTime` が進まないので、それをドリフトと見なして補正すると
-    /// そのシークがまた時計を止め、シークが連鎖して映像が止まっては飛ぶ
+    /// そのシークがまた時計を止め、シークが連鎖して映像が止まっては飛ぶ。
+    /// 閾値は実秒で揃える：`currentTime` の揺れは実秒でほぼ一定なので、rate 8（1/8 のスローを x1）では動画秒で 8 倍に見える
     private func correctDrift() {
         for side in VideoSide.allCases where pendingSeeks[side, default: 0] == 0 {
+            let player = player(for: side)
             let expected = sync.videoTime(at: commonTime, for: side)
-            let actual = player(for: side).currentTime().seconds
-            if abs(actual - expected) > Self.driftThreshold {
+            let actual = player.currentTime().seconds
+            if abs(actual - expected) > Self.driftThreshold * max(Double(player.rate), 1) {
                 seek(side, to: expected, tolerance: Self.seekTolerance)
             }
         }

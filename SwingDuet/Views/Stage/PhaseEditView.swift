@@ -4,7 +4,7 @@ import AVFoundation
 /// フェーズ検出結果の手動修正。
 /// タイムライン上の4つのマーカー（アドレス / トップ / インパクト / フィニッシュ）を
 /// ドラッグして調整し、プレビューで確認する。コマ単位の微調整ボタン付き。
-/// 動画に複数のスイングが検出されていれば、どのスイングを使うかも切り替えられる。
+/// 動画に複数のスイングが検出されていれば、どのスイングを使うかも切り替えられる。動画の速さ（焼き込みスローの倍率）もここで直す。
 /// プレビューは常に「選択中のフェーズの時刻」を映す（その値が変わるたびにシークする）ので、操作側はフェーズと時刻を変えるだけでよい
 struct PhaseEditView: View {
     @Binding var config: VideoConfig
@@ -14,6 +14,8 @@ struct PhaseEditView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var phases: PhaseSet
+    /// ユーザーが選んだ動画の速さ。nil なら推定に従う（セグメントは推定値を示し、フェーズを直すと追従する）
+    @State private var manualSlowFactor: Double?
     @State private var selectedPhase: SwingPhase = .impact
     @State private var player = AVPlayer()
 
@@ -22,6 +24,7 @@ struct PhaseEditView: View {
         self.videoURL = videoURL
         self.side = side
         self._phases = State(initialValue: config.wrappedValue.phases)
+        self._manualSlowFactor = State(initialValue: config.wrappedValue.slowFactor)
     }
 
     var body: some View {
@@ -44,6 +47,8 @@ struct PhaseEditView: View {
                 if config.candidates.count > 1 {
                     candidateRow
                 }
+
+                slowFactorRow
 
                 Picker("フェーズ", selection: $selectedPhase) {
                     ForEach(SwingPhase.allCases) { phase in
@@ -79,6 +84,8 @@ struct PhaseEditView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
                         config.phases = phases
+                        // 推定と同じ値を選んだなら「推定に従う」に戻す（フェーズを直したときに追従する）
+                        config.slowFactor = manualSlowFactor == estimatedSlowFactor ? nil : manualSlowFactor
                         dismiss()
                     }
                     .bold()
@@ -199,6 +206,31 @@ struct PhaseEditView: View {
                 .accessibilityIdentifier("candidate.\(index)")
             }
             Spacer()
+        }
+        .padding(.horizontal)
+    }
+
+    // MARK: - 動画の速さ
+
+    /// 編集中のフェーズからの推定（検出失敗の仮のフェーズのままなら実速）
+    private var estimatedSlowFactor: Double {
+        config.estimatedSlowFactor(for: phases)
+    }
+
+    /// 焼き込みスローの倍率。選ぶまでは推定に従い（「推定」と示す）、フェーズを直すと追従する。違っていれば選び直す（比較画面の x1 が実速になる）
+    private var slowFactorRow: some View {
+        HStack(spacing: 8) {
+            Text(manualSlowFactor == nil ? "動画の速さ（推定）" : "動画の速さ")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize()
+            Picker("動画の速さ", selection: Binding(get: { manualSlowFactor ?? estimatedSlowFactor }, set: { manualSlowFactor = $0 })) {
+                ForEach(SlowFactor.choices, id: \.self) { factor in
+                    Text(SlowFactor.label(factor)).tag(factor)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("slowFactor")
         }
         .padding(.horizontal)
     }

@@ -57,6 +57,10 @@ func printReport(_ result: SwingAnalysisResult, name: String, elapsed: TimeInter
                      mark, i + 1, describe(c.phases), c.score, c.rise, c.peakSpeed, estimated))
     }
     if result.lowConfidence { print("  信頼度低（手動確認を促す）") }
+    if let chosen {
+        let downswing = chosen.phases.duration(of: .downswing)
+        print(String(format: "  動画の速さ: %@（ダウンスイング %.2f 秒）", SlowFactor.label(SlowFactor.estimate(downswingDuration: downswing)), downswing))
+    }
     if showSeries { printSeries(result) }
 }
 
