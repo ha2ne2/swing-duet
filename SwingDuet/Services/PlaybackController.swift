@@ -39,10 +39,6 @@ final class PlaybackController: NSObject {
     private static let driftThreshold = 0.08
     /// 再生中のシーク（スクラブ・ドリフト補正）の許容幅。ゼロにすると精密シークになり、コマ単位の復号で重くなる
     private static let seekTolerance = CMTime(seconds: 0.02, preferredTimescale: 6000)
-    /// 押しっぱなしのコマ送り：押してから連続で進み始めるまでの待ち（秒）。普通のタップ（0.1〜0.2 秒）では始まらない長さ
-    private static let stepRepeatDelay = 0.4
-    /// 押しっぱなしのコマ送り：連続中のコマの間隔（秒）。10 コマ/秒はキーリピートと同じ速さで、1 コマずつ目で追える
-    private static let stepRepeatInterval = 0.1
 
     /// 動画を持たない不活性なコントローラ。比較前のステージで、比較画面と同じ操作パネルを飾りとして出すのに使う
     /// （形を真似た別の View を持つと、操作パネルを変えたときに高さがずれる）
@@ -77,8 +73,8 @@ final class PlaybackController: NSObject {
     @ObservationIgnored private var wasPlayingBeforeScrub = false
     /// 側ごとの実行中のシーク数（`seek` で増やし、完了ハンドラで減らす）。0 でない側はドリフト補正しない
     @ObservationIgnored private var pendingSeeks: [VideoSide: Int] = [:]
-    /// 押しっぱなしのコマ送りを進めている Task（`beginStepping` で作り、`endStepping` で取り消す）
-    @ObservationIgnored private var stepRepeatTask: Task<Void, Never>?
+    /// シーク中にコマ送りされた。いまのシークが終わったら最新の位置へシークし直す（`stepFrame` 参照）
+    @ObservationIgnored private var seekRequested = false
 
     /// どちらかの側でシークが終わっていない
     private var isSeeking: Bool {
@@ -180,33 +176,20 @@ final class PlaybackController: NSObject {
         move(to: clampedToLoop(sync.commonTime(of: phase)))
     }
 
-    /// コマ送り（基準側動画の 1 フレーム単位）。再生中なら止める
+    /// コマ送り（基準側動画の 1 フレーム単位。ループ範囲の端で止まる）。再生中なら止める。
+    ///
+    /// 時計（`commonTime`）はすぐ動かすが、プレーヤーのシークは前のシークが終わってから最新の位置へ 1 回だけ行う。
+    /// ジョグホイールを速く回すとコマ送りがシークより速く来る。構わず重ねると後のシークが前のシークを取り消し続け、
+    /// 回している間ずっと画面が更新されなくなる（取りこぼしもしないよう、コマ数は時計に足し込んでおく）
     func stepFrame(by frames: Int) {
         stop()
-        move(to: clampedToLoop(commonTime + sync.referenceFrameDuration * Double(frames)))
-    }
-
-    /// コマ送りボタンが押された瞬間に呼ぶ。すぐ 1 コマ進め、押したままなら `stepRepeatDelay` 後から
-    /// `stepRepeatInterval` ごとに進め続ける（指が離れたら `endStepping`）。
-    ///
-    /// 前のコマの精密シークが終わるまで次のコマへは進まない。シークが間隔より遅い端末で構わず重ねると、
-    /// 後のシークが前のシークを取り消し続けて、押している間ずっと画面が更新されなくなるため
-    func beginStepping(by frames: Int) {
-        endStepping()
-        stepFrame(by: frames)
-        stepRepeatTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.stepRepeatDelay))
-            while !Task.isCancelled, let self {
-                if !isSeeking { stepFrame(by: frames) }
-                try? await Task.sleep(for: .seconds(Self.stepRepeatInterval))
-            }
+        commonTime = clampedToLoop(commonTime + sync.referenceFrameDuration * Double(frames))
+        currentSegment = sync.segment(at: commonTime)
+        if isSeeking {
+            seekRequested = true
+        } else {
+            hardSeek()
         }
-    }
-
-    /// コマ送りボタンから指が離れたら呼ぶ
-    func endStepping() {
-        stepRepeatTask?.cancel()
-        stepRepeatTask = nil
     }
 
     /// フェーズ修正・基準切り替え時に呼ぶ。相対位置（進捗率）を保って追従する
@@ -305,8 +288,10 @@ final class PlaybackController: NSObject {
         }
     }
 
-    /// 許容ゼロの精密シーク。止まった位置を正確に出したいとき（一時停止・ジャンプ・コマ送り・ループ復帰など）
+    /// 許容ゼロの精密シーク。止まった位置を正確に出したいとき（一時停止・ジャンプ・コマ送り・ループ復帰など）。
+    /// いまの位置へシークするので、シーク中に来たコマ送りのまとめ待ちもこれで満たされる
     private func hardSeek() {
+        seekRequested = false
         seekBoth(precise: true)
     }
 
@@ -324,8 +309,14 @@ final class PlaybackController: NSObject {
             toleranceBefore: tolerance, toleranceAfter: tolerance
         ) { [weak self] _ in
             // 次のシークに置き換えられて中断したときも（finished = false で）必ず呼ばれる
-            Task { @MainActor in self?.pendingSeeks[side, default: 0] -= 1 }
+            Task { @MainActor in self?.seekCompleted(side) }
         }
+    }
+
+    private func seekCompleted(_ side: VideoSide) {
+        pendingSeeks[side, default: 0] -= 1
+        // シーク中に来たコマ送りの分をまとめて 1 回で追いつく
+        if seekRequested, !isSeeking { hardSeek() }
     }
 
     deinit {

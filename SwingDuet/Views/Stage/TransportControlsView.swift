@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// 再生操作パネル：フェーズジャンプ / コマ送り / 再生・停止 / 速度 / ループ
+/// 再生操作パネル：フェーズジャンプ / ジョグホイール（再生・停止とコマ送り）/ 速度 / ループ
 struct TransportControlsView: View {
     @Bindable var controller: PlaybackController
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     var body: some View {
         VStack(spacing: 10) {
@@ -22,38 +23,14 @@ struct TransportControlsView: View {
                 }
             }
 
-            // 再生・コマ送り・ループ
+            // ループ・ジョグホイール（中央が再生）・速度。横画面はペインの高さが無いのでホイールを小さくする
             HStack(spacing: 22) {
                 loopMenu
-
-                stepButton(frames: -1, symbol: "backward.frame.fill", label: "1 コマ戻す")
-
-                Button {
-                    controller.togglePlay()
-                } label: {
-                    Image(systemName: controller.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 44))
-                }
-
-                stepButton(frames: 1, symbol: "forward.frame.fill", label: "1 コマ進める")
-
+                JogWheelView(controller: controller, diameter: verticalSizeClass == .compact ? 96 : 132)
                 speedButton
             }
             .buttonStyle(.plain)
         }
-    }
-
-    /// コマ送り。押した瞬間に 1 コマ、押しっぱなしで進み続ける
-    private func stepButton(frames: Int, symbol: String, label: String) -> some View {
-        HoldRepeatButton(
-            onPress: { controller.beginStepping(by: frames) },
-            onRelease: { controller.endStepping() },
-            action: { controller.stepFrame(by: frames) }
-        ) {
-            Image(systemName: symbol)
-                .font(.title3)
-        }
-        .accessibilityLabel(label)
     }
 
     /// 再生速度。タップで PlaybackController.speedPresets を巡回する
