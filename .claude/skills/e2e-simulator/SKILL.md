@@ -67,7 +67,7 @@ build/e2e-harness/run.sh                               # 起動中のシミュ�
     セル → プレビュー →「お手本にする」→ 名前を確定（解析）→ 比較（自動で再生が始まる。再生中に基準切替・ループ範囲変更が効くこと）→ 停止 →
     フェーズジャンプ → コマ送り → 基準切替 → 速度切替 → ループ設定 → 区間ループ再生 → フェーズ調整シート → ★ ベスト →
     一覧に戻って開き直し → 再起動（ホーム）→ 開き直し
-  - `testModelLibrary`: お手本に名前を付けて登録 → 右ラベルから「お手本」タブのカードを選んで入れ替え（解析なし）→ 一覧は 1 本のまま →
+  - `testModelLibrary`: お手本に名前を付けて登録 → 右の「替える」から「お手本」タブのカードを選んで入れ替え（解析なし）→ 一覧は 1 本のまま →
     カードの「…」から名前を変更 → ペインのラベルに反映
   - `testZoomPanPersistence`: ペインをピンチで拡大 / 縮小・ドラッグで移動 → 一覧から開き直す → 再起動、で状態が残ること。
     ペインの状態は `accessibilityValue`（`x1.50 (12, -30)` = 自動フィットに対する拡大率と位置）で読む
@@ -75,7 +75,7 @@ build/e2e-harness/run.sh                               # 起動中のシミュ�
     候補は `library.json` に直接入れる（下記）。`E2E_KEEP_DATA=1` で回す（アンインストールしない）
   - 主な識別子: ホームの追加ボタンは `list.addSwing`、一覧の行は `swing.<UUID>`、「動画」タブのセルは `library.cell`（ラベルは「ビデオ, 9/5 23:09, 4秒, スロー」）、
     プレビューの決定は `preview.use`、名前欄は `modelName`、空の右ペインの ⊕ は `slot.model.add`、解析中の表示は `slot.mine.analyzing` / `slot.model.analyzing`、
-    ペインのラベルは「自分の動画を選び直す」/「お手本の動画を選び直す」（`value` に表示名）、ペイン下端のフェーズ調整は `pane.mine.editPhases` / `pane.model.editPhases`、
+    ペイン上端の「替える」は `pane.mine.swap` / `pane.model.swap`（`value` に表示名）、ペイン下端のフェーズ調整は `pane.mine.editPhases` / `pane.model.editPhases`、
     ステージの ★ は `stage.favorite`、「…」は `stage.menu`、「お手本」タブのカードの「…」は「<名前> のメニュー」
 - 1 テストだけ回す: `E2E_ONLY="SwingDuetUITests/FlowTests/testZoomPanPersistence" build/e2e-harness/run.sh`
 - 候補 UI の確認手順: `testFullFlow` を回した後、

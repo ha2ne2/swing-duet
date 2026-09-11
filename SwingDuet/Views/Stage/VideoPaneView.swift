@@ -4,15 +4,15 @@ import AVFoundation
 /// 1本の動画の表示ペイン。
 /// 初期表示は検出した人物（`config.focusRect`）が収まるように自動で拡大する。ピンチで拡大縮小（ピンチした位置を中心に）、
 /// ドラッグで位置合わせでき、拡大率と位置は自動フィットからの相対値として、指を離した時点で config に確定・保存される。
-/// この動画への操作（選び直す・フェーズ調整）は動画の上に重ねる。上端がラベル、下端中央が「フェーズ調整」
+/// この動画への操作は動画の上に重ねる。上端に名前と「替える」（動画を選び直す）、下端中央に「フェーズ調整」
 struct VideoPaneView: View {
     let player: AVPlayer
     @Binding var config: VideoConfig
     let side: VideoSide
-    /// ラベルに添える名前（登録済みお手本の名前など）
-    var title: String? = nil
-    /// ラベルをタップしたとき（動画を選び直す）
-    let onTapTitle: () -> Void
+    /// 上端に出す名前（クリップの表示名と倍率）
+    let title: String
+    /// 「替える」をタップしたとき（動画を選び直す）
+    let onSwap: () -> Void
     /// 「フェーズ調整」をタップしたとき
     let onEditPhases: () -> Void
 
@@ -41,8 +41,8 @@ struct VideoPaneView: View {
         .accessibilityLabel("\(side.label)の動画")
         .accessibilityValue(transformText)
         .accessibilityIdentifier("pane.\(side.rawValue)")
-        .overlay(alignment: .topLeading) {
-            PaneTitleButton(side: side, title: title, action: onTapTitle)
+        .overlay(alignment: .top) {
+            PaneHeader(side: side, title: title, onSwap: onSwap)
         }
         .overlay(alignment: .bottom) {
             Button(action: onEditPhases) {
@@ -165,26 +165,32 @@ struct VideoPaneView: View {
 
 // MARK: - ペインに重ねる部品（比較前の SlotPane と共通）
 
-/// ペイン上端のラベル「自分 · 14:32 ⌄」。タップでその側の動画を選び直す
-struct PaneTitleButton: View {
+/// ペイン上端：左に名前（読むだけ）、右に「替える」（押すとその側の動画を選び直す）。
+/// ラベルと操作を分けて、押せるものが枠付きの「替える」だけに見えるようにする。「自分」「お手本」は左右の並びが固定なので書かない
+struct PaneHeader: View {
     let side: VideoSide
-    /// 添える名前（クリップの表示名）。無ければ側の名前だけ
-    let title: String?
-    let action: () -> Void
+    /// 名前（クリップの表示名と倍率）
+    let title: String
+    let onSwap: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Text(title.map { "\(side.label) · \($0)" } ?? side.label)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
+        HStack(spacing: 4) {
+            Text(title)
+                .lineLimit(1)
+                .paneChip()
+            Spacer(minLength: 0)
+            Button(action: onSwap) {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Text("替える")
+                }
+                .paneChip(bordered: true)
             }
-            .paneChip()
+            .buttonStyle(.plain)
+            .accessibilityLabel("動画を替える")
+            .accessibilityValue(title)
+            .accessibilityIdentifier("pane.\(side.rawValue).swap")
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(side.label)の動画を選び直す")
-        .accessibilityValue(title ?? "")
         .padding(.horizontal, 6)
     }
 }

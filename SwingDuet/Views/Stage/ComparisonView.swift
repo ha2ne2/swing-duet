@@ -9,7 +9,7 @@ struct ComparisonView: View {
     @EnvironmentObject private var store: ClipStore
     let left: Clip
     let right: Clip
-    /// ペインのラベルをタップしたとき（その側の動画を選び直す）
+    /// ペイン上端の「替える」をタップしたとき（その側の動画を選び直す）
     let onSelectVideo: (VideoSide) -> Void
 
     @State private var controller: PlaybackController?
@@ -65,14 +65,14 @@ private struct ComparisonContent: View {
                     config: $mine,
                     side: .mine,
                     title: left.paneTitle,
-                    onTapTitle: { onSelectVideo(.mine) },
+                    onSwap: { onSelectVideo(.mine) },
                     onEditPhases: { editPhases(.mine) })
                 VideoPaneView(
                     player: controller.player(for: .model),
                     config: $model,
                     side: .model,
                     title: right.paneTitle,
-                    onTapTitle: { onSelectVideo(.model) },
+                    onSwap: { onSelectVideo(.model) },
                     onEditPhases: { editPhases(.model) })
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

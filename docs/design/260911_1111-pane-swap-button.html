@@ -1,0 +1,202 @@
+<title>SwingDuet 動画を替えるボタン</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --paper: #F3F5F3; --paper-2: #E9EDEA; --ink: #1B2027; --ink-2: #3E4750; --muted: #66707A; --line: #D2D8D4;
+    --accent: #B27A0B; --accent-ink: #7C5406; --pick: #1F5F8B; --pick-soft: #DDEAF5; --warn: #B0560F;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #131618; --paper-2: #1B2023; --ink: #E9EDEB; --ink-2: #C3CAC6; --muted: #97A1A9; --line: #2C3438;
+      --accent: #F0B93A; --accent-ink: #F6CF6E; --pick: #7FB6E6; --pick-soft: #162B3C; --warn: #F0A25A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #131618; --paper-2: #1B2023; --ink: #E9EDEB; --ink-2: #C3CAC6; --muted: #97A1A9; --line: #2C3438;
+    --accent: #F0B93A; --accent-ink: #F6CF6E; --pick: #7FB6E6; --pick-soft: #162B3C; --warn: #F0A25A;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Zen Kaku Gothic New", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; font-size: 15.5px; line-height: 1.85; -webkit-font-smoothing: antialiased; }
+  main { max-width: 1340px; margin: 0 auto; padding: 48px 24px 96px; }
+  .prose { max-width: 66ch; }
+  h1, h2 { font-family: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif; font-weight: 700; letter-spacing: 0.01em; text-wrap: balance; line-height: 1.35; }
+  h1 { font-size: 34px; margin: 8px 0 14px; }
+  h2 { font-size: 23px; margin: 0 0 14px; }
+  p { margin: 0 0 14px; }
+  .eyebrow { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  section { padding: 40px 0 8px; border-top: 1px solid var(--line); margin-top: 24px; }
+  section > .eyebrow { display: block; margin-bottom: 6px; }
+  .lede { font-size: 18px; line-height: 1.8; color: var(--ink-2); }
+  .lede strong { color: var(--ink); }
+  code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.92em; background: var(--paper-2); padding: 1px 6px; border-radius: 4px; }
+  ul { padding-left: 1.4em; margin: 0 0 14px; }
+  li { margin: 4px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; line-height: 1.6; margin: 8px 0 20px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--line); }
+  th { font-weight: 700; color: var(--muted); font-size: 13px; letter-spacing: 0.04em; }
+  td:first-child { white-space: nowrap; font-weight: 500; }
+  .tablewrap { overflow-x: auto; }
+  .small { font-size: 13.5px; color: var(--muted); }
+  .tag { display: inline-block; font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); vertical-align: middle; margin-left: 6px; }
+  .tag.pick { color: var(--pick); border-color: var(--pick); background: var(--pick-soft); }
+  .rec { color: var(--pick); font-weight: 700; }
+  .neg { color: var(--warn); }
+
+  .phones { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; align-items: start; margin: 20px 0 8px; }
+  @media (max-width: 1320px) { .phones { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 700px) { .phones { grid-template-columns: 1fr; } }
+  .col .name { font-family: "Shippori Mincho B1", serif; font-size: 18px; font-weight: 700; margin: 0 0 8px; }
+  .col .cap { margin: 12px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--ink-2); max-width: 300px; }
+  .col .cap b { color: var(--ink); }
+  .col .cap ul { padding-left: 1.2em; margin: 4px 0 0; }
+
+  /* iPhone モックアップ（アプリはダーク固定。この中は色を直書き） */
+  .phone { width: 300px; background: #0B0B0C; border-radius: 40px; padding: 9px; box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 30px rgba(0,0,0,0.25);
+    font-family: -apple-system, "SF Pro Text", "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif; color: #fff; font-size: 14px; line-height: 1.3; letter-spacing: 0; position: relative; }
+  .screen { background: #000; border-radius: 32px; overflow: hidden; height: 560px; position: relative; }
+  .status { height: 32px; display: flex; justify-content: space-between; align-items: center; padding: 8px 24px 0; font-size: 12px; font-weight: 600; }
+  .nav { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 10px; }
+  .nav .title { font-weight: 600; font-size: 16px; }
+  .nav .back { color: #0A84FF; font-size: 15px; }
+  .nav .icons { display: flex; gap: 14px; font-size: 18px; }
+  .panes { display: flex; gap: 2px; height: 330px; }
+  .pane { flex: 1; position: relative; display: flex; align-items: flex-end; justify-content: center; }
+  .pane.mine { background: radial-gradient(120% 90% at 50% 100%, #2F4032 0%, #17201A 60%, #0B0F0C 100%); color: #DCE6DD; }
+  .pane.model { background: radial-gradient(120% 90% at 50% 100%, #333A52 0%, #1A1E2C 60%, #0B0C12 100%); color: #D9DDEB; }
+  .pane .fig { width: 56px; height: 120px; margin-bottom: 14px; display: block; }
+  .pane .bot { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); font-size: 11px; font-weight: 700; color: #fff; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.35); padding: 4px 8px; border-radius: 999px; white-space: nowrap; }
+  .chip { position: absolute; top: 8px; left: 6px; font-size: 11px; font-weight: 700; color: #fff; background: rgba(0,0,0,0.55); padding: 4px 8px; border-radius: 999px; white-space: nowrap; }
+  .chip.btn { border: 1px solid rgba(255,255,255,0.4); }
+  .chip.two { border-radius: 12px; padding: 5px 9px; line-height: 1.25; text-align: left; }
+  .chip.two .sub { display: block; font-weight: 500; font-size: 10px; color: #C7C7CC; margin-top: 1px; }
+  .chip.wide { left: 6px; right: 6px; text-align: center; border-radius: 10px; padding: 7px 8px; font-size: 12px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.35); }
+  .chip.wide .sub { display: block; font-weight: 500; font-size: 10px; color: #C7C7CC; margin-top: 2px; }
+  .row2 { position: absolute; top: 8px; left: 6px; right: 6px; display: flex; justify-content: space-between; align-items: center; gap: 4px; }
+  .row2 .lab { font-size: 11px; font-weight: 700; color: #fff; background: rgba(0,0,0,0.55); padding: 4px 8px; border-radius: 999px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row2 .act { font-size: 11px; font-weight: 700; color: #fff; background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.4); padding: 4px 8px; border-radius: 999px; white-space: nowrap; }
+  .ctrl { padding: 8px 12px 0; color: #C7C7CC; }
+  .seg { display: flex; background: #2C2C2E; border-radius: 8px; padding: 2px; font-size: 11px; width: 150px; margin-left: auto; }
+  .seg span { flex: 1; text-align: center; padding: 4px 6px; border-radius: 6px; color: #C7C7CC; }
+  .seg span.on { background: #636366; color: #fff; }
+  .seek { margin: 8px 0 6px; height: 6px; border-radius: 3px; display: flex; overflow: hidden; }
+  .seek i { display: block; height: 100%; }
+  .seek .b { background: #0A84FF; flex: 3; } .seek .d { background: #FF9F0A; flex: 1; } .seek .f { background: #30D158; flex: 1.5; }
+  .transport { display: flex; justify-content: space-between; align-items: center; padding: 2px 6px 8px; color: #fff; font-size: 16px; }
+  .transport .spd { font-size: 12px; color: #C7C7CC; }
+  .decisions { display: grid; gap: 10px; margin: 14px 0; max-width: 820px; }
+  .decision { display: grid; grid-template-columns: 26px 1fr; gap: 12px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); font-size: 14.5px; }
+  .decision .n { font-family: "Shippori Mincho B1", serif; font-size: 18px; font-weight: 700; color: var(--accent-ink); line-height: 1.3; }
+  .decision .q { font-weight: 700; }
+  .decision .r { color: var(--ink-2); margin-top: 2px; }
+  .decision .r b { color: var(--accent-ink); }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="fig" viewBox="0 0 18 34"><circle cx="9" cy="5" r="3" fill="currentColor"/><path d="M9 8v11M9 12L3 6M9 12l6-2M9 19l-4 12M9 19l4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+<main>
+  <span class="eyebrow">SwingDuet · 設計 · 2026-09-11</span>
+  <h1>ペイン上端を「動画を替える」ボタンにする</h1>
+  <p class="lede prose">いまは「自分 · 14:32 ⌄」「お手本 · マキロイ ⌄」というラベルで、タップすると動画を選び直せるのに気づけない。
+  <strong>ラベルをやめ、動詞のボタンにする。</strong>「自分」「お手本」という言葉は出さない（左が自分、右がお手本という並びは固定なので、言わなくても分かる）。</p>
+
+  <section>
+    <span class="eyebrow">§1 現状と 3 案</span>
+    <h2>上端の部品だけを変える</h2>
+    <div class="phones">
+
+      <div class="col">
+        <div class="name">現状</div>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="back">‹ スイング</span><span class="title">14:32</span><span class="icons"><span style="color:#FFD60A">☆</span><span>⋯</span></span></div>
+          <div class="panes">
+            <div class="pane mine"><span class="chip">自分 · 14:32 ⌄</span><svg class="fig"><use href="#fig"/></svg><span class="bot">フェーズ調整</span></div>
+            <div class="pane model"><span class="chip">お手本 · マキロイ · 1/16 ⌄</span><svg class="fig"><use href="#fig"/></svg><span class="bot">フェーズ調整</span></div>
+          </div>
+          <div class="ctrl"><div class="seg"><span>自分基準</span><span class="on">お手本基準</span></div><div class="seek"><i class="b"></i><i class="d"></i><i class="f"></i></div></div>
+          <div class="transport"><span>A</span><span>T</span><span>I</span><span>‹</span><span>▶</span><span>›</span><span class="spd">x0.3</span><span>↻</span></div>
+        </div></div>
+        <div class="cap">ラベルの見た目（枠なし）に 9pt の ⌄。下端の「フェーズ調整」は枠付きでボタンに見えるので、上端だけがラベルに見える。<span class="neg">名前が長いと ⌄ が押し出される。</span></div>
+      </div>
+
+      <div class="col">
+        <div class="name">案 A 動詞だけ</div>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="back">‹ スイング</span><span class="title">14:32 · vs マキロイ</span><span class="icons"><span style="color:#FFD60A">☆</span><span>⋯</span></span></div>
+          <div class="panes">
+            <div class="pane mine"><span class="chip btn">⇄ 動画を替える</span><svg class="fig"><use href="#fig"/></svg><span class="bot">フェーズ調整</span></div>
+            <div class="pane model"><span class="chip btn">⇄ 動画を替える</span><svg class="fig"><use href="#fig"/></svg><span class="bot">フェーズ調整</span></div>
+          </div>
+          <div class="ctrl"><div class="seg"><span>自分基準</span><span class="on">お手本基準</span></div><div class="seek"><i class="b"></i><i class="d"></i><i class="f"></i></div></div>
+          <div class="transport"><span>A</span><span>T</span><span>I</span><span>‹</span><span>▶</span><span>›</span><span class="spd">x0.3</span><span>↻</span></div>
+        </div></div>
+        <div class="cap"><b>上端は動詞のボタンだけ。</b>名前はナビゲーションバーの題に「14:32 · vs マキロイ」とまとめる。<ul><li>いちばん短く、両ペインが同じ見た目</li><li class="neg">どちらの動画が入っているか（倍率も）はペインの上では分からない</li></ul></div>
+      </div>
+
+      <div class="col">
+        <div class="name">案 B 名前 ＋ ボタン</div>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="back">‹ スイング</span><span class="title">14:32</span><span class="icons"><span style="color:#FFD60A">☆</span><span>⋯</span></span></div>
+          <div class="panes">
+            <div class="pane mine"><div class="row2"><span class="lab">14:32</span><span class="act">替える</span></div><svg class="fig"><use href="#fig"/></svg><span class="bot">フェーズ調整</span></div>
+            <div class="pane model"><div class="row2"><span class="lab">マキロイ · 1/16</span><span class="act">替える</span></div><svg class="fig"><use href="#fig"/></svg><span class="bot">フェーズ調整</span></div>
+          </div>
+          <div class="ctrl"><div class="seg"><span>自分基準</span><span class="on">お手本基準</span></div><div class="seek"><i class="b"></i><i class="d"></i><i class="f"></i></div></div>
+          <div class="transport"><span>A</span><span>T</span><span>I</span><span>‹</span><span>▶</span><span>›</span><span class="spd">x0.3</span><span>↻</span></div>
+        </div></div>
+        <div class="cap"><b>ラベルと操作を分ける。</b>左に名前（枠なし）、右に「替える」（枠付き）。<ul><li>役割がはっきりする（ラベルは読むもの、ボタンは押すもの）</li><li class="neg">半分の幅に 2 つ置くので、名前が長いと詰まる。部品が 1 つ増える</li></ul></div>
+      </div>
+
+      <div class="col">
+        <div class="name">案 C 動詞 ＋ 名前の 2 行<span class="tag pick">推し</span></div>
+        <div class="phone"><div class="screen">
+          <div class="status"><span>9:41</span><span>●●● ▲ ▮</span></div>
+          <div class="nav"><span class="back">‹ スイング</span><span class="title">14:32</span><span class="icons"><span style="color:#FFD60A">☆</span><span>⋯</span></span></div>
+          <div class="panes">
+            <div class="pane mine"><span class="chip btn two">⇄ 動画を替える<span class="sub">14:32</span></span><svg class="fig"><use href="#fig"/></svg><span class="bot">フェーズ調整</span></div>
+            <div class="pane model"><span class="chip btn two">⇄ 動画を替える<span class="sub">マキロイ · 1/16</span></span><svg class="fig"><use href="#fig"/></svg><span class="bot">フェーズ調整</span></div>
+          </div>
+          <div class="ctrl"><div class="seg"><span>自分基準</span><span class="on">お手本基準</span></div><div class="seek"><i class="b"></i><i class="d"></i><i class="f"></i></div></div>
+          <div class="transport"><span>A</span><span>T</span><span>I</span><span>‹</span><span>▶</span><span>›</span><span class="spd">x0.3</span><span>↻</span></div>
+        </div></div>
+        <div class="cap"><b>ボタン 1 つに、見出しは動詞、添え字に名前。</b>枠付きで下端の「フェーズ調整」と同じ材質。<ul><li>押せることが先に伝わり、何が入っているかも見える</li><li>部品は今と同じ 1 つ。両ペインが同じ形</li><li>名前が長ければ添え字だけ省略（…）。見出しは崩れない</li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§2 案 C の詳細</span>
+    <h2>状態ごとの見え方</h2>
+    <div class="tablewrap"><table>
+      <tr><th>状態</th><th>左（自分）</th><th>右（お手本）</th></tr>
+      <tr><td>通常</td><td>⇄ 動画を替える ／ 14:32</td><td>⇄ 動画を替える ／ マキロイ · 1/16</td></tr>
+      <tr><td>名前あり</td><td>⇄ 動画を替える ／ 9/3 レッスン後</td><td>同上</td></tr>
+      <tr><td>解析中</td><td>⇄ 動画を替える ／ 14:32（半透明のまま押せる）</td><td>同上</td></tr>
+      <tr><td>右が空</td><td>—</td><td>上端は出さない。ペイン中央の ⊕「お手本を選ぶ」だけ（今のまま）</td></tr>
+      <tr><td>解析失敗</td><td>⇄ 動画を替える ／ 14:32（失敗の表示はペイン中央）</td><td>同上</td></tr>
+    </table></div>
+    <div class="prose">
+      <ul>
+        <li>タップ先は今と同じ。左は「動画」タブ、右は「お手本」タブで「動画を選ぶ」が開く</li>
+        <li>アイコンは <code>arrow.triangle.2.circlepath</code>（差し替えの意味。SF Symbols）。見出しは太字 11pt、添え字は 10pt の薄い色</li>
+        <li>角丸は 12pt（2 行なのでカプセルより長方形寄り）。枠は白 40%（「フェーズ調整」と同じ）。タッチ領域は 44pt を保つ</li>
+        <li>VoiceOver のラベルは「動画を替える」、値に名前。E2E の識別子は <code>pane.mine.swap</code> / <code>pane.model.swap</code> に改める</li>
+        <li>「自分」「お手本」の文言は上端から消える。「動画を選ぶ」の上部の「自分（左）に入ります」で側は伝わる</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§3 決めてほしいこと</span>
+    <h2>2 つ</h2>
+    <div class="decisions">
+      <div class="decision"><div class="n">一</div><div><div class="q">A / B / C のどれにするか</div><div class="r"><b>推奨: C。</b>動詞が先で、名前も残り、部品は増えない。名前が要らなければ A に落とせる（添え字を消すだけ）。</div></div></div>
+      <div class="decision"><div class="n">二</div><div><div class="q">文言</div><div class="r"><b>推奨: 「動画を替える」。</b>他の候補は「別の動画」「選び直す」。左右で同じ文言にする。</div></div></div>
+    </div>
+    <p class="small">同じ内容のリポジトリ側の記録: docs/design/260911_1111-pane-swap-button.md</p>
+  </section>
+</main>

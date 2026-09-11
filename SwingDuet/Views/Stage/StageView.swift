@@ -146,7 +146,7 @@ private struct SetupStageView: View {
     }
 }
 
-/// 1 つのペイン（空・解析待ち・解析中・失敗・準備済み）。上端のラベルは比較画面（VideoPaneView）と同じ位置・見た目
+/// 1 つのペイン（空・解析待ち・解析中・失敗・準備済み）。上端の名前と「替える」は比較画面（VideoPaneView）と同じ部品
 private struct SlotPane: View {
     @EnvironmentObject private var store: ClipStore
     let side: VideoSide
@@ -177,8 +177,10 @@ private struct SlotPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)   // 左右のペインは常に同じ幅
-        .overlay(alignment: .topLeading) {
-            PaneTitleButton(side: side, title: clip?.paneTitle, action: onTap)
+        .overlay(alignment: .top) {
+            if let clip {
+                PaneHeader(side: side, title: clip.paneTitle, onSwap: onTap)
+            }
         }
     }
 

@@ -67,7 +67,7 @@ struct Clip: Codable, Identifiable, Equatable {
     /// 表示する題。名前が無ければ日時（「9/10 14:32」）
     var displayName: String { name.isEmpty ? sortDate.compactLabel : name }
 
-    /// ペインのラベルに添える題。焼き込みスローなら倍率も（「マキロイ · 1/8」）
+    /// ペイン上端に出す題。焼き込みスローなら倍率も（「マキロイ · 1/8」）
     var paneTitle: String {
         let factor = video.effectiveSlowFactor
         return factor == 1 ? displayName : "\(displayName) · \(SlowFactor.label(factor))"

@@ -145,7 +145,7 @@ final class FlowTests: XCTestCase {
         log("TAP use (\(what))")
     }
 
-    /// ステージでペインの「動画を選ぶ」を開く。右が空なら ⊕ を、そうでなければラベル（選び直す）を押す
+    /// ステージでペインの「動画を選ぶ」を開く。右が空なら ⊕ を、そうでなければ上端の「替える」を押す
     private func openPicker(side: String) {
         if side == "model" {
             let add = app.buttons["slot.model.add"]
@@ -155,13 +155,12 @@ final class FlowTests: XCTestCase {
                 return
             }
         }
-        let relabel = app.buttons[side == "mine" ? "自分の動画を選び直す" : "お手本の動画を選び直す"]
-        XCTAssertTrue(tapIfExists(relabel, "pane label (\(side))", timeout: 5))
+        XCTAssertTrue(tapIfExists(app.buttons["pane.\(side).swap"], "swap (\(side))", timeout: 5))
     }
 
-    /// ペインのラベルに添えられた名前（クリップの表示名）。無ければ空文字
+    /// ペイン上端の名前（クリップの表示名。「替える」ボタンの value）。無ければ空文字
     private func paneTitle(side: String) -> String {
-        app.buttons[side == "mine" ? "自分の動画を選び直す" : "お手本の動画を選び直す"].value as? String ?? ""
+        app.buttons["pane.\(side).swap"].value as? String ?? ""
     }
 
     /// そのペインの解析が終わるまで待つ（解析中の表示が無ければすぐ返る）
