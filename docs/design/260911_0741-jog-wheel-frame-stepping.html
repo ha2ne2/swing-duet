@@ -1,0 +1,485 @@
+<title>ジョグホイールのコマ送り</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #F2F4F1; --surface: #FFFFFF; --ink: #171B18; --ink-2: #4E5751; --ink-3: #7B857E; --line: #D8DDD8;
+    --accent: #1F6FEB; --accent-soft: #E4EDFB; --warn: #B8460A; --warn-soft: #FBE9DD; --pick: #1B7A3E; --pick-soft: #E1F2E6;
+    --seg-b: #0A7EF2; --seg-d: #C86F24; --seg-f: #2BA553; --mark: #4DA3FF;
+    --font-jp: "Zen Kaku Gothic New", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --font-ios: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Helvetica Neue", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #101311; --surface: #181C19; --ink: #E8ECE8; --ink-2: #AEB6AF; --ink-3: #7F8881; --line: #2A302B;
+      --accent: #6AA9FF; --accent-soft: #17304F; --warn: #F2A06A; --warn-soft: #3A2415; --pick: #6CCB8A; --pick-soft: #16301F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #101311; --surface: #181C19; --ink: #E8ECE8; --ink-2: #AEB6AF; --ink-3: #7F8881; --line: #2A302B;
+    --accent: #6AA9FF; --accent-soft: #17304F; --warn: #F2A06A; --warn-soft: #3A2415; --pick: #6CCB8A; --pick-soft: #16301F;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-jp); font-size: 15px; line-height: 1.85; -webkit-font-smoothing: antialiased; }
+  main { max-width: 1040px; margin: 0 auto; padding: 40px 24px 96px; }
+  h1, h2, h3 { text-wrap: balance; line-height: 1.35; margin: 0; font-weight: 700; }
+  h1 { font-size: 30px; letter-spacing: .01em; }
+  h2 { font-size: 21px; }
+  h3 { font-size: 16px; }
+  p { margin: 0; }
+  a { color: var(--accent); }
+  code { font-family: var(--font-mono); font-size: .88em; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 .35em; }
+  .eyebrow { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); font-family: var(--font-mono); }
+  .lead { font-size: 16px; color: var(--ink-2); max-width: 40em; margin-top: 14px; }
+  .prose { max-width: 40em; }
+  ul, ol { margin: 0; padding-left: 1.2em; }
+  li { margin: 4px 0; }
+  li::marker { color: var(--ink-3); }
+  header { display: grid; gap: 10px; padding-bottom: 32px; border-bottom: 1px solid var(--line); }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 22px; font-size: 13px; color: var(--ink-3); font-family: var(--font-mono); margin-top: 6px; }
+  .verdict { margin-top: 28px; display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; align-items: baseline; background: var(--pick-soft); border-left: 3px solid var(--pick); padding: 14px 18px; border-radius: 0 8px 8px 0; }
+  .verdict .k { font-family: var(--font-mono); font-size: 12px; letter-spacing: .1em; color: var(--pick); font-weight: 500; }
+  .verdict .v { color: var(--ink); }
+  section { padding: 44px 0 0; display: grid; gap: 18px; }
+  section + section { margin-top: 12px; border-top: 1px solid var(--line); }
+  .sec-head { display: grid; gap: 6px; }
+  .sec-head .eyebrow { margin-bottom: 2px; }
+  .case { display: grid; grid-template-columns: 340px 1fr; gap: 28px; align-items: start; }
+  .case .prose { padding-top: 6px; }
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 28px; }
+  .cap { font-size: 13px; color: var(--ink-3); margin-top: 8px; font-family: var(--font-mono); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; letter-spacing: .06em; color: var(--ink-3); font-weight: 500; font-family: var(--font-mono); }
+  td.n, th.n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.pick td { background: var(--pick-soft); }
+  .tbl { overflow-x: auto; }
+  .note { font-size: 13px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; max-width: 46em; }
+  .note b { color: var(--ink); }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; }
+
+  /* iPhone のモック（比較画面の入口の設計書と同じ部品） */
+  .phone { width: 340px; flex: none; background: #0b0b0c; border: 1.5px solid #3a3a3d; border-radius: 46px; padding: 8px; box-shadow: 0 24px 48px -28px rgba(0, 0, 0, .55); }
+  .phone.land { width: 100%; max-width: 620px; }
+  .screen { background: #000; border-radius: 39px; overflow: hidden; color: #fff; font-family: var(--font-ios); font-size: 11px; line-height: 1.3; display: flex; flex-direction: column; }
+  .screen svg { width: 1em; height: 1em; vertical-align: -.12em; }
+  .st { display: flex; justify-content: space-between; align-items: center; padding: 14px 28px 4px; font-size: 13px; font-weight: 600; }
+  .st .batt { width: 22px; height: 11px; border: 1.5px solid #fff; border-radius: 4px; padding: 1.5px; }
+  .st .batt i { display: block; height: 100%; width: 86%; background: #fff; border-radius: 1.5px; }
+  .nav { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px 10px; }
+  .pill { background: #1c1c1e; border-radius: 999px; padding: 7px 12px; font-size: 12px; font-weight: 600; display: inline-flex; gap: 6px; align-items: center; white-space: nowrap; }
+  .pill svg { font-size: 13px; }
+  .panes { display: flex; gap: 2px; background: #000; }
+  .pane { flex: 1; min-width: 0; position: relative; display: flex; align-items: center; background: #000; }
+  .video { width: 100%; height: 178px; background: linear-gradient(#abd5f2 0 62%, #98c477 62% 100%); position: relative; overflow: hidden; }
+  .fig { position: absolute; width: 74px; height: 118px; left: 50%; top: 34px; transform: translateX(-50%); }
+  .pane-top { position: absolute; top: 6px; left: 6px; right: 6px; display: flex; align-items: center; gap: 6px; }
+  .chip { background: rgba(0, 0, 0, .55); border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .chip svg { font-size: 8px; }
+  .acts { position: absolute; bottom: 5px; left: 6px; right: 6px; display: flex; justify-content: center; }
+  .act { background: rgba(28, 28, 30, .94); border: 1px solid rgba(255, 255, 255, .24); border-radius: 999px; padding: 5px 9px; font-size: 9.5px; font-weight: 600; white-space: nowrap; display: inline-flex; gap: 4px; align-items: center; }
+  .ctrl { padding: 8px 14px 16px; display: flex; flex-direction: column; gap: 9px; }
+  .row { display: flex; align-items: center; gap: 8px; min-height: 30px; }
+  .seg { margin-left: auto; background: #2c2c2e; border-radius: 9px; padding: 2px; display: flex; font-size: 10.5px; flex: none; }
+  .seg span { padding: 4px 8px; border-radius: 7px; white-space: nowrap; }
+  .seg .on { background: #636366; font-weight: 600; }
+  .bar { flex: 1; height: 24px; border-radius: 6px; display: flex; overflow: hidden; position: relative; }
+  .bar i { display: block; height: 100%; }
+  .bar .b { background: var(--seg-b); width: 57%; }
+  .bar .d { background: var(--seg-d); width: 13%; }
+  .bar .f { background: var(--seg-f); width: 30%; }
+  .bar .head { position: absolute; left: 62%; top: 0; width: 4px; height: 100%; background: #fff; border-radius: 2px; box-shadow: 0 0 3px rgba(0, 0, 0, .6); }
+  .bar .line { position: absolute; top: 0; width: 1.5px; height: 100%; background: rgba(255, 255, 255, .9); }
+  .legend { display: flex; justify-content: center; align-items: center; gap: 12px; font-size: 9px; color: #9a9a9e; }
+  .legend i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; }
+  .jumps { display: flex; justify-content: center; align-items: center; gap: 7px; }
+  .jumps span { background: #2c2c2e; border-radius: 999px; padding: 5px 9px; font-size: 10.5px; white-space: nowrap; }
+  .transport { display: flex; justify-content: center; align-items: center; gap: 18px; font-size: 16px; }
+  .transport .loop { color: #0A84FF; }
+  .play { width: 40px; height: 40px; border-radius: 50%; background: #fff; color: #000; display: grid; place-items: center; font-size: 18px; flex: none; }
+  .play svg { margin-left: 2px; }
+  .speed { background: #2c2c2e; border-radius: 999px; padding: 6px 10px; font-size: 10.5px; font-variant-numeric: tabular-nums; }
+  .wheel { width: 122px; height: 122px; flex: none; position: relative; display: grid; place-items: center; }
+  .wheel svg.ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .wheel .play { position: relative; width: 48px; height: 48px; }
+  .wheel.small { width: 92px; height: 92px; }
+  .wheel.small .play { width: 38px; height: 38px; font-size: 16px; }
+  .strip { position: relative; height: 34px; border-radius: 8px; background: #1c1c1e; overflow: hidden;
+           background-image: repeating-linear-gradient(90deg, #4a4a4e 0 1.5px, transparent 1.5px 9px); }
+  .strip::before { content: ""; position: absolute; left: 0; right: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #1c1c1e, transparent 22%, transparent 78%, #1c1c1e); }
+  .strip .ptr { position: absolute; left: 50%; top: 4px; bottom: 4px; width: 3px; margin-left: -1.5px; background: #0A84FF; border-radius: 2px; }
+  .strip .lbl { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 9px; color: #cfcfd2; background: rgba(28, 28, 30, .9); padding: 1px 6px; border-radius: 999px; }
+  .new { position: relative; box-shadow: 0 0 0 2px #000, 0 0 0 4px var(--mark); border-radius: 999px; }
+  .new::after { content: attr(data-n); position: absolute; top: -9px; right: -9px; width: 16px; height: 16px; border-radius: 50%; background: var(--mark); color: #fff; font-size: 10px; font-weight: 700; font-family: var(--font-mono); display: grid; place-items: center; box-shadow: 0 0 0 2px #000; z-index: 3; }
+  .new.wide { border-radius: 8px; }
+
+  /* 拡大図と触感のデモ */
+  .zoom { display: grid; grid-template-columns: 320px 1fr; gap: 28px; align-items: start; }
+  .zoom svg { width: 320px; height: 320px; display: block; }
+  .demo { display: grid; grid-template-columns: 260px 1fr; gap: 28px; align-items: start; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px; }
+  .demo .ring { width: 260px; height: 260px; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; outline: none; border-radius: 50%; }
+  .demo .ring:focus-visible { box-shadow: 0 0 0 3px var(--accent); }
+  .demo .ring:active { cursor: grabbing; }
+  .readout { display: grid; gap: 12px; }
+  .readout .big { font-family: var(--font-mono); font-size: 34px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .readout .big small { font-size: 14px; color: var(--ink-3); margin-left: 8px; }
+  .pulse { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 13px; color: var(--ink-3); }
+  .pulse i { width: 12px; height: 12px; border-radius: 50%; background: var(--line); transition: background .08s, transform .08s; }
+  .pulse.tick i { background: var(--accent); transform: scale(1.5); }
+  .pulse.bump i { background: var(--warn); transform: scale(1.9); }
+  .pulse.stop i { background: var(--ink); transform: scale(1.3); }
+  @media (prefers-reduced-motion: reduce) { .pulse i { transition: none; } }
+  .tl { position: relative; height: 34px; }
+  .tl .track { position: absolute; left: 0; right: 0; top: 12px; height: 8px; border-radius: 4px; overflow: hidden; display: flex; }
+  .tl .track i { display: block; height: 100%; }
+  .tl .m { position: absolute; top: 0; transform: translateX(-50%); font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); }
+  .tl .m::after { content: ""; position: absolute; left: 50%; top: 11px; width: 1.5px; height: 10px; background: var(--ink-3); }
+  .tl .head { position: absolute; top: 9px; width: 4px; height: 14px; margin-left: -2px; background: var(--ink); border-radius: 2px; }
+  .demo .hint { font-size: 12px; color: var(--ink-3); }
+  kbd { font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; background: var(--surface); }
+
+  @media (max-width: 860px) { .case, .zoom, .demo { grid-template-columns: 1fr; } h1 { font-size: 26px; } .zoom svg { width: 100%; height: auto; } .demo .ring { width: 220px; height: 220px; } }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<svg hidden aria-hidden="true">
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="6" r="2.6" fill="currentColor"/><circle cx="15.5" cy="12" r="2.6" fill="currentColor"/><circle cx="8" cy="18" r="2.6" fill="currentColor"/></symbol>
+  <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 2l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4v16l13-8z" fill="currentColor"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M5 4v16" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M20 4L8 12l12 8z" fill="currentColor"/></symbol>
+  <symbol id="i-fwd" viewBox="0 0 24 24"><path d="M19 4v16" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><path d="M4 4l12 8-12 8z" fill="currentColor"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></symbol>
+  <symbol id="fig-impact" viewBox="0 0 100 160"><circle cx="50" cy="30" r="12" fill="#f0c9a0"/><path d="M50 42v52M50 94l-16 48M50 94l16 48" fill="none" stroke="#1c1c1c" stroke-width="6" stroke-linecap="round"/><path d="M50 52l-4 40-14 44" fill="none" stroke="#1c1c1c" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <!-- リング：帯・30 個の刻み・左右のタップ領域の印 -->
+  <symbol id="ring" viewBox="0 0 122 122">
+    <circle cx="61" cy="61" r="42" fill="none" stroke="#2c2c2e" stroke-width="34"/>
+    <circle cx="61" cy="61" r="55" fill="none" stroke="#48484a" stroke-width="2.5" stroke-dasharray="1.5 10.02" stroke-dashoffset="0.75"/>
+    <path d="M22 61l6-4v8z" fill="#cfcfd2"/><path d="M100 61l-6-4v8z" fill="#cfcfd2"/>
+  </symbol>
+</svg>
+
+<main>
+  <header>
+    <div class="eyebrow">SwingDuet / 設計メモ</div>
+    <h1>ジョグホイールのコマ送り</h1>
+    <p class="lead">iPod のクリックホイールや DJ 機材のジョグのように、指で回してコマを進めたり戻したりする。回す量が移動量、回す速さが速さ。1 コマごとに指先へ「カチッ」と返し、インパクトを通過したら一段強く震わせる。既存の操作パネルへの組み込み方を 4 案並べ、リングの寸法と振動の設計まで決める。コードは変えていない。</p>
+    <div class="meta"><span>2026-09-11（案 A 第 1 段と第 2 段を同日実装）</span><span>対象: TransportControlsView / ControlPanelView / PlaybackController</span><span>前提: iOS 17（sensoryFeedback）</span></div>
+    <div class="verdict">
+      <span class="k">推し</span>
+      <p class="v"><b>案 A「再生ボタンの周りをリングにする」</b>。±1 コマボタンはリングの左右のタップ領域に吸収し、回転で連続移動。縦画面なら映像は小さくならない。振動は<b>1 コマ = 軽いカチッ、フェーズ通過 = 中くらいのドン、端 = 重い止まり</b>の 3 種類だけ。</p>
+    </div>
+  </header>
+
+  <section id="why">
+    <div class="sec-head">
+      <div class="eyebrow">1</div>
+      <h2>なぜ回すのか</h2>
+    </div>
+    <div class="case">
+      <div>
+        <div class="phone"><div class="screen">
+          <div class="st"><span>9:41</span><span class="batt"><i></i></span></div>
+          <div class="nav"><span class="pill"><svg><use href="#i-clock"/></svg>履歴</span><span class="pill"><svg><use href="#i-plus"/></svg>新しいスイング</span></div>
+          <div class="panes" style="height: 214px;">
+            <div class="pane"><div class="video"><svg class="fig"><use href="#fig-impact"/></svg></div><div class="pane-top"><span class="chip">自分 <svg><use href="#i-chev-down"/></svg></span></div><div class="acts"><span class="act"><svg><use href="#i-sliders"/></svg>フェーズ調整</span></div></div>
+            <div class="pane"><div class="video"><svg class="fig"><use href="#fig-impact"/></svg></div><div class="pane-top"><span class="chip">お手本 · マキロイ <svg><use href="#i-chev-down"/></svg></span></div><div class="acts"><span class="act"><svg><use href="#i-sliders"/></svg>フェーズ調整</span></div></div>
+          </div>
+          <div class="ctrl">
+            <div class="row"><div class="seg"><span>自分基準</span><span class="on">お手本基準</span></div></div>
+            <div class="row"><div class="bar"><i class="b"></i><i class="d"></i><i class="f"></i><span class="line" style="left: 57%"></span><span class="line" style="left: 70%"></span><span class="head"></span></div></div>
+            <div class="legend"><span><i style="background: var(--seg-b)"></i>バックスイング</span><span><i style="background: var(--seg-d)"></i>ダウンスイング</span><span><i style="background: var(--seg-f)"></i>フォロー</span></div>
+            <div class="jumps"><span>アドレス</span><span>トップ</span><span>インパクト</span></div>
+            <div class="transport"><svg class="loop"><use href="#i-repeat"/></svg><svg class="new" data-n="!"><use href="#i-back"/></svg><span class="play"><svg><use href="#i-play"/></svg></span><svg class="new" data-n="!"><use href="#i-fwd"/></svg><span class="speed">x0.30</span></div>
+          </div>
+        </div></div>
+        <div class="cap">いま：±1 コマは押しっぱなしで 0.1 秒ごとに進む</div>
+      </div>
+      <div class="prose">
+        <p>インパクト前後を見比べるとき、やりたいのは「3 コマ戻して、2 コマ進めて、また 1 コマ戻す」のような行ったり来たりだ。いまの ±1 ボタンは 1 押し 1 コマで、長押しは 0.1 秒に 1 コマの一定速。速さを指で決められないし、方向を変えるたびに指を別のボタンへ移す。</p>
+        <p style="margin-top: 12px;">回転なら、<b>回した量が移動量、回した速さが速さ、回す向きが方向</b>。指を置いたまま前後に往復できる。iPod のクリックホイールが曲送りに、DJ のジョグが頭出しに使われるのは、この「往復しながら探す」操作に合っているからだ。</p>
+        <p style="margin-top: 12px;">もうひとつ、振動。画面を見ながら指先の「カチッ」を数えられると、映像から目を離さずに「あと 2 コマ」が分かる。インパクトの瞬間に一段強く震えれば、目で探さなくても指が基準点を教えてくれる。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="options">
+    <div class="sec-head">
+      <div class="eyebrow">2</div>
+      <h2>組み込み方の 4 案</h2>
+      <p class="prose" style="color: var(--ink-2);">操作パネルは上から「基準の切り替え → シークバー → フェーズジャンプ → 再生操作」の 4 段。どこにホイールを置くかで、高さと発見しやすさが変わる。</p>
+    </div>
+
+    <div class="case">
+      <div>
+        <div class="phone"><div class="screen">
+          <div class="st"><span>9:41</span><span class="batt"><i></i></span></div>
+          <div class="nav"><span class="pill"><svg><use href="#i-clock"/></svg>履歴</span><span class="pill"><svg><use href="#i-plus"/></svg>新しいスイング</span></div>
+          <div class="panes" style="height: 214px;">
+            <div class="pane"><div class="video"><svg class="fig"><use href="#fig-impact"/></svg></div><div class="pane-top"><span class="chip">自分 <svg><use href="#i-chev-down"/></svg></span></div><div class="acts"><span class="act"><svg><use href="#i-sliders"/></svg>フェーズ調整</span></div></div>
+            <div class="pane"><div class="video"><svg class="fig"><use href="#fig-impact"/></svg></div><div class="pane-top"><span class="chip">お手本 · マキロイ <svg><use href="#i-chev-down"/></svg></span></div><div class="acts"><span class="act"><svg><use href="#i-sliders"/></svg>フェーズ調整</span></div></div>
+          </div>
+          <div class="ctrl">
+            <div class="row"><div class="seg"><span>自分基準</span><span class="on">お手本基準</span></div></div>
+            <div class="row"><div class="bar"><i class="b"></i><i class="d"></i><i class="f"></i><span class="line" style="left: 57%"></span><span class="line" style="left: 70%"></span><span class="head"></span></div></div>
+            <div class="legend"><span><i style="background: var(--seg-b)"></i>バックスイング</span><span><i style="background: var(--seg-d)"></i>ダウンスイング</span><span><i style="background: var(--seg-f)"></i>フォロー</span></div>
+            <div class="jumps"><span>アドレス</span><span>トップ</span><span>インパクト</span></div>
+            <div class="transport" style="gap: 22px;">
+              <svg class="loop"><use href="#i-repeat"/></svg>
+              <div class="wheel new" data-n="A"><svg class="ring"><use href="#ring"/></svg><span class="play"><svg><use href="#i-play"/></svg></span></div>
+              <span class="speed">x0.30</span>
+            </div>
+          </div>
+        </div></div>
+        <div class="cap">案 A：再生ボタンの周りがリング。左右の ◀ ▶ はタップで ±1 コマ</div>
+      </div>
+      <div class="prose">
+        <h3>案 A　再生ボタンの周りをリングにする</h3>
+        <p style="margin-top: 8px;">再生ボタン（Ø 52pt）を中心に、幅 32pt の帯を回す（外径 132pt）。帯のどこに指を置いても回せて、指を離さない限り何周でも進む。iPod と同じく、帯の左右をタップすると ±1 コマ。±1 ボタンは消え、ループと速度はリングの左右に残る。</p>
+        <ul style="margin-top: 10px;">
+          <li>操作パネルが 44pt → 132pt の行になり、<b>約 90pt 高くなる</b></li>
+          <li>縦画面（iPhone 16e、393×852pt）では各ペインの幅 196pt で縦動画の高さが決まる（約 348pt）。パネルが伸びてもペイン領域は約 450pt 残り、<b>映像は小さくならない</b></li>
+          <li>横画面（高さ 393pt）はもともとペインが約 170pt しかない。リングを Ø 96pt に縮めるか、パネルを右の列に移す（§6）</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="case">
+      <div>
+        <div class="phone"><div class="screen">
+          <div class="st"><span>9:41</span><span class="batt"><i></i></span></div>
+          <div class="nav"><span class="pill"><svg><use href="#i-clock"/></svg>履歴</span><span class="pill"><svg><use href="#i-plus"/></svg>新しいスイング</span></div>
+          <div class="panes" style="height: 214px;">
+            <div class="pane"><div class="video"><svg class="fig"><use href="#fig-impact"/></svg></div><div class="pane-top"><span class="chip">自分 <svg><use href="#i-chev-down"/></svg></span></div><div class="acts"><span class="act"><svg><use href="#i-sliders"/></svg>フェーズ調整</span></div></div>
+            <div class="pane"><div class="video"><svg class="fig"><use href="#fig-impact"/></svg></div><div class="pane-top"><span class="chip">お手本 · マキロイ <svg><use href="#i-chev-down"/></svg></span></div><div class="acts"><span class="act"><svg><use href="#i-sliders"/></svg>フェーズ調整</span></div></div>
+          </div>
+          <div class="ctrl">
+            <div class="row"><div class="seg"><span>自分基準</span><span class="on">お手本基準</span></div></div>
+            <div class="row"><div class="bar"><i class="b"></i><i class="d"></i><i class="f"></i><span class="line" style="left: 57%"></span><span class="line" style="left: 70%"></span><span class="head"></span></div></div>
+            <div class="legend"><span><i style="background: var(--seg-b)"></i>バックスイング</span><span><i style="background: var(--seg-d)"></i>ダウンスイング</span><span><i style="background: var(--seg-f)"></i>フォロー</span></div>
+            <div class="strip new wide" data-n="B"><span class="ptr"></span><span class="lbl">なでてコマ送り</span></div>
+            <div class="jumps"><span>アドレス</span><span>トップ</span><span>インパクト</span></div>
+            <div class="transport"><svg class="loop"><use href="#i-repeat"/></svg><svg><use href="#i-back"/></svg><span class="play"><svg><use href="#i-play"/></svg></span><svg><use href="#i-fwd"/></svg><span class="speed">x0.30</span></div>
+          </div>
+        </div></div>
+        <div class="cap">案 B：シークバーの下に刻みの帯。横になでると刻みが流れる</div>
+      </div>
+      <div class="prose">
+        <h3>案 B　横になでるジョグ帯</h3>
+        <p style="margin-top: 8px;">シークバーの下に高さ 34pt の帯を置き、横のドラッグ量をコマに変換する（8pt で 1 コマ）。帯の刻みが指について流れ、1 コマごとに振動する。動画編集アプリのトリマーに近い。</p>
+        <ul style="margin-top: 10px;">
+          <li>高さは <b>+42pt</b> で済み、横画面でも入る</li>
+          <li>指の可動域が画面幅で尽きる。20 コマ以上は指を離して置き直すか、弾いた慣性に頼る</li>
+          <li>回転ではないので「回して探す」感覚は薄い。±1 ボタンは残す</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="pair">
+      <div class="prose">
+        <h3>案 C　必要なときだけ出す</h3>
+        <p style="margin-top: 8px;">パネルの高さは変えず、再生ボタンを長押しするとリングが映像の下端に半透明で現れ、指を離すと消える。映像を隠す時間は短いが、<b>存在に気づけない</b>。長押しは今ほかで使っていないので衝突はしない。初回だけ案内を出す必要がある。</p>
+      </div>
+      <div class="prose">
+        <h3>案 D　シークバーを縦にずらすと細かくなる</h3>
+        <p style="margin-top: 8px;">iOS のミュージックの再生バーと同じで、バーをつかんだまま指を下へ離すほど感度が下がり、1 コマ単位になる。新しい部品は不要だが、回転でも刻みでもなく、<b>知らないと一生使わない</b>。案 A / B に添える小技として別途検討。</p>
+      </div>
+    </div>
+
+    <div class="tbl"><table>
+      <thead><tr><th>案</th><th>移動量の上限</th><th>速さの指定</th><th class="n">高さ</th><th>横画面</th><th>発見しやすさ</th><th>±1 ボタン</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td><b>A リング</b></td><td>なし（何周でも）</td><td>回す速さ</td><td class="n">+90pt</td><td>縮める / 右列</td><td>◎ 見れば分かる</td><td>リングに吸収</td></tr>
+        <tr><td>B 帯</td><td>画面幅（約 40 コマ）</td><td>なでる速さ</td><td class="n">+42pt</td><td>入る</td><td>○ 刻みで察する</td><td>残す</td></tr>
+        <tr><td>C 長押しで出す</td><td>なし</td><td>回す速さ</td><td class="n">+0</td><td>入る</td><td>△ 案内が要る</td><td>残す</td></tr>
+        <tr><td>D 縦ずらし</td><td>画面幅</td><td>ずらす距離</td><td class="n">+0</td><td>入る</td><td>× 知る手段がない</td><td>残す</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="ring">
+    <div class="sec-head">
+      <div class="eyebrow">3</div>
+      <h2>リングの寸法と触り方（案 A）</h2>
+    </div>
+    <div class="zoom">
+      <svg viewBox="0 0 320 320" role="img" aria-label="リングの拡大図：外径 132pt、帯 32pt、中央の再生ボタン 52pt、30 個の刻み、左右のタップ領域">
+        <circle cx="160" cy="160" r="112" fill="#2c2c2e" stroke="none"/>
+        <circle cx="160" cy="160" r="112" fill="none" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="3 4"/>
+        <circle cx="160" cy="160" r="72" fill="#000"/>
+        <circle cx="160" cy="160" r="52" fill="#fff"/>
+        <path d="M152 146v28l24-14z" fill="#000"/>
+        <circle cx="160" cy="160" r="100" fill="none" stroke="#5a5a5e" stroke-width="5" stroke-dasharray="2.5 18.44" stroke-dashoffset="1.25"/>
+        <path d="M78 160l12-8v16z" fill="#e5e5ea"/><path d="M242 160l-12-8v16z" fill="#e5e5ea"/>
+        <path d="M120 60 A108 108 0 0 1 200 60" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>
+        <path d="M200 60l-9 -4l3 9z" fill="var(--accent)"/>
+        <text x="160" y="42" text-anchor="middle" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="11" fill="var(--ink)">12° = 1 コマ（1 周 30 コマ）</text>
+        <line x1="48" y1="160" x2="48" y2="290" stroke="var(--ink-3)" stroke-width="1"/>
+        <line x1="272" y1="160" x2="272" y2="290" stroke="var(--ink-3)" stroke-width="1"/>
+        <line x1="48" y1="288" x2="272" y2="288" stroke="var(--ink-3)" stroke-width="1"/>
+        <text x="160" y="306" text-anchor="middle" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="11" fill="var(--ink)">外径 132pt</text>
+        <line x1="108" y1="160" x2="108" y2="248" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="2 3"/>
+        <line x1="212" y1="160" x2="212" y2="248" stroke="var(--ink-3)" stroke-width="1" stroke-dasharray="2 3"/>
+        <line x1="108" y1="246" x2="212" y2="246" stroke="var(--ink-3)" stroke-width="1"/>
+        <text x="160" y="262" text-anchor="middle" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="11" fill="var(--ink)">再生 52pt</text>
+        <text x="94" y="128" text-anchor="middle" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="10" fill="#e5e5ea">−1</text>
+        <text x="226" y="128" text-anchor="middle" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="10" fill="#e5e5ea">+1</text>
+        <text x="160" y="228" text-anchor="middle" font-family="IBM Plex Mono, ui-monospace, monospace" font-size="10" fill="#e5e5ea">帯 32pt</text>
+      </svg>
+      <div class="prose">
+        <div class="tbl"><table>
+          <thead><tr><th>要素</th><th class="n">値</th><th>理由</th></tr></thead>
+          <tbody>
+            <tr><td>外径</td><td class="n">132pt</td><td>親指で回せる最小に近い大きさ。iPod nano のホイールが約 34mm（≈ 130pt）</td></tr>
+            <tr><td>帯の幅</td><td class="n">32pt</td><td>指の腹が乗る。帯の内側の縁（Ø 68pt）と再生ボタンの間に 8pt の黒い溝を残し、誤って再生しない</td></tr>
+            <tr><td>再生ボタン</td><td class="n">Ø 52pt</td><td>いまの 44pt より一回り大きく、リングの中心として存在感を出す</td></tr>
+            <tr><td>1 コマの角度</td><td class="n">12°（1 周 30 コマ）</td><td>30fps なら 1 周 = 1 秒。刻みの見た目と振動の間隔がそろう。240fps（TODO A の後）は回す速さで 1 目盛りのコマ数を上げる（§6）</td></tr>
+            <tr><td>タップ領域</td><td class="n">左右 ±60°</td><td>◀ ▶ の印の周り。回転せずに離したらタップ。上下はタップしても何もしない（将来の割り当て用に空けておく）</td></tr>
+            <tr><td>刻み</td><td class="n">30 本</td><td>帯の外縁に細い線。回しても動かない（動かすと目が疲れる。動きは映像と振動で伝える）</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="haptics">
+    <div class="sec-head">
+      <div class="eyebrow">4</div>
+      <h2>ぶるぶるの設計</h2>
+      <p class="prose" style="color: var(--ink-2);">振動は 3 種類だけ。多いと区別できず、「なんか震えている」になる。</p>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>出来事</th><th>指先の感触</th><th>iOS 17 の API</th><th>なぜ</th></tr></thead>
+      <tbody>
+        <tr><td><span class="swatch" style="background: var(--accent)"></span>1 コマ進んだ / 戻った</td><td>軽いカチッ</td><td class="n">.sensoryFeedback(.selection)</td><td>ピッカーのホイールと同じ感触。数えられる軽さ。回転の検出と同時に鳴らし、シークの完了は待たない（待つと速く回したときに遅れて数が合わない）</td></tr>
+        <tr><td><span class="swatch" style="background: var(--warn)"></span>トップ / インパクトを通過</td><td>中くらいのドン</td><td class="n">.impact(weight: .medium)</td><td>画面を見なくても基準点が分かる。両方向で鳴る。通過した瞬間のコマの「カチッ」は鳴らさず、ドンだけにする</td></tr>
+        <tr><td><span class="swatch" style="background: var(--ink)"></span>ループ範囲の端に当たった</td><td>重い止まり</td><td class="n">.impact(weight: .heavy)</td><td>アドレス / フィニッシュ（区間ループならその区間の端）で進めなくなったことを伝える。以後は回しても鳴らさない（当たり続けて震え続けない）</td></tr>
+      </tbody>
+    </table></div>
+    <div class="demo">
+      <svg class="ring" id="demoRing" viewBox="0 0 260 260" tabindex="0" role="slider" aria-label="ジョグホイールのデモ。ドラッグで回転、矢印キーで 1 コマ" aria-valuemin="0" aria-valuemax="90" aria-valuenow="63">
+        <circle cx="130" cy="130" r="91" fill="#2c2c2e"/>
+        <circle cx="130" cy="130" r="58" fill="#000"/>
+        <circle cx="130" cy="130" r="42" fill="#fff"/>
+        <path d="M124 119v22l19-11z" fill="#000"/>
+        <circle cx="130" cy="130" r="82" fill="none" stroke="#5a5a5e" stroke-width="4" stroke-dasharray="2 15.17" stroke-dashoffset="1"/>
+        <path d="M64 130l10-6v12z" fill="#e5e5ea"/><path d="M196 130l-10-6v12z" fill="#e5e5ea"/>
+        <g id="demoKnob"><circle cx="130" cy="48" r="7" fill="var(--accent)"/></g>
+      </svg>
+      <div class="readout">
+        <div class="big"><span id="demoFrame">63</span><small>コマ / 90</small><small id="demoTime">2.100 秒</small></div>
+        <div class="tl">
+          <span class="m" style="left: 0%">A</span><span class="m" style="left: 57.8%">T</span><span class="m" style="left: 70%">I</span><span class="m" style="left: 100%">F</span>
+          <div class="track"><i style="width: 57.8%; background: var(--seg-b)"></i><i style="width: 12.2%; background: var(--seg-d)"></i><i style="width: 30%; background: var(--seg-f)"></i></div>
+          <span class="head" id="demoHead" style="left: 70%"></span>
+        </div>
+        <div class="pulse" id="demoPulse"><i></i><span id="demoPulseLabel">回すと、ここに振動の種類が出る</span></div>
+        <p class="hint">ブラウザには触覚が無いので、色と大きさで代わりに示す。青 = カチッ（1 コマ）、橙 = ドン（トップ / インパクト通過）、黒 = 止まり（端）。<kbd>←</kbd> <kbd>→</kbd> でも 1 コマ動く（VoiceOver の上下スワイプに相当）。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="mech">
+    <div class="sec-head">
+      <div class="eyebrow">5</div>
+      <h2>仕組み</h2>
+    </div>
+    <div class="pair">
+      <div class="prose">
+        <h3>回転の検出（View）</h3>
+        <ul style="margin-top: 8px;">
+          <li>帯の上の <code>DragGesture(minimumDistance: 0)</code>。指の位置から中心への角度を <code>atan2</code> で取り、前回との差を −180°〜180° に折り返して累積する</li>
+          <li>累積が 12° を超えるたびに 1 コマ（超えた分は持ち越す）。速く回すと 1 回の更新で 2〜3 コマ分になるが、コマ数はそのまま渡す</li>
+          <li>回転せずに指が離れ、置いた場所が左右のタップ領域なら ±1 コマ。中央の再生ボタンは別の <code>Button</code> で、帯の当たり判定はドーナツ形にして重ねない</li>
+          <li>振動は View 側。コマ数の変化を <code>sensoryFeedback</code> のトリガーにし、通過・端の判定は <code>controller.sync.commonTime(of:)</code> と <code>loopRange</code> で View が計算する</li>
+        </ul>
+      </div>
+      <div class="prose">
+        <h3>シークをまとめる（PlaybackController）</h3>
+        <ul style="margin-top: 8px;">
+          <li>いまの <code>stepFrame(by:)</code> は 1 回ごとに精密シークを出す。速く回すとシークが連鎖して、画面が止まったまま最後に飛ぶ（長押しコマ送りで既に踏んだ問題）</li>
+          <li>新しく <code>jog(by frames: Int)</code> を足す。進めたいコマ数を貯め、シークが走っていなければすぐ、走っていれば完了ハンドラの中でまとめて 1 回 <code>stepFrame(by:)</code> する</li>
+          <li>取りこぼしなし・シークの嵐なし。振動は貯める前に鳴るので、映像が遅れても指の数は合う</li>
+          <li>±1 ボタンが消えるので <code>beginStepping</code> / <code>endStepping</code> と <code>HoldRepeatButton</code> は不要になり、削除できる</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note"><b>アクセシビリティ</b>：リングに <code>accessibilityAdjustable</code> を付け、VoiceOver の上下スワイプを ±1 コマにする。読み上げは「コマ送り、63 コマ、2.100 秒」。ボタンが消えても操作は失われない。触覚は iPad と シミュレータでは鳴らないが、何も壊れない。</div>
+  </section>
+
+  <section id="rec">
+    <div class="sec-head">
+      <div class="eyebrow">6</div>
+      <h2>推しと段階</h2>
+    </div>
+    <div class="prose">
+      <ol>
+        <li><b>第 1 段：案 A を縦画面向けに入れる。</b>リング Ø 132pt、12° = 1 コマ固定、振動 3 種類、<code>jog(by:)</code> でシークをまとめる。±1 ボタンと <code>HoldRepeatButton</code> を消す。横画面は当面リングを Ø 96pt に縮める（コンパクト高さの size class で切り替え）</li>
+        <li><b>第 2 段：回し続けると段が上がる（周回ギア）。</b>指を置いてからの累積回転で 1 周目 ×1、2 周目 ×2、3 周目以降 ×4（×8 は実機で速すぎたので外した）。離す・0.3 秒止まる・逆回転で ×1 に戻る。当初は「回す速さ」で決めたが、親指の円運動は伸ばす区間（右下 → 左上）だけ速いという手の構造上の偏りで 1 周の中で重さが脈打ち、周回に改めた（調査は research/260911_1226）。振動は目盛りごとのままで、段が上がる瞬間だけ「上がった」用の触覚を 1 回</li>
+        <li><b>第 3 段：横画面の見直し。</b>パネルを右の列（幅 180pt）に移し、リングを縦に並べる。これは操作パネル全体の話なので別の設計書にする</li>
+      </ol>
+      <p style="margin-top: 14px; color: var(--ink-2);">やらないこと：弾いて回し続ける慣性（止め方が分かりにくく、精密な往復の邪魔になる）、上下のタップ領域への機能の割り当て（空けておく）、リングの刻みを回転に合わせて動かすこと。</p>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var ring = document.getElementById('demoRing');
+  var knob = document.getElementById('demoKnob');
+  var frameEl = document.getElementById('demoFrame');
+  var timeEl = document.getElementById('demoTime');
+  var head = document.getElementById('demoHead');
+  var pulse = document.getElementById('demoPulse');
+  var pulseLabel = document.getElementById('demoPulseLabel');
+  var FPS = 30, TOTAL = 90, TOP = 52, IMPACT = 63, DETENT = 12;   // 3 秒の基準側動画、トップ 1.73 秒、インパクト 2.10 秒
+  var frame = IMPACT, angle = -90, acc = 0, last = null, timer = null;
+
+  function render() {
+    frameEl.textContent = frame;
+    timeEl.textContent = (frame / FPS).toFixed(3) + ' 秒';
+    head.style.left = (frame / TOTAL * 100) + '%';
+    ring.setAttribute('aria-valuenow', frame);
+    knob.setAttribute('transform', 'rotate(' + (angle + 90) + ' 130 130)');
+  }
+  function feel(kind, label) {
+    pulse.className = 'pulse ' + kind;
+    pulseLabel.textContent = label;
+    clearTimeout(timer);
+    timer = setTimeout(function () { pulse.className = 'pulse'; }, 140);
+  }
+  function step(dir) {
+    var next = frame + dir;
+    if (next < 0 || next > TOTAL) { feel('stop', '端に当たった：重い止まり'); return; }
+    var crossed = (frame < TOP) !== (next < TOP) ? 'トップ' : (frame < IMPACT) !== (next < IMPACT) ? 'インパクト' : null;
+    frame = next;
+    if (crossed) feel('bump', crossed + 'を通過：中くらいのドン'); else feel('tick', '1 コマ：軽いカチッ');
+    render();
+  }
+  function angleOf(e) {
+    var r = ring.getBoundingClientRect();
+    return Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180 / Math.PI;
+  }
+  ring.addEventListener('pointerdown', function (e) { last = angleOf(e); acc = 0; ring.setPointerCapture(e.pointerId); e.preventDefault(); });
+  ring.addEventListener('pointermove', function (e) {
+    if (last === null) return;
+    var a = angleOf(e), d = a - last;
+    if (d > 180) d -= 360; else if (d < -180) d += 360;
+    last = a; angle += d; acc += d;
+    while (acc >= DETENT) { acc -= DETENT; step(1); }
+    while (acc <= -DETENT) { acc += DETENT; step(-1); }
+    render();
+  });
+  function up() { last = null; }
+  ring.addEventListener('pointerup', up);
+  ring.addEventListener('pointercancel', up);
+  ring.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') { angle += DETENT; step(1); render(); e.preventDefault(); }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') { angle -= DETENT; step(-1); render(); e.preventDefault(); }
+  });
+  render();
+})();
+</script>
