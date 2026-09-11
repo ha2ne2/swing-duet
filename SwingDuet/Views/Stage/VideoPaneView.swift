@@ -4,12 +4,12 @@ import AVFoundation
 /// 1 本の動画の表示ペイン。
 /// 初期表示は検出した人物（`config.focusRect`）が収まるように自動で拡大する。ピンチで拡大縮小（ピンチした位置を中心に）、
 /// ドラッグで位置合わせでき、拡大率と位置は自動フィットからの相対値として、指を離した時点で config に確定・保存される。
-/// この動画への操作は動画の上に重ねる。上端に名前と「替える」（動画を選び直す）、下端中央に「フェーズ調整」
+/// この動画への操作は動画の上に重ねる。右上に「替える」（動画を選び直す）、下端中央に「フェーズ調整」
 struct VideoPaneView: View {
     let player: AVPlayer
     @Binding var config: VideoConfig
     let side: VideoSide
-    /// 上端に出す名前（クリップの表示名と倍率）
+    /// クリップの表示名と倍率（VoiceOver と UI テストが「替える」の値として読む。画面には出さない）
     let title: String
     /// 「替える」をタップしたとき（動画を選び直す）
     let onSwap: () -> Void
@@ -41,8 +41,8 @@ struct VideoPaneView: View {
         .accessibilityLabel("\(side.label)の動画")
         .accessibilityValue(transformText)
         .accessibilityIdentifier("pane.\(side.rawValue)")
-        .overlay(alignment: .top) {
-            PaneHeader(side: side, title: title, onSwap: onSwap)
+        .overlay(alignment: .topTrailing) {
+            PaneSwapButton(side: side, title: title, onSwap: onSwap)
         }
         .overlay(alignment: .bottom) {
             Button(action: onEditPhases) {
@@ -50,7 +50,7 @@ struct VideoPaneView: View {
                     Image(systemName: "slider.horizontal.3")
                     Text("フェーズ調整")
                 }
-                .paneChip(bordered: true)
+                .paneChip()
             }
             .buttonStyle(.plain)
             .accessibilityLabel("\(side.label)のフェーズ調整")

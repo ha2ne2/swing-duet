@@ -42,8 +42,17 @@ final class ClipStore: ObservableObject {
             load(migrated)
             removeLegacyFiles()
         }
+        removeUnreferencedModels()
         removeUnreferencedVideos()
         processQueue()
+    }
+
+    /// 棚に並べないお手本（「今回だけ使う」で入れたもの）は、相手にしているスイングが無くなれば消す
+    private func removeUnreferencedModels() {
+        let referenced = Set(clips.compactMap { $0.pairing?.partnerID })
+        let before = clips.count
+        clips.removeAll { $0.role == .model && !$0.isRegistered && !referenced.contains($0.id) }
+        if clips.count != before { persist() }
     }
 
     /// 読み込んだものが古い版なら組み替えて保存し直す
@@ -76,13 +85,13 @@ final class ClipStore: ObservableObject {
         clips.filter { $0.role == .swing }.sorted { $0.sortDate > $1.sortDate }
     }
 
-    /// 登録済みのお手本（登録の新しい順）
+    /// 登録済みのお手本（登録の新しい順。「今回だけ使う」で入れたものは除く）
     var models: [Clip] {
-        clips.filter { $0.role == .model }.sorted { $0.createdAt > $1.createdAt }
+        clips.filter { $0.role == .model && $0.isRegistered }.sorted { $0.createdAt > $1.createdAt }
     }
 
-    /// ★ ベスト（★ の付いたスイング。お手本の棚にも並ぶ）
-    var bests: [Clip] {
+    /// ★ お気に入り（★ の付いたスイング。お手本の棚にも並ぶ）
+    var favorites: [Clip] {
         swings.filter(\.isFavorite)
     }
 
@@ -121,22 +130,32 @@ final class ClipStore: ObservableObject {
     }
 
     /// ライブラリの動画をこの役割で使う。同じ写真ライブラリの動画が同じ役割で既にあればそれを返し（行を増やさない）、
-    /// 別の役割で既にあれば動画ファイルを共有し、無ければ原本を取り込む。どちらも `add` で解析待ちに入る
-    func obtain(role: ClipRole, name: String = "", source: LibrarySource, partnerID: UUID? = nil) async throws -> Clip {
+    /// 別の役割で既にあれば動画ファイルを共有し、無ければ原本を取り込む。どちらも `add` で解析待ちに入る。
+    /// - registered: お手本を棚に並べるか（「今回だけ使う」なら false）
+    func obtain(role: ClipRole, name: String = "", source: LibrarySource, partnerID: UUID? = nil, registered: Bool = true) async throws -> Clip {
+        let shotAt = await source.creationDate
         switch source {
         case .asset(let asset):
             let twin = existingClip(assetID: asset.localIdentifier)
-            if let twin, twin.role == role { return twin }
+            if var existing = twin, existing.role == role {
+                if registered {   // もう一度「お手本に追加」されたら棚に並べ、名前を入れていれば付け直す（`update` は変化が無ければ何もしない）
+                    existing.isRegistered = true
+                    if !name.isEmpty { existing.name = name }
+                    update(existing)
+                }
+                return existing
+            }
             let fileName: String
             if let twin {
                 fileName = twin.fileName   // 同じ動画を別の役割で持っているので、ファイルを共有する
             } else {
                 fileName = try importVideo(from: await PhotoLibrary.exportOriginal(asset))
             }
-            return add(role: role, name: name, fileName: fileName, shotAt: asset.creationDate, assetID: asset.localIdentifier, partnerID: partnerID)
+            return add(role: role, name: name, fileName: fileName, shotAt: shotAt, assetID: asset.localIdentifier,
+                       partnerID: partnerID, registered: registered)
         case .file(let url):
-            let shotAt = await VideoImporter.creationDate(of: url)
-            return add(role: role, name: name, fileName: try importVideo(from: url), shotAt: shotAt, assetID: nil, partnerID: partnerID)
+            return add(role: role, name: name, fileName: try importVideo(from: url), shotAt: shotAt, assetID: nil,
+                       partnerID: partnerID, registered: registered)
         }
     }
 
@@ -164,9 +183,10 @@ final class ClipStore: ObservableObject {
     /// 取り込んだ動画をクリップとして追加し、解析待ちにする。
     /// 同じ写真ライブラリの動画を解析済みで持っていれば、その解析結果を写して解析を省く。
     /// - partnerID: スイングの相手（nil ならいつものお手本）
+    /// - registered: お手本を棚に並べるか
     @discardableResult
-    func add(role: ClipRole, name: String = "", fileName: String, shotAt: Date?, assetID: String?, partnerID: UUID? = nil) -> Clip {
-        var clip = Clip(role: role, name: name, shotAt: shotAt, assetID: assetID,
+    func add(role: ClipRole, name: String = "", fileName: String, shotAt: Date?, assetID: String?, partnerID: UUID? = nil, registered: Bool = true) -> Clip {
+        var clip = Clip(role: role, name: name, shotAt: shotAt, assetID: assetID, isRegistered: registered,
                         video: .placeholder(fileName: fileName), analysis: .pending)
         if let twin = existingClip(assetID: assetID), twin.isAnalyzed {
             clip.video = twin.video

@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// 「動画を選ぶ」の「お手本」タブ：登録済みのお手本と ★ ベスト（★ の付いたスイング）のカード。
-/// タップでそのまま使う（再解析なし）。カードの「…」で名前の変更・削除（お手本）、★ から外す（ベスト）。新しいお手本は「動画」タブから
+/// 「動画を選ぶ」の「お手本」タブ：登録済みのお手本と ★ お気に入り（★ の付いたスイング）のカード。
+/// タップでそのまま使う（再解析なし）。カードの「…」で名前の変更・削除（お手本）、★ から外す（お気に入り）。新しいお手本は「動画」タブから
 struct ModelShelfView: View {
     @EnvironmentObject private var store: ClipStore
     /// 右ペインにいま入っているクリップ（「いま右に」と示す）
@@ -16,7 +16,7 @@ struct ModelShelfView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if store.models.isEmpty && store.bests.isEmpty {
+                if store.models.isEmpty && store.favorites.isEmpty {
                     Text("お手本はまだありません。「動画」タブから選ぶと、名前を付けてここに並びます。スイングに ★ を付けても並びます。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -27,10 +27,10 @@ struct ModelShelfView: View {
                         .font(.headline)
                     grid(store.models)
                 }
-                if !store.bests.isEmpty {
-                    Text("★ ベスト")
+                if !store.favorites.isEmpty {
+                    Text("★ お気に入り")
                         .font(.headline)
-                    grid(store.bests)
+                    grid(store.favorites)
                 }
             }
             .padding(20)
@@ -58,7 +58,7 @@ struct ModelShelfView: View {
                         Button("名前を変更", systemImage: "pencil") { renaming = clip }
                         Button("削除", systemImage: "trash", role: .destructive) { deleting = clip }
                     } else {
-                        Button("★ ベストから外す", systemImage: "star.slash") { store.setFavorite(clip.id, false) }
+                        Button("★ お気に入りから外す", systemImage: "star.slash") { store.setFavorite(clip.id, false) }
                     }
                 }
             }

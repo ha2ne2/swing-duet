@@ -38,12 +38,12 @@ SwingDuet/
 │   └── PlaybackController.swift  # CADisplayLink マスタークロック + 区間別レート再生（§4）
 └── Views/                        # 画面ごとのフォルダ
     ├── Home/
-    │   └── SwingListView.swift   # ホーム（起動画面）。スイングの一覧（★ ベスト / 撮影日ごと）、＋、選択モード、元に戻す
+    │   └── SwingListView.swift   # ホーム（起動画面）。スイングの一覧（★ お気に入り / 撮影日ごと）、＋、選択モード、元に戻す
     ├── Stage/
     │   ├── StageView.swift       # ステージ。左のスイングと相手（右）。両方の解析が済めば ComparisonView、それまでは解析中 / お手本なし / 失敗の表示
     │   ├── ComparisonView.swift  # 比較（ペイン 2 つ + 操作パネル）。左右の編集をクリップに保存し、同期設定を controller に反映
     │   ├── VideoPaneView.swift   # 動画ペイン（自動フィット・拡大縮小・位置合わせ。下端中央にフェーズ調整）
-    │   ├── PaneHeader.swift      # ペイン上端の名前と「替える」（比較前の SlotPane と共通）。動画に重ねるカプセル paneChip
+    │   ├── PaneSwapButton.swift  # ペイン右上の「替える」（比較前の SlotPane と共通）。動画に重ねるカプセル paneChip
     │   ├── ControlPanelView.swift # 操作パネル（基準切替 + シークバー + 再生操作）。比較前のステージにも飾りとして出す
     │   ├── SeekBarView.swift     # 区間色分けの共通シークバー
     │   ├── TransportControlsView.swift # フェーズジャンプ / ジョグホイール / 速度 / ループ
@@ -54,7 +54,7 @@ SwingDuet/
     │   ├── VideoPickerSheet.swift # 動画を選ぶシート（「動画」「お手本」の 2 タブ。押した側のペインに入る）。お手本に名前を付けるステップ
     │   ├── LibraryGridView.swift # 「動画」タブ：写真ライブラリの動画のグリッド（権限の 3 状態、限定アクセス、拒否時の OS ピッカー）
     │   ├── LibraryPreviewView.swift # 選んだ動画のプレビュー（原本を等速で繰り返し再生、下端の進捗バーでシーク）
-    │   ├── ModelShelfView.swift  # 「お手本」タブ：登録済みお手本と ★ ベストのカード（「…」で名前の変更・削除・★ から外す）
+    │   ├── ModelShelfView.swift  # 「お手本」タブ：登録済みお手本と ★ お気に入りのカード（「…」で名前の変更・削除・★ から外す）
     │   └── AssetThumbnail.swift  # 写真ライブラリの動画のサムネイル（PhotoKit）
     └── Shared/
         ├── VideoThumbnail.swift  # 動画ファイルの 1 コマを非同期に描くサムネイル
@@ -90,7 +90,7 @@ JSON のどこからも参照されなくなったファイルを起動時に `C
 1 本ずつ行い（`VideoImporter.stripAudioTrack` → `SwingAnalyzer.analyze`。理由は §4）、途中で終了しても次回起動時に `pending` のものから再開する。
 
 **ステージ**（`StageView`）は左のクリップ 1 本と、`ClipStore.partner(of:)` で解決した相手（最後に比べた相手 → いつものお手本 → 無し）を持ち、
-両方の解析が済めば `ComparisonView`、それまでは解析中・お手本なし（右が ⊕）・失敗の表示。ペイン上端の「替える」（`PaneHeader`）から「動画を選ぶ」シートを
+両方の解析が済めば `ComparisonView`、それまでは解析中・お手本なし（右が ⊕）・失敗の表示。ペイン右上の「替える」（`PaneSwapButton`）から「動画を選ぶ」シートを
 開き（左は「動画」タブ、右は「お手本」タブで始まる）、左に新しい動画を入れると新しいスイング（相手は引き継ぐ）、右に入れると相手が替わる。
 
 ## 3. 同期の仕組み（SyncEngine）

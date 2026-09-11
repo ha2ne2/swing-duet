@@ -1,16 +1,14 @@
 import SwiftUI
 
 /// ステージ：左のスイング 1 本と、その相手（右のお手本）。両方の解析が済んでいれば比較（`ComparisonView`）、
-/// そうでなければ待ちの状態（解析中・お手本なし・失敗）を出す。
-/// 左右どちらのラベルからも「動画を選ぶ」シートを開く（左は「動画」タブ、右は「お手本」タブで始まる）
+/// そうでなければ待ちの状態（解析中・お手本なし・失敗）を出す。ツールバーは ★ だけ（名前・削除・再解析は一覧の「…」から）。
+/// 左右どちらの「替える」からも「動画を選ぶ」シートを開く（左は「動画」タブ、右は「お手本」タブで始まる）
 struct StageView: View {
     @EnvironmentObject private var store: ClipStore
-    @Environment(\.dismiss) private var dismiss
 
     /// いま左に入っているクリップ。左を選び直すとここが替わる（一覧に戻れば新しい行がある）
     @State private var currentID: UUID
     @State private var picking: VideoSide?
-    @State private var renaming: Clip?
     @State private var errorMessage: String?
 
     init(swingID: UUID) {
@@ -40,9 +38,8 @@ struct StageView: View {
         .navigationTitle(clip?.displayName ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItem(placement: .topBarTrailing) {
                 favoriteButton
-                menu
             }
         }
         .sheet(item: $picking) { side in
@@ -55,7 +52,6 @@ struct StageView: View {
             }
             .environmentObject(store)
         }
-        .renameAlert($renaming)
         .errorAlert($errorMessage)
     }
 
@@ -69,33 +65,14 @@ struct StageView: View {
                 .symbolEffect(.bounce, value: isFavorite)
         }
         .disabled(clip?.isAnalyzed != true)
-        .accessibilityLabel("★ ベスト")
+        .accessibilityLabel("★ お気に入り")
         .accessibilityValue(isFavorite ? "オン" : "オフ")
         .accessibilityIdentifier("stage.favorite")
     }
 
-    private var menu: some View {
-        Menu {
-            if case .failed = clip?.analysis {
-                Button("もう一度解析", systemImage: "arrow.clockwise") { store.retryAnalysis(currentID) }
-            } else {
-                Button("名前を付ける", systemImage: "pencil") { renaming = clip }
-            }
-            Button("削除", systemImage: "trash", role: .destructive) {
-                store.delete([currentID])
-                dismiss()
-            }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-        }
-        .disabled(clip == nil)
-        .accessibilityLabel("その他")
-        .accessibilityIdentifier("stage.menu")
-    }
-
     /// ピッカーで選んだ動画をその側に入れる。
     /// 左：ライブラリの動画なら新しいスイング（相手は引き継ぐ）、既存のクリップならそれを開く。
-    /// 右：ライブラリの動画なら名前付きの新しいお手本、既存のクリップならそれを相手にする
+    /// 右：ライブラリの動画なら新しいお手本（名前があれば棚に登録、無ければこの比較にだけ使う）、既存のクリップならそれを相手にする
     private func handle(_ picked: PickedVideo, into side: VideoSide) {
         switch picked {
         case .existing(let chosen):
@@ -104,7 +81,7 @@ struct StageView: View {
             } else {
                 store.setPartner(of: currentID, to: chosen.id)
             }
-        case .library(let source, let name):
+        case .library(let source, let modelName):
             let partnerID = partner?.id
             Task {
                 do {
@@ -112,7 +89,7 @@ struct StageView: View {
                         let swing = try await store.obtain(role: .swing, source: source, partnerID: partnerID)
                         currentID = swing.id
                     } else {
-                        let model = try await store.obtain(role: .model, name: name ?? "", source: source)
+                        let model = try await store.obtain(role: .model, name: modelName ?? "", source: source, registered: modelName != nil)
                         store.setPartner(of: currentID, to: model.id)
                     }
                 } catch {
@@ -146,7 +123,7 @@ private struct SetupStageView: View {
     }
 }
 
-/// 1 つのペイン（空・解析待ち・解析中・失敗・準備済み）。上端の名前と「替える」は比較画面と同じ `PaneHeader`
+/// 1 つのペイン（空・解析待ち・解析中・失敗・準備済み）。右上の「替える」は比較画面と同じ `PaneSwapButton`
 private struct SlotPane: View {
     @EnvironmentObject private var store: ClipStore
     let side: VideoSide
@@ -177,9 +154,9 @@ private struct SlotPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)   // 左右のペインは常に同じ幅
-        .overlay(alignment: .top) {
+        .overlay(alignment: .topTrailing) {
             if let clip {
-                PaneHeader(side: side, title: clip.paneTitle, onSwap: onTap)
+                PaneSwapButton(side: side, title: clip.paneTitle, onSwap: onTap)
             }
         }
     }
@@ -211,7 +188,7 @@ private struct SlotPane: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                Text("右上のメニューからやり直すか、削除できます")
+                Text("一覧の「…」からやり直すか、削除できます")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

@@ -9,7 +9,7 @@ struct ComparisonView: View {
     @EnvironmentObject private var store: ClipStore
     let left: Clip
     let right: Clip
-    /// ペイン上端の「替える」をタップしたとき（その側の動画を選び直す）
+    /// ペイン右上の「替える」をタップしたとき（その側の動画を選び直す）
     let onSelectVideo: (VideoSide) -> Void
 
     @State private var controller: PlaybackController?
@@ -83,7 +83,7 @@ private struct ComparisonContent: View {
             updateSync()
         }
         .onChange(of: model) { _, newValue in
-            // 相手には解析結果だけを写し、位置合わせは pairing に持つ（相手が ★ ベストのスイングなら、そのスイング自身の位置合わせを壊さない）
+            // 相手には解析結果だけを写し、位置合わせは pairing に持つ（相手が ★ お気に入りのスイングなら、そのスイング自身の位置合わせを壊さない）
             var partner = right
             partner.video.phases = newValue.phases
             partner.video.candidates = newValue.candidates

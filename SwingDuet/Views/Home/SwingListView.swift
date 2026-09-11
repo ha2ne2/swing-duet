@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 起動画面：自分のスイングの一覧（★ ベストの節と、撮影日ごとの節）。行をタップするとステージ（`StageView`）。
+/// 起動画面：自分のスイングの一覧（★ お気に入りの節と、撮影日ごとの節）。行をタップするとステージ（`StageView`）。
 /// 下端の「＋ スイングを追加」で写真ライブラリから 1 本選ぶ。「選択」でまとめて ★ / 削除。削除は即時で、下端の「元に戻す」で戻せる
 struct SwingListView: View {
     @EnvironmentObject private var store: ClipStore
@@ -14,7 +14,7 @@ struct SwingListView: View {
 
     private var isEditing: Bool { editMode.isEditing }
 
-    /// 撮影日ごとの節（★ ベストは別の節に出すので除く）。新しい日から
+    /// 撮影日ごとの節（★ お気に入りは別の節に出すので除く）。新しい日から
     private var days: [(day: Date, items: [Clip])] {
         store.swings.filter { !$0.isFavorite }.groupedByDay(\.sortDate)
     }
@@ -70,9 +70,9 @@ struct SwingListView: View {
     private var list: some View {
         // NOTE: 複数選択の binding を常に渡すと、iPhone では行のタップが選択に取られて NavigationLink が押せなくなる。選択モードのときだけ渡す
         List(selection: isEditing ? $selection : nil) {
-            if !store.bests.isEmpty {
-                Section("★ ベスト") {
-                    ForEach(store.bests) { clip in
+            if !store.favorites.isEmpty {
+                Section("★ お気に入り") {
+                    ForEach(store.favorites) { clip in
                         row(clip, showsDate: true)
                     }
                 }
@@ -95,11 +95,11 @@ struct SwingListView: View {
     }
 
     private func row(_ clip: Clip, showsDate: Bool) -> some View {
-        NavigationLink(value: clip.id) {
-            SwingRow(clip: clip, showsDate: showsDate, isEditing: isEditing) {
-                renaming = clip
-            }
+        SwingRow(clip: clip, showsDate: showsDate, isEditing: isEditing) {
+            renaming = clip
         }
+        // NOTE: NavigationLink を行の中身にすると右端に > が付く。透明な NavigationLink を背景に敷けば、行全体のタップで遷移しつつ > は出ない
+        .background(NavigationLink(value: clip.id) { EmptyView() }.opacity(0))
         .accessibilityIdentifier("swing.\(clip.id.uuidString)")
     }
 
@@ -132,7 +132,7 @@ struct SwingListView: View {
         let selected = store.swings.filter { selection.contains($0.id) }
         let allFavorite = !selected.isEmpty && selected.allSatisfy(\.isFavorite)
         return HStack {
-            Button(allFavorite ? "★ ベストから外す" : "★ ベストに入れる") {
+            Button(allFavorite ? "★ お気に入りから外す" : "★ お気に入りに追加") {
                 for clip in selected { store.setFavorite(clip.id, !allFavorite) }
                 endEditing()
             }
@@ -174,7 +174,7 @@ struct SwingListView: View {
 private struct SwingRow: View {
     @EnvironmentObject private var store: ClipStore
     let clip: Clip
-    /// ★ ベストの節では日付も出す（日付の節では時刻だけ）
+    /// ★ お気に入りの節では日付も出す（日付の節では時刻だけ）
     let showsDate: Bool
     let isEditing: Bool
     let onRename: () -> Void
@@ -217,15 +217,12 @@ private struct SwingRow: View {
                         .frame(width: 44, height: 44)
                 }
                 .disabled(!clip.isAnalyzed)
-                .accessibilityLabel("★ ベスト")
+                .accessibilityLabel("★ お気に入り")
                 .accessibilityValue(clip.isFavorite ? "オン" : "オフ")
                 Menu {
                     if case .failed = clip.analysis {
                         Button("もう一度解析", systemImage: "arrow.clockwise") { store.retryAnalysis(clip.id) }
                     } else {
-                        Button(clip.isFavorite ? "★ ベストから外す" : "★ ベストに入れる", systemImage: "star") {
-                            store.setFavorite(clip.id, !clip.isFavorite)
-                        }
                         Button("名前を付ける", systemImage: "pencil", action: onRename)
                     }
                     Button("削除", systemImage: "trash", role: .destructive) { store.delete([clip.id]) }

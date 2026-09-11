@@ -153,6 +153,19 @@ struct ClipStoreTests {
         #expect(store.existingClip(assetID: "asset-1")?.id == first.id)
     }
 
+    @Test func unregisteredModelsAreHiddenFromTheShelfAndRemovedOnceNoSwingUsesThem() {
+        let store = makeStore()
+        let hidden = store.add(role: .model, fileName: "h.mov", shotAt: nil, assetID: nil, registered: false)
+        let shown = store.add(role: .model, name: "A", fileName: "a.mov", shotAt: nil, assetID: nil)
+        #expect(store.models.map(\.id) == [shown.id])
+        let swing = store.add(role: .swing, fileName: "s.mov", shotAt: nil, assetID: nil, partnerID: hidden.id)
+        #expect(makeStore().clip(id: hidden.id) != nil)   // 相手にしているスイングがある間は残る
+
+        store.delete([swing.id])
+        #expect(makeStore().clip(id: hidden.id) == nil)   // 次の起動で消える
+        #expect(makeStore().clip(id: shown.id) != nil)    // 登録済みは残る
+    }
+
     // MARK: - 相手の解決
 
     @Test func partnerFallsBackToTheUsualModelAndNeverToItself() {
@@ -175,7 +188,7 @@ struct ClipStoreTests {
         store.setPartner(of: swing2.id, to: modelB.id)
         #expect(store.partner(of: store.clip(id: swing1.id)!)?.id == modelB.id)
 
-        // ★ ベストを相手にしたスイングがあっても、そのベスト自身の相手はベスト自身にならない
+        // ★ お気に入りを相手にしたスイングがあっても、そのお気に入り自身の相手は自分自身にならない
         store.setFavorite(swing1.id, true)
         let swing3 = store.add(role: .swing, fileName: "s3.mov", shotAt: nil, assetID: nil, partnerID: swing1.id)
         #expect(swing3.pairing?.partnerID == swing1.id)

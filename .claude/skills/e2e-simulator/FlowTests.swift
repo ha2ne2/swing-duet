@@ -145,7 +145,7 @@ final class FlowTests: XCTestCase {
         log("TAP use (\(what))")
     }
 
-    /// ステージでペインの「動画を選ぶ」を開く。右が空なら ⊕ を、そうでなければ上端の「替える」を押す
+    /// ステージでペインの「動画を選ぶ」を開く。右が空なら ⊕ を、そうでなければ右上の「替える」を押す
     private func openPicker(side: String) {
         if side == "model" {
             let add = app.buttons["slot.model.add"]
@@ -158,7 +158,7 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(tapIfExists(app.buttons["pane.\(side).swap"], "swap (\(side))", timeout: 5))
     }
 
-    /// ペイン上端の名前（クリップの表示名。「替える」ボタンの value）。無ければ空文字
+    /// ペインに入っているクリップの表示名（「替える」ボタンの value。画面には出ない）。無ければ空文字
     private func paneTitle(side: String) -> String {
         app.buttons["pane.\(side).swap"].value as? String ?? ""
     }
@@ -213,7 +213,7 @@ final class FlowTests: XCTestCase {
             log("typed model name: \(field.value ?? "nil")")
         }
         shot("name_step")
-        XCTAssertTrue(tapIfExists(app.buttons["この名前で使う"], "confirm name", timeout: 3))
+        XCTAssertTrue(tapIfExists(app.buttons["お手本に追加"], "confirm name", timeout: 3))
         waitForSheetToClose("動画を選ぶ")
         waitForAnalysis(side: "model")
         return waitForComparison()
@@ -338,16 +338,16 @@ final class FlowTests: XCTestCase {
         usleep(500_000)
         shot("comparison_end")
 
-        // ★ ベスト（ステージのツールバー）
+        // ★ お気に入り（ステージのツールバー）
         if tapIfExists(app.buttons["stage.favorite"], "favorite on", timeout: 3) {
             usleep(500_000)
             log("favorite value: \(app.buttons["stage.favorite"].value ?? "nil")")
             XCTAssertEqual(app.buttons["stage.favorite"].value as? String, "オン", "★ が付かない")
         }
 
-        // 一覧に戻って開き直す（★ ベストの節に並ぶ）
+        // 一覧に戻って開き直す（★ お気に入りの節に並ぶ）
         goHome()
-        XCTAssertTrue(app.staticTexts["★ ベスト"].waitForExistence(timeout: 5), "★ ベストの節が無い; texts=\(texts())")
+        XCTAssertTrue(app.staticTexts["★ お気に入り"].waitForExistence(timeout: 5), "★ お気に入りの節が無い; texts=\(texts())")
         XCTAssertTrue(openFirstSwing())
 
         // 再起動 → ホームに行が残っている → 開き直す

@@ -88,6 +88,16 @@ enum LibrarySource: Hashable {
     case asset(PHAsset)
     /// OS のピッカーが渡した一時ファイル（権限なし。スローモーション動画は 30fps のレンダリング版）
     case file(URL)
+
+    /// 撮影日時（写真ライブラリのメタデータ。OS のピッカー経由なら動画ファイルのメタデータ）。無ければ nil
+    var creationDate: Date? {
+        get async {
+            switch self {
+            case .asset(let asset): return asset.creationDate
+            case .file(let url): return await VideoImporter.creationDate(of: url)
+            }
+        }
+    }
 }
 
 extension PHAsset {

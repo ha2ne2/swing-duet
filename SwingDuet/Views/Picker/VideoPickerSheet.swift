@@ -2,20 +2,21 @@ import SwiftUI
 
 /// ピッカーで選ばれた動画（`VideoPickerSheet` の結果）
 enum PickedVideo {
-    /// 既にあるクリップ（登録済みお手本か ★ ベスト）
+    /// 既にあるクリップ（登録済みお手本か ★ お気に入り）
     case existing(Clip)
-    /// ライブラリの動画。右ペインに入れるときは名前を付ける（左では name は nil）
-    case library(LibrarySource, name: String?)
+    /// ライブラリの動画。`modelName` は右ペインに入れるときの名前（空なら撮影日時が表示名になる。nil なら棚に加えない。左では常に nil）
+    case library(LibrarySource, modelName: String?)
 }
 
 /// ペインに入れる動画を選ぶシート。上に「動画」「お手本」の 2 タブがあり、どちらから選んでも `destination` の側に入る。
-/// 左の＋からは「動画」タブ、右の＋からは「お手本」タブで開く。「動画」タブはセルをタップ → プレビュー → 使う（右ならさらに名前を付ける）
+/// 左の＋からは「動画」タブ、右の＋からは「お手本」タブで開く。「動画」タブはセルをタップ → プレビュー → 使う
+/// （右ならさらに名前を付けて棚に加えるか、「今回だけ使う」で加えずに使う）
 struct VideoPickerSheet: View {
     /// 上の 2 タブ
     enum Tab: Hashable {
         /// 写真ライブラリの動画（1 本選んでプレビュー → 使う）
         case library
-        /// 登録済みのお手本と ★ ベスト（そのまま使う）
+        /// 登録済みのお手本と ★ お気に入り（そのまま使う）
         case models
     }
 
@@ -84,12 +85,14 @@ struct VideoPickerSheet: View {
                         if destination == .model {
                             steps.append(.naming(source))
                         } else {
-                            finish(.library(source, name: nil))
+                            finish(.library(source, modelName: nil))
                         }
                     }
                 case .naming(let source):
                     NewModelNameStep(source: source) { name in
-                        finish(.library(source, name: name))
+                        finish(.library(source, modelName: name))
+                    } onSkip: {
+                        finish(.library(source, modelName: nil))
                     }
                 }
             }
@@ -106,49 +109,64 @@ struct VideoPickerSheet: View {
     }
 }
 
-/// ライブラリから選んだお手本に名前を付けるステップ
+/// ライブラリから選んだお手本に名前を付けて棚に加えるステップ。「今回だけ使う」なら棚には加えず、この比較にだけ使う
 private struct NewModelNameStep: View {
     let source: LibrarySource
     let onConfirm: (String) -> Void
+    let onSkip: () -> Void
 
     @State private var name = ""
+    /// 名前を空のまま確定したときの表示名（撮影日時。`Clip.displayName` と同じ）。プレースホルダーとして見せる
+    @State private var fallbackName = ""
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(spacing: 20) {
-            SourceThumbnail(source: source)
-                .frame(width: 140, height: 186)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .padding(.top, 12)
-            TextField("名前（例: マキロイ・アイアン・正面）", text: $name)
-                .textFieldStyle(.roundedBorder)
-                .focused($focused)
-                .submitLabel(.done)
-                .onSubmit(confirm)
-                .accessibilityIdentifier("modelName")
-            Text("次回から「お手本」タブに並びます。名前が空なら日時を付けます。")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)   // キーボードで縦が詰まっても 1 行に潰さない
-            Button(action: confirm) {
-                Text("この名前で使う")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 54)
+        // NOTE: 決定のボタンはスクロールする中身の末尾に置かず、下端に固定する。キーボードは safe area に含まれるので、
+        //       ボタンはキーボードの上に乗ったまま押せる。中身（サムネイル・入力欄）はキーボードの分だけ縮んでスクロールする
+        ScrollView {
+            VStack(spacing: 20) {
+                SourceThumbnail(source: source)
+                    .frame(width: 120, height: 160)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .padding(.top, 12)
+                TextField(fallbackName, text: $name)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focused)
+                    .submitLabel(.done)
+                    .onSubmit(confirm)
+                    .accessibilityLabel("名前")
+                    .accessibilityIdentifier("modelName")
             }
-            .buttonStyle(.borderedProminent)
-            Spacer()
+            .padding(.horizontal, 20)
         }
-        .padding(.horizontal, 20)
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom) {
+            VStack(spacing: 4) {
+                Button(action: confirm) {
+                    Text("お手本に追加")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                Button("今回だけ使う", action: onSkip)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .accessibilityIdentifier("modelName.skip")
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .background(.bar)
+        }
         .navigationTitle("新しいお手本")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { focused = true }
+        .task {
+            focused = true
+            fallbackName = (await source.creationDate ?? Date()).compactLabel
+        }
     }
 
     private func confirm() {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        onConfirm(trimmed.isEmpty ? "お手本 \(Date().compactLabel)" : trimmed)
+        onConfirm(name.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
 
@@ -159,9 +177,9 @@ private struct SourceThumbnail: View {
     var body: some View {
         switch source {
         case .asset(let asset):
-            AssetThumbnail(asset: asset, targetSize: CGSize(width: 140, height: 186))
+            AssetThumbnail(asset: asset, targetSize: CGSize(width: 120, height: 160))
         case .file(let url):
-            VideoThumbnail(url: url, time: 0.5, aspect: 140 / 186)
+            VideoThumbnail(url: url, time: 0.5, aspect: 120 / 160)
         }
     }
 }

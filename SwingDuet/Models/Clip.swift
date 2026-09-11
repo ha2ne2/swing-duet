@@ -45,8 +45,11 @@ struct Clip: Codable, Identifiable, Equatable {
     /// 写真ライブラリでの識別子（`PHAsset.localIdentifier`）。同じ動画を取り込み直したときにファイルと解析結果を共有するために持つ。
     /// OS のピッカーから取り込んだ動画には無い
     var assetID: String? = nil
-    /// ★ ベスト（スイングだけ。お手本の棚にも「★ ベスト」として並ぶ）
+    /// ★ お気に入り（スイングだけ。お手本の棚にも「★ お気に入り」として並ぶ）
     var isFavorite: Bool = false
+    /// お手本の棚（「お手本」タブ）に並べるか。「今回だけ使う」で右に入れた動画は false で、
+    /// 相手にしているスイングが無くなれば次回起動時に消える（スイングでは常に true）
+    var isRegistered: Bool = true
     /// 動画の情報・解析結果・表示変換。解析が終わるまでは `VideoConfig.placeholder` の値
     var video: VideoConfig
     var analysis: AnalysisState = .done
@@ -61,7 +64,7 @@ struct Clip: Codable, Identifiable, Equatable {
     /// 表示する題。名前が無ければ日時（「9/10 14:32」）
     var displayName: String { name.isEmpty ? sortDate.compactLabel : name }
 
-    /// ペイン上端に出す題。焼き込みスローなら倍率も（「マキロイ · 1/8」）
+    /// 表示名に倍率を添えたもの（「マキロイ · 1/8」。焼き込みスローでなければ表示名だけ）。ペインの「替える」の VoiceOver の値に使う
     var paneTitle: String {
         let factor = video.effectiveSlowFactor
         return factor == 1 ? displayName : "\(displayName) · \(SlowFactor.label(factor))"
@@ -83,6 +86,28 @@ struct Clip: Codable, Identifiable, Equatable {
         config.offsetX = transform?.offsetX ?? 0
         config.offsetY = transform?.offsetY ?? 0
         return config
+    }
+}
+
+extension Clip {
+    private enum CodingKeys: String, CodingKey {
+        case id, role, name, createdAt, shotAt, assetID, isFavorite, isRegistered, video, analysis, pairing
+    }
+
+    /// 後から追加したキー（isRegistered）が無い保存データも読めるようにする
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        role = try c.decode(ClipRole.self, forKey: .role)
+        name = try c.decode(String.self, forKey: .name)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        shotAt = try c.decodeIfPresent(Date.self, forKey: .shotAt)
+        assetID = try c.decodeIfPresent(String.self, forKey: .assetID)
+        isFavorite = try c.decode(Bool.self, forKey: .isFavorite)
+        isRegistered = try c.decodeIfPresent(Bool.self, forKey: .isRegistered) ?? true
+        video = try c.decode(VideoConfig.self, forKey: .video)
+        analysis = try c.decode(AnalysisState.self, forKey: .analysis)
+        pairing = try c.decodeIfPresent(Pairing.self, forKey: .pairing)
     }
 }
 
