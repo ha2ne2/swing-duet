@@ -39,7 +39,7 @@ final class PlaybackController: NSObject {
     static let speedPresets: [Double] = [0.1, 0.2, 0.3, 0.5, 1.0]
     /// 実時刻と期待時刻のずれがこれ（実秒）を超えたらシークで補正する。動画秒で比べるときは rate を掛ける
     private static let driftThreshold = 0.08
-    /// 再生中のシーク（スクラブ・ドリフト補正）の許容幅。ゼロにすると精密シークになり、コマ単位の復号で重くなる
+    /// スクラブとドリフト補正のシークの許容幅。許容ゼロの精密シークは止まった位置のコマを出すときだけ使う（コマ単位の復号で重い）
     private static let seekTolerance = CMTime(seconds: 0.02, preferredTimescale: 6000)
 
     /// 動画を持たない不活性なコントローラ。比較前のステージで、比較画面と同じ操作パネルを飾りとして出すのに使う
@@ -70,18 +70,18 @@ final class PlaybackController: NSObject {
     // 再生機構の内部状態。View は読まないので観測対象から外す
     @ObservationIgnored private var displayLink: CADisplayLink?
     @ObservationIgnored private var lastTimestamp: CFTimeInterval?
-    /// 直前の tick の区間。変わった tick でだけレートを設定し直す
-    @ObservationIgnored private var currentSegment: SwingSegment?
+    /// いまのレートが前提にしている区間（`applyRates` で更新）。再生中に区間が変わった tick でだけレートを設定し直す
+    @ObservationIgnored private var ratedSegment: SwingSegment?
     /// スクラブ・つまみのドラッグを始めたとき再生中だった（離したら再開する）
     @ObservationIgnored private var wasPlayingBeforeDrag = false
     /// 側ごとの実行中のシーク数（`seek` で増やし、完了ハンドラで減らす）。0 でない側はドリフト補正しない
-    @ObservationIgnored private var pendingSeeks: [VideoSide: Int] = [:]
-    /// シーク中に時計が動かされた。いまのシークが終わったら最新の位置へシークし直す（`show` 参照）
-    @ObservationIgnored private var seekRequested = false
+    @ObservationIgnored private var activeSeeks: [VideoSide: Int] = [:]
+    /// シーク中に時計が動かされた（`show`）。値はその要求が精密シークかどうか。いまのシークが終わったら最新の位置へ 1 回だけシークし直す
+    @ObservationIgnored private var pendingSeek: Bool?
 
     /// どちらかの側でシークが終わっていない
     private var isSeeking: Bool {
-        pendingSeeks.values.contains { $0 > 0 }
+        activeSeeks.values.contains { $0 > 0 }
     }
 
     convenience init(mineURL: URL, modelURL: URL, sync: SyncEngine) {
@@ -166,7 +166,6 @@ final class PlaybackController: NSObject {
     /// 共通時刻を動かして両プレーヤーを精密シークする。再生中なら区間に応じたレートも設定し直す
     private func move(to time: Double) {
         commonTime = time
-        currentSegment = sync.segment(at: time)
         hardSeek()
         if isPlaying { applyRates() }
     }
@@ -186,18 +185,20 @@ final class PlaybackController: NSObject {
         show(clampedToLoop(commonTime + sync.referenceFrameDuration * Double(frames)))
     }
 
-    /// 時計を time に置いてプレーヤーを精密シークする（ジョグホイール・つまみのドラッグ用）。
+    /// 時計を time に置いてプレーヤーをシークする（ジョグホイール・シークバー・つまみのドラッグ用）。`precise` は許容ゼロ。
     ///
-    /// 時計（`commonTime`）はすぐ動かすが、プレーヤーのシークは前のシークが終わってから最新の位置へ 1 回だけ行う。
-    /// ジョグホイールを速く回すとコマ送りがシークより速く来る。構わず重ねると後のシークが前のシークを取り消し続け、
-    /// 回している間ずっと画面が更新されなくなる
-    private func show(_ time: Double) {
+    /// 時計（`commonTime`）はすぐ動かすが、プレーヤーのシークは前のシークが終わってから最新の位置へ 1 回だけ行う（精度は最後の要求のもの）。
+    /// ジョグを速く回す・シークバーを速くなぞると、移動がシークより速く来る。後ろへのシークは手前のキーフレームから復号し直すので
+    /// 1 回に数十 ms かかり（YouTube 由来のお手本や 240fps の原本はキーフレーム間隔が 120〜235 フレーム）、構わず重ねると
+    /// `AVPlayer` は後のシークで前のシークを取り消して復号をやり直し続け、動かしている間ずっと画面が更新されなくなる
+    /// （docs/research/260912_0249-seekbar-backward-scrub-stutter.md）。時計は先に動いているので取りこぼしはなく、
+    /// 待たせた分は追いつくときに最新の位置へ飛ぶ
+    private func show(_ time: Double, precise: Bool = true) {
         commonTime = time
-        currentSegment = sync.segment(at: time)
         if isSeeking {
-            seekRequested = true
+            pendingSeek = precise
         } else {
-            hardSeek()
+            seekBoth(precise: precise)
         }
     }
 
@@ -240,8 +241,7 @@ final class PlaybackController: NSObject {
     }
 
     func scrub(to time: Double) {
-        commonTime = min(max(time, 0), sync.commonDuration)
-        seekBoth(precise: false)
+        show(min(max(time, 0), sync.commonDuration), precise: false)
     }
 
     func endScrub() {
@@ -288,18 +288,16 @@ final class PlaybackController: NSObject {
             return
         }
 
-        let segment = sync.segment(at: commonTime)
-        if segment != currentSegment {
-            currentSegment = segment
-            applyRates()
-        }
+        if sync.segment(at: commonTime) != ratedSegment { applyRates() }
         correctDrift()
     }
 
     // MARK: - プレーヤー制御
 
+    /// 現在の区間と再生速度から両プレーヤーのレートを設定する
     private func applyRates() {
         let segment = sync.segment(at: commonTime)
+        ratedSegment = segment
         for side in VideoSide.allCases {
             player(for: side).rate = Float(speed * sync.rateMultiplier(for: side, in: segment))
         }
@@ -309,7 +307,7 @@ final class PlaybackController: NSObject {
     /// そのシークがまた時計を止め、シークが連鎖して映像が止まっては飛ぶ。
     /// 閾値は実秒で揃える：`currentTime` の揺れは実秒でほぼ一定なので、rate 8（1/8 のスローを x1）では動画秒で 8 倍に見える
     private func correctDrift() {
-        for side in VideoSide.allCases where pendingSeeks[side, default: 0] == 0 {
+        for side in VideoSide.allCases where activeSeeks[side, default: 0] == 0 {
             let player = player(for: side)
             let expected = sync.videoTime(at: commonTime, for: side)
             let actual = player.currentTime().seconds
@@ -319,10 +317,10 @@ final class PlaybackController: NSObject {
         }
     }
 
-    /// 許容ゼロの精密シーク。止まった位置を正確に出したいとき（一時停止・ジャンプ・コマ送り・ループ復帰など）。
-    /// いまの位置へシークするので、シーク中に来たコマ送りのまとめ待ちもこれで満たされる
+    /// 許容ゼロの精密シーク。止まった位置を正確に出したいとき（一時停止・ジャンプ・ループ復帰・スクラブ終了など）。
+    /// `show` と違って待たずにすぐ出す（走っているシークは取り消される）。いまの位置へ精密に行くので、待たせている移動の要求もこれで満たされる
     private func hardSeek() {
-        seekRequested = false
+        pendingSeek = nil
         seekBoth(precise: true)
     }
 
@@ -334,7 +332,7 @@ final class PlaybackController: NSObject {
     }
 
     private func seek(_ side: VideoSide, to seconds: Double, tolerance: CMTime) {
-        pendingSeeks[side, default: 0] += 1
+        activeSeeks[side, default: 0] += 1
         player(for: side).seek(
             to: CMTime(seconds: seconds, preferredTimescale: 6000),
             toleranceBefore: tolerance, toleranceAfter: tolerance
@@ -345,9 +343,12 @@ final class PlaybackController: NSObject {
     }
 
     private func seekCompleted(_ side: VideoSide) {
-        pendingSeeks[side, default: 0] -= 1
-        // シーク中に来たコマ送りの分をまとめて 1 回で追いつく
-        if seekRequested, !isSeeking { hardSeek() }
+        activeSeeks[side, default: 0] -= 1
+        // シーク中に来た移動の分をまとめて 1 回で追いつく
+        if let precise = pendingSeek, !isSeeking {
+            pendingSeek = nil
+            seekBoth(precise: precise)
+        }
     }
 
     deinit {
