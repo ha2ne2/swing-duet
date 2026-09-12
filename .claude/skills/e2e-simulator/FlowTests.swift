@@ -487,7 +487,7 @@ final class FlowTests: XCTestCase {
         shot("zoom_pan_relaunched")
     }
 
-    /// ループ範囲のつまみ：区間を選ぶとつまみが出て、ドラッグで端がコマ単位に動き、離しても位置が保たれること。
+    /// ループ範囲のつまみ：区間を選ぶとつまみが区間の両端に来て、ドラッグで端がコマ単位に動き、離しても位置が保たれること。
     /// つまみは `accessibilityValue` にフェーズからのコマ数（「トップ」「トップ −3 コマ」）を持つ
     func testLoopTrimHandles() throws {
         app.launch()

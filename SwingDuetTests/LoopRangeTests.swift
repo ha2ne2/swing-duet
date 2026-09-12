@@ -37,6 +37,18 @@ struct LoopRangeTests {
         #expect(near(sync.commonTime(of: LoopEdge(phase: .finish, frames: 5)), 1.7))
     }
 
+    /// スイング全体（既定の範囲）は共通タイムラインの全部で、区間ではない。端を動かすと最寄りのフェーズからのコマ数になる
+    @Test func allRangeCoversTheWholeTimeline() {
+        #expect(sync.commonRange(of: .all) == 0...sync.commonDuration)
+        #expect(LoopRange.all.segment == nil)
+        var range = LoopRange.all
+        range.move(.start, to: 5 * frame, in: sync)
+        #expect(range.start == LoopEdge(phase: .address, frames: 5))
+        range.move(.end, to: sync.commonDuration - 2 * frame, in: sync)
+        #expect(range.end == LoopEdge(phase: .finish, frames: -2))
+        #expect(range != .all)
+    }
+
     @Test func segmentRangeMatchesTheSegment() {
         let range = LoopRange.segment(.downswing)
         #expect(range.segment == .downswing)

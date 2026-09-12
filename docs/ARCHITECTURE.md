@@ -46,7 +46,7 @@ SwingDuet/
     │   ├── VideoPaneView.swift   # 動画ペイン（自動フィット・拡大縮小・位置合わせ。下端中央にフェーズ調整）
     │   ├── PaneSwapButton.swift  # ペイン右上の「替える」（比較前の SlotPane と共通）。動画に重ねるカプセル paneChip
     │   ├── ControlPanelView.swift # 操作パネル（基準切替 + シークバー + 再生操作）。比較前のステージにも飾りとして出す
-    │   ├── SeekBarView.swift     # 区間色分けの共通シークバー。区間ループでは範囲の外を暗くし、両端のつまみで端をコマ単位に動かす
+    │   ├── SeekBarView.swift     # 区間色分けの共通シークバー。ループ範囲を枠で囲んで外を暗くし、両端のつまみで端をコマ単位に動かす
     │   ├── TransportControlsView.swift # フェーズジャンプ / ジョグホイール / 速度 / ループ
     │   ├── JogWheelView.swift    # 再生ボタンを中心にしたジョグホイール（回してコマ送り、左右タップで ±1、触覚）
     │   ├── JogRotation.swift     # 回転を目盛りに数え、周回でギア（1 目盛りのコマ数）を上げる純粋計算
@@ -60,6 +60,7 @@ SwingDuet/
     └── Shared/
         ├── VideoThumbnail.swift  # 動画ファイルの 1 コマを非同期に描くサムネイル
         ├── PlayerLayerView.swift # AVPlayerLayer ラッパー
+        ├── InteractivePopGestureBlocker.swift # NavigationStack の「戻る」スワイプを、置いた画面（ステージ）にいる間だけ止める
         ├── Alerts.swift          # 名前を付けるアラート・エラーのアラート。Optional を isPresented に変える Binding.isPresent
         └── SwingSegment+Color.swift # 区間の色（SwiftUI 依存を Models に持ち込まないための拡張）
 ```
@@ -127,11 +128,16 @@ JSON のどこからも参照されなくなったファイルを起動時に `C
   （YouTube 由来のお手本や 240fps の原本はキーフレーム間隔が 120〜235 フレーム）、まとめないとシークバーで戻るときだけカクつく
   （[research/260912_0249](./research/260912_0249-seekbar-backward-scrub-stutter.md)）。後退の絵の更新はそれでも復号の速さが上限で、
   根本策はキーフレーム間隔を詰める取り込み時の再エンコード（[TODO.md](./TODO.md) I）
-- ループ範囲は `loop`（`LoopMode`：スイング全体 / つまみで決めた範囲 `LoopRange` / ループしない）。範囲を出たら先頭へ戻る（ループしないなら停止）。
+- ループ範囲は `loop`（`LoopMode`：ループする範囲 `LoopRange` / ループしない）。範囲を出たら先頭へ戻る（ループしないなら停止）。
   範囲の端 `LoopEdge` はフェーズからのコマ数で持つので、フェーズ修正・基準切替で共通タイムラインが伸縮しても端がフェーズに付いてくる
-  （メニューの「ダウンスイングのみ」は両端をコマ数 0 で置いた範囲）。つまみのドラッグ（`beginTrim` / `trim` / `endTrim`）は端を最も近いフェーズから
+  （既定の「スイング全体」`LoopRange.all` はアドレスとフィニッシュ、メニューの「ダウンスイングのみ」は区間の両端を、コマ数 0 で置いた範囲）。
+  シークバーはループする間つねに範囲の両端につまみを出す。つまみのドラッグ（`beginTrim` / `trim` / `endTrim`）は端を最も近いフェーズから
   整数コマに丸め、反対側と 1 コマ以上離し、時計を端に置いて映像で端のコマを見せる。シークのまとめ方はコマ送りと同じ
-  （設計は [design/260912_0252](./design/260912_0252-loop-trim-handles.md)）
+  （設計は [design/260912_0252](./design/260912_0252-loop-trim-handles.md)）。
+  開始のつまみは画面の左端に近く右へなぞる指が「戻る」スワイプに取られるので、ステージ（`StageView`）にいる間は `InteractivePopGestureBlocker` が
+  `NavigationStack` の戻るスワイプを止める（応答チェーンで `UINavigationController` を見つけ、左端の `interactivePopGestureRecognizer` と
+  iOS 26 からの画面全体の `interactiveContentPopGestureRecognizer` を無効にし、一覧へ戻ったら元に戻す。後者は前者が受け持たない場合に働くので
+  片方だけでは止まらない。一覧へは左上の「<」で戻る）
 - フェーズ修正・基準切替時は `updateSync` で相対位置（進捗率）を保って追従する
 - 比較が開いたら `playWhenReady` が両方の `AVPlayerItem` の準備（`readyToPlay`）を待って自動で再生を始める
 - **音声トラックは取り込み時に落とす**（`stripAudioTrack`）。再生は常にミュートだが、

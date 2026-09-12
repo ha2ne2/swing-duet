@@ -14,7 +14,7 @@ struct LoopEdge: Hashable {
     }
 }
 
-/// ループ範囲（開始と終了の端）。区間（ダウンスイングのみ等）は両端のフェーズにコマ数 0 を置いた特殊形
+/// ループ範囲（開始と終了の端）。スイング全体や区間（ダウンスイングのみ等）は両端のフェーズにコマ数 0 を置いた特殊形
 struct LoopRange: Hashable {
     enum Bound: CaseIterable {
         case start
@@ -23,6 +23,9 @@ struct LoopRange: Hashable {
 
     var start: LoopEdge
     var end: LoopEdge
+
+    /// スイング全体（アドレス〜フィニッシュ。既定のループ範囲）
+    static let all = LoopRange(start: LoopEdge(phase: .address, frames: 0), end: LoopEdge(phase: .finish, frames: 0))
 
     static func segment(_ segment: SwingSegment) -> LoopRange {
         LoopRange(start: LoopEdge(phase: segment.start, frames: 0), end: LoopEdge(phase: segment.end, frames: 0))

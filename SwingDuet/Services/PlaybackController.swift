@@ -20,13 +20,13 @@ final class PlaybackController: NSObject {
 
     /// ループ範囲
     enum LoopMode: Hashable {
-        /// スイング全体（アドレス〜フィニッシュ）
-        case all
-        /// つまみで決めた範囲（メニューの「ダウンスイングのみ」等は区間の両端に置いた範囲）
+        /// ループする範囲。既定はスイング全体（`LoopRange.all`）。メニューの「ダウンスイングのみ」等は区間の両端に置いた範囲で、
+        /// どれもシークバーのつまみで端を動かせる
         case range(LoopRange)
         /// ループしない（末尾で停止）
         case off
 
+        static let all: LoopMode = .range(.all)
         static func segment(_ segment: SwingSegment) -> LoopMode { .range(.segment(segment)) }
 
         var range: LoopRange? {
@@ -107,10 +107,9 @@ final class PlaybackController: NSObject {
         side == .mine ? minePlayer : modelPlayer
     }
 
-    /// 現在のループ範囲（共通タイムライン上の秒）
+    /// 現在のループ範囲（共通タイムライン上の秒）。ループしないときは末尾で止まるまでの全体
     var loopRange: ClosedRange<Double> {
-        if let range = loop.range { return sync.commonRange(of: range) }
-        return 0...sync.commonDuration
+        sync.commonRange(of: loop.range ?? .all)
     }
 
     // MARK: - 再生 / 停止
@@ -210,7 +209,7 @@ final class PlaybackController: NSObject {
     }
 
     /// ループ範囲の端を time へ動かす（`LoopRange.move`：最も近いフェーズから整数コマ、反対側と 1 コマ以上離す）。
-    /// 時計をその端に置いて両方の映像で端のコマを見せる。範囲が無い（全体 / ループしない）ときは何もしない
+    /// 時計をその端に置いて両方の映像で端のコマを見せる。範囲が無い（ループしない）ときは何もしない
     func trim(_ bound: LoopRange.Bound, to time: Double) {
         guard var range = loop.range else { return }
         range.move(bound, to: time, in: sync)

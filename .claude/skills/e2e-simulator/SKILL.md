@@ -73,7 +73,7 @@ build/e2e-harness/run.sh                               # 起動中のシミュ�
     カードの「…」から名前を変更 → ペインのラベルに反映
   - `testZoomPanPersistence`: ペインをピンチで拡大 / 縮小・ドラッグで移動 → 一覧から開き直す → 再起動、で状態が残ること。
     ペインの状態は `accessibilityValue`（`x1.50 (12, -30)` = 自動フィットに対する拡大率と位置）で読む
-  - `testLoopTrimHandles`: 比較でループ範囲を「ダウンスイングのみ」にし、シークバーの両端のつまみ（`seekBar.loopStart` / `seekBar.loopEnd`。
+  - `testLoopTrimHandles`: 比較でループ範囲を「ダウンスイングのみ」にし、シークバーの範囲の両端のつまみ（`seekBar.loopStart` / `seekBar.loopEnd`。つまみは既定のスイング全体でも左右の端に出る。
     `value` はフェーズからのコマ数「トップ −3 コマ」）をドラッグして端が動くこと（2026-09-12 に追加。権限ダイアログの問題で通しでは未実行）
   - `testPhaseEditCandidates`: 保存済みのスイングを開き、フェーズ調整の「スイング候補」を切り替える。Vision が動かないので
     候補は `library.json` に直接入れる（下記）。`E2E_KEEP_DATA=1` で回す（アンインストールしない）

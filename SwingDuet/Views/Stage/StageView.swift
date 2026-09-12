@@ -2,7 +2,8 @@ import SwiftUI
 
 /// ステージ：左のスイング 1 本と、その相手（右のお手本）。両方の解析が済んでいれば比較（`ComparisonView`）、
 /// そうでなければ待ちの状態（解析中・お手本なし・失敗）を出す。ツールバーは ★ だけ（名前・削除・再解析は一覧の「…」から）。
-/// 左右どちらの「替える」からも「動画を選ぶ」シートを開く（左は「動画」タブ、右は「お手本」タブで始まる）
+/// 左右どちらの「替える」からも「動画を選ぶ」シートを開く（左は「動画」タブ、右は「お手本」タブで始まる）。
+/// 一覧へは左上の「<」で戻る。左端からのスワイプで戻る操作は止めている（シークバーの左端のつまみのドラッグと衝突するため）
 struct StageView: View {
     @EnvironmentObject private var store: ClipStore
 
@@ -19,7 +20,7 @@ struct StageView: View {
     private var partner: Clip? { clip.flatMap { store.partner(of: $0) } }
 
     var body: some View {
-        Group {
+        ZStack {
             if let clip {
                 if clip.isAnalyzed, let partner, partner.isAnalyzed {
                     ComparisonView(left: clip, right: partner) { side in
@@ -35,6 +36,8 @@ struct StageView: View {
                 ContentUnavailableView("スイングがありません", systemImage: "figure.golf", description: Text("削除されました。"))
             }
         }
+        // 枝（比較前 / 比較）が替わっても付け直されない容器に置く。枝ごとに付け直すと、新しい方が付いた後で古い方が外れて戻し、スワイプが復活する
+        .background(InteractivePopGestureBlocker())
         .navigationTitle(clip?.displayName ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

@@ -51,6 +51,11 @@ struct TransportControlsView: View {
         .accessibilityHint("タップで切り替え")
     }
 
+    /// スイング全体より狭い範囲（区間か、つまみで動かした範囲）をループしている
+    private var isPartialLoop: Bool {
+        controller.loop.range.map { $0 != .all } ?? false
+    }
+
     private var loopMenu: some View {
         Menu {
             Picker("ループ範囲", selection: $controller.loop) {
@@ -58,14 +63,14 @@ struct TransportControlsView: View {
                 ForEach(SwingSegment.allCases) { segment in
                     Text("\(segment.label)のみ").tag(PlaybackController.LoopMode.segment(segment))
                 }
-                // つまみで動かした範囲は区間の項目に一致しないので、いまの範囲を項目として足す（Picker は選択が項目に無いと未定義）
-                if let range = controller.loop.range, range.segment == nil {
+                // つまみで動かした範囲は上の項目に一致しないので、いまの範囲を項目として足す（Picker は選択が項目に無いと未定義）
+                if let range = controller.loop.range, range != .all, range.segment == nil {
                     Text("\(range.start.label) 〜 \(range.end.label)").tag(controller.loop)
                 }
                 Text("ループしない").tag(PlaybackController.LoopMode.off)
             }
         } label: {
-            Image(systemName: controller.loop.range == nil ? "repeat" : "repeat.1")
+            Image(systemName: isPartialLoop ? "repeat.1" : "repeat")
                 .font(.title3)
                 .foregroundStyle(controller.loop == .off ? Color.secondary : Color.accentColor)
         }

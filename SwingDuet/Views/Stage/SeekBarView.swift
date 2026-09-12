@@ -2,8 +2,8 @@ import SwiftUI
 
 /// 共通タイムラインの 1 本のシークバー。
 /// バックスイング / ダウンスイング / フォローを色分けし（凡例は出さない）、ドラッグで 2 本を同時にシークする。
-/// ループ範囲が `LoopMode.range`（区間を選んだ後）のときは範囲の外を暗くし、範囲を白い枠 `TrimFrame` で囲む。
-/// 枠の左右の太い縦棒がつまみで、ドラッグすると端が最も近いフェーズから整数コマの位置で動く
+/// ループ範囲（`LoopMode.range`。既定はスイング全体）は白い枠 `TrimFrame` で囲み、外を暗くする。
+/// 枠の左右の太い縦棒がつまみで、ドラッグすると端が最も近いフェーズから整数コマの位置で動く。「ループしない」では枠もつまみも出ない
 /// （設計は docs/design/260912_0252-loop-trim-handles.md。動かした範囲はループのメニューの行で読める）
 struct SeekBarView: View {
     let controller: PlaybackController
@@ -22,7 +22,9 @@ struct SeekBarView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let width = geo.size.width
+            // つまみは範囲の外側に付くので、目盛りの両端をつまみの幅だけ空ける。範囲がスイング全体でもつまみが横の余白（16pt）を越えず、
+            // 上下の操作と端がそろう
+            let width = max(geo.size.width - 2 * Self.handleWidth, 0)
             let lower = x(for: controller.loopRange.lowerBound, width: width)
             let upper = x(for: controller.loopRange.upperBound, width: width)
             ZStack(alignment: .leading) {
@@ -35,7 +37,7 @@ struct SeekBarView: View {
                                 .frame(width: segmentWidth(segment, totalWidth: width))
                         }
                     }
-                    // ループ範囲の外を沈める（全体 / ループしないでは幅 0）
+                    // ループ範囲の外を沈める（スイング全体 / ループしないでは幅 0）
                     Color.black.opacity(0.6)
                         .frame(width: lower)
                     Color.black.opacity(0.6)
@@ -71,6 +73,7 @@ struct SeekBarView: View {
                     }
                 }
             }
+            .frame(width: width, height: Self.barHeight, alignment: .leading)
             // つまみの当たり（44pt）はバーからはみ出すので overlay に置き、バーの大きさに影響させない。
             // NOTE: overlay の暗黙の ZStack は子を「子の最大の大きさ」の中央に寄せるので、大きさの違う子を並べると小さい子がずれる。
             //       明示的な ZStack をバーの大きさに固定し、各子をバーの左端から置く
@@ -84,6 +87,8 @@ struct SeekBarView: View {
                     .frame(width: width, height: Self.barHeight, alignment: .leading)
                 }
             }
+            .padding(.horizontal, Self.handleWidth)
+            .contentShape(Rectangle())   // つまみの分の余白もシークの当たりに含める
             .coordinateSpace(name: Self.coordinateSpace)
             .gesture(
                 DragGesture(minimumDistance: 0)
@@ -92,7 +97,8 @@ struct SeekBarView: View {
                             isScrubbing = true
                             controller.beginScrub()
                         }
-                        let t = Double(value.location.x / max(width, 1)) * sync.commonDuration
+                        // 指の位置は余白を含む座標なので、目盛りの左端を 0 にする（目盛りの外は scrub が端に収める）
+                        let t = Double((value.location.x - Self.handleWidth) / max(width, 1)) * sync.commonDuration
                         controller.scrub(to: t)
                     }
                     .onEnded { _ in
