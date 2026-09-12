@@ -26,6 +26,7 @@ SwingDuet/
 │   ├── VideoConfig.swift         # VideoSide / VideoConfig（動画の情報・解析結果・表示変換）
 │   ├── Clip.swift                # Clip / ClipRole / AnalysisState / Pairing / Library（保存単位と保存する全体）
 │   ├── SyncEngine.swift          # 共通タイムライン ⇔ 各動画時刻の区間別線形写像（§3）
+│   ├── LoopRange.swift           # LoopEdge / LoopRange（ループ範囲の端。フェーズからのコマ数で持ち、丸め・詰めは純粋計算）
 │   ├── Formatting.swift          # 日時・時間の表記と、日付ごとの節への分け方
 │   └── Geometry.swift            # CGPoint / CGRect の小さな補助（距離・外接矩形）
 ├── Services/                     # 入出力・解析・再生制御
@@ -45,7 +46,7 @@ SwingDuet/
     │   ├── VideoPaneView.swift   # 動画ペイン（自動フィット・拡大縮小・位置合わせ。下端中央にフェーズ調整）
     │   ├── PaneSwapButton.swift  # ペイン右上の「替える」（比較前の SlotPane と共通）。動画に重ねるカプセル paneChip
     │   ├── ControlPanelView.swift # 操作パネル（基準切替 + シークバー + 再生操作）。比較前のステージにも飾りとして出す
-    │   ├── SeekBarView.swift     # 区間色分けの共通シークバー
+    │   ├── SeekBarView.swift     # 区間色分けの共通シークバー。区間ループでは範囲の外を暗くし、両端のつまみで端をコマ単位に動かす
     │   ├── TransportControlsView.swift # フェーズジャンプ / ジョグホイール / 速度 / ループ
     │   ├── JogWheelView.swift    # 再生ボタンを中心にしたジョグホイール（回してコマ送り、左右タップで ±1、触覚）
     │   ├── JogRotation.swift     # 回転を目盛りに数え、周回でギア（1 目盛りのコマ数）を上げる純粋計算
@@ -122,7 +123,11 @@ JSON のどこからも参照されなくなったファイルを起動時に `C
   （速く回すとコマ送りがシークより速く来る。重ねると後のシークが前のを取り消し続け、画面が更新されなくなる）。
   触覚は 1 コマごとに軽く、トップ / インパクトの通過で中くらい、ループ範囲の端で重く（`sensoryFeedback`。設計は
   [design/260911_0741](./design/260911_0741-jog-wheel-frame-stepping.md)）。横画面（コンパクト高さ）はホイールを Ø 96pt に縮める
-- ループ範囲は `loop`（`LoopMode`：スイング全体 / 1 区間 / ループしない）。範囲を出たら先頭へ戻る（ループしないなら停止）
+- ループ範囲は `loop`（`LoopMode`：スイング全体 / つまみで決めた範囲 `LoopRange` / ループしない）。範囲を出たら先頭へ戻る（ループしないなら停止）。
+  範囲の端 `LoopEdge` はフェーズからのコマ数で持つので、フェーズ修正・基準切替で共通タイムラインが伸縮しても端がフェーズに付いてくる
+  （メニューの「ダウンスイングのみ」は両端をコマ数 0 で置いた範囲）。つまみのドラッグ（`beginTrim` / `trim` / `endTrim`）は端を最も近いフェーズから
+  整数コマに丸め、反対側と 1 コマ以上離し、時計を端に置いて映像で端のコマを見せる。シークのまとめ方はコマ送りと同じ
+  （設計は [design/260912_0252](./design/260912_0252-loop-trim-handles.md)）
 - フェーズ修正・基準切替時は `updateSync` で相対位置（進捗率）を保って追従する
 - 比較が開いたら `playWhenReady` が両方の `AVPlayerItem` の準備（`readyToPlay`）を待って自動で再生を始める
 - **音声トラックは取り込み時に落とす**（`stripAudioTrack`）。再生は常にミュートだが、

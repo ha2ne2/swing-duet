@@ -18,7 +18,7 @@
 - **背景**: MVP はテスト無しで作られた。[AGENTS.md](../AGENTS.md) §5.1 は「最初からテストを書く」前提。
   2026-09-10 に Swift Testing のターゲット `SwingDuetTests` を追加し、`SwingDetector` を合成した手の高さの系列で固定した（実行方法は [guides/build-test.md](./guides/build-test.md)）。
   2026-09-11 に `ClipStore`（旧データの移行・上限・相手の解決・元に戻す・同じ動画の共有）、`SyncEngine`（実秒の共通タイムラインと速度倍率）、
-  `SlowFactor`（動画の速さの推定）、`JogRotation`（ジョグホイールの目盛りとギア）のテストを足した。
+  `SlowFactor`（動画の速さの推定）、`JogRotation`（ジョグホイールの目盛りとギア）のテストを足した。2026-09-12 に `LoopRange`（ループ範囲の端の丸め・詰め・追従）を足した。
 - **対象**: `SwingDuet/Models/Swing.swift`（`PhaseSet.sanitize` / `assign` / `fallback`）
 - **やること**: 上記の純粋ロジックにテストを足す。`SyncEngine` は区間の写像（`videoTime` / `segment(at:)`）の境界もまだ薄い。
 - **参照**: [ROADMAP.md](./ROADMAP.md) フェーズ 3
@@ -54,7 +54,12 @@
   シミュレータで通しでは回していない（単体テストとビルドのみ）。自前のピッカーは写真ライブラリの権限を使うので、`run.sh` に
   `simctl privacy grant photos` を足し、ダイアログが出た場合はテスト側で押す（`allowPhotosIfAsked`）ようにしてあるが、どちらも未検証。
 - **対象**: `.claude/skills/e2e-simulator/FlowTests.swift`、同 `make-harness.py`（`run.sh`）、同 `SKILL.md`
-- **やること**: [SKILL.md](../.claude/skills/e2e-simulator/SKILL.md) の手順で 4 テストを回し、識別子・待ち時間・権限の扱いを直す。
+- **2026-09-12 の状況**: iOS 26.2 のシミュレータでは写真の権限ダイアログが別プロセスで出て、XCTest からは押せない（springboard の要素としても
+  `addUIInterruptionMonitor` でも「Failed to get matching snapshot」で落ちる）。しかも `xcodebuild test` がアプリを入れ直すと `simctl privacy grant` の
+  記録が消え、出たダイアログを XCTest が自動で「許可しない」で閉じる（TCC.db の `auth_value` が 0 になる）。この日は比較画面まで到達できなかった。
+  `testLoopTrimHandles`（ループ範囲のつまみのドラッグ）を足したが未実行。
+- **やること**: 権限を xcodebuild の入れ直しの後に与える（`build-for-testing` → `simctl install` → `simctl privacy grant` → `test-without-building` の順にする）。
+  その上で [SKILL.md](../.claude/skills/e2e-simulator/SKILL.md) の手順で 5 テストを回し、識別子・待ち時間を直す。
 - **参照**: [design/260911_0530](./design/260911_0530-diary-screen-flow.md) §7 STEP 5
 
 ### H. 小さく写る人物では追跡が別の点に固定され、検出に失敗する（2026-09-11 起票）

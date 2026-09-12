@@ -58,10 +58,14 @@ struct TransportControlsView: View {
                 ForEach(SwingSegment.allCases) { segment in
                     Text("\(segment.label)のみ").tag(PlaybackController.LoopMode.segment(segment))
                 }
+                // つまみで動かした範囲は区間の項目に一致しないので、いまの範囲を項目として足す（Picker は選択が項目に無いと未定義）
+                if let range = controller.loop.range, range.segment == nil {
+                    Text("\(range.start.label) 〜 \(range.end.label)").tag(controller.loop)
+                }
                 Text("ループしない").tag(PlaybackController.LoopMode.off)
             }
         } label: {
-            Image(systemName: controller.loop.segment == nil ? "repeat" : "repeat.1")
+            Image(systemName: controller.loop.range == nil ? "repeat" : "repeat.1")
                 .font(.title3)
                 .foregroundStyle(controller.loop == .off ? Color.secondary : Color.accentColor)
         }

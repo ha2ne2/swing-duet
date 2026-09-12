@@ -77,6 +77,18 @@ final class FlowTests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'pause' OR label CONTAINS '一時停止'")).firstMatch
     }
 
+    /// ループ範囲のメニュー（↻）
+    private func loopMenuButton() -> XCUIElement {
+        app.buttons.matching(NSPredicate(
+            format: "label CONTAINS 'ループ範囲' OR label CONTAINS[c] 'repeat' OR label CONTAINS 'リピート' OR label CONTAINS '繰り返し'")).firstMatch
+    }
+
+    /// 開いているループ範囲のメニューから項目を選ぶ（Menu の項目は buttons か menuItems のどちらかで見える）
+    @discardableResult
+    private func pickLoopItem(_ label: String) -> Bool {
+        tapIfExists(app.buttons[label], "loop=\(label)", timeout: 3) || tapIfExists(app.menuItems[label], "loop=\(label) (menuItem)", timeout: 2)
+    }
+
     /// ホームの一覧の行（スイング）。識別子は "swing.<UUID>"
     private var swingRows: XCUIElementQuery {
         app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'swing.'"))
@@ -100,25 +112,13 @@ final class FlowTests: XCTestCase {
         usleep(300_000)
     }
 
-    /// 写真ライブラリの権限ダイアログ（OS のもの）が出ていれば「フルアクセスを許可」を押す。
-    /// run.sh が `simctl privacy grant photos` で先に許可しているので普通は出ない
-    private func allowPhotosIfAsked() {
-        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let allow = springboard.buttons.matching(NSPredicate(
-            format: "label CONTAINS 'フルアクセス' OR label CONTAINS 'すべての写真' OR label CONTAINS[c] 'Allow Full' OR label CONTAINS[c] 'Allow Access to All'")).firstMatch
-        if allow.waitForExistence(timeout: 3) {
-            allow.tap()
-            log("TAP photos permission: \(allow.label)")
-        }
-    }
-
     // MARK: - 画面の操作
 
     /// 「動画」タブのグリッドからセルを選び、プレビューの「使う」まで。match があればラベルに含む最初のセル、無ければ index 番目
     private func pickLibraryVideo(what: String, index: Int, match: String?) {
-        allowPhotosIfAsked()
         let cells = app.buttons.matching(identifier: "library.cell")
-        guard cells.firstMatch.waitForExistence(timeout: 20) else {
+        // 写真の権限ダイアログが出たら人が押す（iOS 26 のシミュレータでは別プロセスで、XCTest からは触れない。docs/TODO.md G）。その猶予を含めて待つ
+        guard cells.firstMatch.waitForExistence(timeout: 45) else {
             dump("library_fail_\(what)")
             shot("library_fail")
             XCTFail("library cells not found for \(what); texts=\(texts())")
@@ -256,8 +256,7 @@ final class FlowTests: XCTestCase {
         // 開いた直後は自動で再生が始まる（始まっていなければ再生ボタンを押す）→ 再生中に基準とループ範囲を変える
         // （再生中でも操作が効き、再生が止まらないこと）→ 停止。進みはスクリーンショットの再生ヘッドで確認する
         let play = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'play' OR label CONTAINS '再生'")).firstMatch
-        let loop = app.buttons.matching(NSPredicate(
-            format: "label CONTAINS 'ループ範囲' OR label CONTAINS[c] 'repeat' OR label CONTAINS 'リピート' OR label CONTAINS '繰り返し'")).firstMatch
+        let loop = loopMenuButton()
         let autoPlaying = pauseButton().waitForExistence(timeout: 3)
         log("auto-play: \(autoPlaying)")
         if autoPlaying || tapIfExists(play, "play") {
@@ -275,9 +274,7 @@ final class FlowTests: XCTestCase {
 
             if tapIfExists(loop, "loop menu (playing)", timeout: 3) {
                 shot("loop_menu_playing"); dump("05_loop_menu_playing")
-                let picked = tapIfExists(app.buttons["フォローのみ"], "loop=follow (playing)", timeout: 3)
-                    || tapIfExists(app.menuItems["フォローのみ"], "loop=follow (playing, menuItem)", timeout: 2)
-                XCTAssertTrue(picked, "再生中にループ範囲のメニュー項目を選べない")
+                XCTAssertTrue(pickLoopItem("フォローのみ"), "再生中にループ範囲のメニュー項目を選べない")
                 sleep(1)
                 log("loop=follow while playing: stillPlaying=\(pauseButton().exists)")
                 XCTAssertTrue(pauseButton().exists, "ループ範囲の変更で再生が止まった")
@@ -318,9 +315,7 @@ final class FlowTests: XCTestCase {
         // ループメニュー（停止中）→ ダウンスイングのみ → 区間ループ再生
         if tapIfExists(loop, "loop menu", timeout: 3) {
             shot("loop_menu"); dump("05_loop_menu")
-            if !tapIfExists(app.buttons["ダウンスイングのみ"], "loop=downswing", timeout: 3) {
-                tapIfExists(app.menuItems["ダウンスイングのみ"], "loop=downswing (menuItem)", timeout: 2)
-            }
+            pickLoopItem("ダウンスイングのみ")
         }
         if tapIfExists(play, "play (segment loop)", timeout: 3) {
             sleep(3); shot("playing_loop")
@@ -490,5 +485,36 @@ final class FlowTests: XCTestCase {
         XCTAssertEqual(mine.value as? String, mineState, "mine state lost after relaunch")
         XCTAssertEqual(model.value as? String, modelState, "model state lost after relaunch")
         shot("zoom_pan_relaunched")
+    }
+
+    /// ループ範囲のつまみ：区間を選ぶとつまみが出て、ドラッグで端がコマ単位に動き、離しても位置が保たれること。
+    /// つまみは `accessibilityValue` にフェーズからのコマ数（「トップ」「トップ −3 コマ」）を持つ
+    func testLoopTrimHandles() throws {
+        app.launch()
+        addSwingFromHome()
+        guard addModelOnStage(name: nil) else { return }
+        tapIfExists(pauseButton(), "pause", timeout: 3)
+
+        XCTAssertTrue(tapIfExists(loopMenuButton(), "loop menu", timeout: 5))
+        pickLoopItem("ダウンスイングのみ")
+        sleep(1)
+        shot("loop_downswing"); dump("09_loop_downswing")
+
+        let start = app.descendants(matching: .any)["seekBar.loopStart"]
+        let end = app.descendants(matching: .any)["seekBar.loopEnd"]
+        XCTAssertTrue(start.waitForExistence(timeout: 5), "start handle not found; texts=\(texts())")
+        XCTAssertTrue(end.waitForExistence(timeout: 5), "end handle not found")
+        log("handles before: start=\(start.value ?? "nil") \(start.frame) end=\(end.value ?? "nil") \(end.frame)")
+
+        // 開始のつまみを左へ、終了のつまみを右へ 40pt ずつ
+        for (handle, dx, what) in [(start, -40.0, "start"), (end, 40.0, "end")] {
+            let from = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            from.press(forDuration: 0.3, thenDragTo: from.withOffset(CGVector(dx: dx, dy: 0)))
+            usleep(500_000)
+            log("DRAG \(what) handle \(dx)pt: start=\(start.value ?? "nil") end=\(end.value ?? "nil")")
+            shot("after_drag_\(what)")
+        }
+        XCTAssertNotEqual(start.value as? String, "トップ", "開始のつまみが動いていない")
+        XCTAssertNotEqual(end.value as? String, "インパクト", "終了のつまみが動いていない")
     }
 }

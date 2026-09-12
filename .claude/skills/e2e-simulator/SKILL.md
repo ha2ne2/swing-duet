@@ -14,7 +14,9 @@ description: iOS シミュレータで SwingDuet をビルド・起動し、ホ�
 - 動作確認済みデバイス: iPhone 16e（iOS 26.2）。UDID は `xcrun simctl list devices available` で確認
 - **Vision の姿勢推定はシミュレータで動かない**。解析は常にフォールバック位相（テンポ 3.0 : 1）になる（`lowConfidence` は記録のみで画面には出ない）。
   E2E で検証できるのは「フロー・UI・再生同期・永続化」であって検出精度ではない（精度は実機で確認）
-- 「動画」タブは写真ライブラリの権限（PhotoKit）を使う自前のグリッド。`run.sh` が `simctl privacy grant photos` で先に許可する。
+- 「動画」タブは写真ライブラリの権限（PhotoKit）を使う自前のグリッド。`run.sh` が `simctl privacy grant photos` で先に許可するが、
+  iOS 26.2 のシミュレータでは `xcodebuild test` がアプリを入れ直すときにその記録が消え、初回はダイアログが出る。ダイアログは別プロセスで
+  XCTest からは押せない（放っておくと XCTest が「許可しない」を押す）ので、出たら人が Simulator で「フルアクセスを許可」を押す（[docs/TODO.md](../../../docs/TODO.md) G）。
   権限があれば 240fps のスローモーション動画も原本のまま取り込める（拒否時の OS ピッカー経由は 30fps のレンダリング版）
 
 ## 1. シミュレータ起動とスモークテスト
@@ -71,6 +73,8 @@ build/e2e-harness/run.sh                               # 起動中のシミュ�
     カードの「…」から名前を変更 → ペインのラベルに反映
   - `testZoomPanPersistence`: ペインをピンチで拡大 / 縮小・ドラッグで移動 → 一覧から開き直す → 再起動、で状態が残ること。
     ペインの状態は `accessibilityValue`（`x1.50 (12, -30)` = 自動フィットに対する拡大率と位置）で読む
+  - `testLoopTrimHandles`: 比較でループ範囲を「ダウンスイングのみ」にし、シークバーの両端のつまみ（`seekBar.loopStart` / `seekBar.loopEnd`。
+    `value` はフェーズからのコマ数「トップ −3 コマ」）をドラッグして端が動くこと（2026-09-12 に追加。権限ダイアログの問題で通しでは未実行）
   - `testPhaseEditCandidates`: 保存済みのスイングを開き、フェーズ調整の「スイング候補」を切り替える。Vision が動かないので
     候補は `library.json` に直接入れる（下記）。`E2E_KEEP_DATA=1` で回す（アンインストールしない）
   - 主な識別子: ホームの追加ボタンは `list.addSwing`、一覧の行は `swing.<UUID>`、「動画」タブのセルは `library.cell`（ラベルは「ビデオ, 9/5 23:09, 4秒, スロー」）、
@@ -96,7 +100,8 @@ build/e2e-harness/run.sh                               # 起動中のシミュ�
 - 画面遷移中に全要素を列挙すると "Failed to get matching snapshot" で落ちる。`texts()` は存在確認しながらリトライしている
 - ピンチは `element.pinch(withScale:velocity:)`（要素の中心が基準。倍率は指定どおりにならず 2.0 指定で 3 倍前後になる）、
   ドラッグは `coordinate.press(forDuration: 0.1, thenDragTo:)`。手動で試すときは Simulator.app で Option を押しながらドラッグ（Option+Shift で中心を移動）
-- 写真の権限ダイアログが出たら（`simctl privacy grant` が効かなかったとき）テストは springboard の「フルアクセスを許可」を押す（`allowPhotosIfAsked`）
+- 写真の権限ダイアログは XCTest から押せない（springboard の要素としても `addUIInterruptionMonitor` でも「Failed to get matching snapshot」で落ちる）。
+  `pickLibraryVideo` は人が押す猶予を含めて 45 秒待つ
 - エラーログの確認:
   `xcrun simctl spawn booted log show --predicate 'process == "SwingDuet" AND (messageType == error OR messageType == fault)' --last 10m --style compact`
 - 保存データ: `$(xcrun simctl get_app_container booted com.ha2ne2.SwingDuet data)/Documents/{library.json,Videos/}`

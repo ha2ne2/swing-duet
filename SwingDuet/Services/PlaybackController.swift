@@ -22,13 +22,15 @@ final class PlaybackController: NSObject {
     enum LoopMode: Hashable {
         /// スイング全体（アドレス〜フィニッシュ）
         case all
-        /// 1 区間だけ
-        case segment(SwingSegment)
+        /// つまみで決めた範囲（メニューの「ダウンスイングのみ」等は区間の両端に置いた範囲）
+        case range(LoopRange)
         /// ループしない（末尾で停止）
         case off
 
-        var segment: SwingSegment? {
-            if case .segment(let segment) = self { return segment }
+        static func segment(_ segment: SwingSegment) -> LoopMode { .range(.segment(segment)) }
+
+        var range: LoopRange? {
+            if case .range(let range) = self { return range }
             return nil
         }
     }
@@ -70,10 +72,11 @@ final class PlaybackController: NSObject {
     @ObservationIgnored private var lastTimestamp: CFTimeInterval?
     /// 直前の tick の区間。変わった tick でだけレートを設定し直す
     @ObservationIgnored private var currentSegment: SwingSegment?
-    @ObservationIgnored private var wasPlayingBeforeScrub = false
+    /// スクラブ・つまみのドラッグを始めたとき再生中だった（離したら再開する）
+    @ObservationIgnored private var wasPlayingBeforeDrag = false
     /// 側ごとの実行中のシーク数（`seek` で増やし、完了ハンドラで減らす）。0 でない側はドリフト補正しない
     @ObservationIgnored private var pendingSeeks: [VideoSide: Int] = [:]
-    /// シーク中にコマ送りされた。いまのシークが終わったら最新の位置へシークし直す（`stepFrame` 参照）
+    /// シーク中に時計が動かされた。いまのシークが終わったら最新の位置へシークし直す（`show` 参照）
     @ObservationIgnored private var seekRequested = false
 
     /// どちらかの側でシークが終わっていない
@@ -106,7 +109,7 @@ final class PlaybackController: NSObject {
 
     /// 現在のループ範囲（共通タイムライン上の秒）
     var loopRange: ClosedRange<Double> {
-        if let segment = loop.segment { return sync.commonRange(of: segment) }
+        if let range = loop.range { return sync.commonRange(of: range) }
         return 0...sync.commonDuration
     }
 
@@ -177,19 +180,47 @@ final class PlaybackController: NSObject {
     }
 
     /// コマ送り（基準側動画の 1 フレーム単位。ループ範囲の端で止まる）。再生中なら止める。
+    /// 取りこぼさないよう、コマ数は時計に足し込んでおく（シークは `show` がまとめる）
+    func stepFrame(by frames: Int) {
+        stop()
+        show(clampedToLoop(commonTime + sync.referenceFrameDuration * Double(frames)))
+    }
+
+    /// 時計を time に置いてプレーヤーを精密シークする（ジョグホイール・つまみのドラッグ用）。
     ///
     /// 時計（`commonTime`）はすぐ動かすが、プレーヤーのシークは前のシークが終わってから最新の位置へ 1 回だけ行う。
     /// ジョグホイールを速く回すとコマ送りがシークより速く来る。構わず重ねると後のシークが前のシークを取り消し続け、
-    /// 回している間ずっと画面が更新されなくなる（取りこぼしもしないよう、コマ数は時計に足し込んでおく）
-    func stepFrame(by frames: Int) {
-        stop()
-        commonTime = clampedToLoop(commonTime + sync.referenceFrameDuration * Double(frames))
-        currentSegment = sync.segment(at: commonTime)
+    /// 回している間ずっと画面が更新されなくなる
+    private func show(_ time: Double) {
+        commonTime = time
+        currentSegment = sync.segment(at: time)
         if isSeeking {
             seekRequested = true
         } else {
             hardSeek()
         }
+    }
+
+    // MARK: - ループ範囲のつまみ
+
+    func beginTrim() {
+        wasPlayingBeforeDrag = isPlaying
+        stop()
+    }
+
+    /// ループ範囲の端を time へ動かす（`LoopRange.move`：最も近いフェーズから整数コマ、反対側と 1 コマ以上離す）。
+    /// 時計をその端に置いて両方の映像で端のコマを見せる。範囲が無い（全体 / ループしない）ときは何もしない
+    func trim(_ bound: LoopRange.Bound, to time: Double) {
+        guard var range = loop.range else { return }
+        range.move(bound, to: time, in: sync)
+        // 先に時計を端へ置く（`loop` の didSet が範囲外と見て先頭へ動かさないように）
+        show(sync.commonTime(of: range[bound]))
+        loop = .range(range)
+    }
+
+    /// 再生中に始めたなら範囲の先頭から再開する。止まっていたなら時計は端に残す（ジョグホイールで端の前後を確かめられる）
+    func endTrim() {
+        if wasPlayingBeforeDrag { play() }
     }
 
     /// フェーズ修正・基準切り替え時に呼ぶ。相対位置（進捗率）を保って追従する
@@ -204,7 +235,7 @@ final class PlaybackController: NSObject {
     // MARK: - スクラブ
 
     func beginScrub() {
-        wasPlayingBeforeScrub = isPlaying
+        wasPlayingBeforeDrag = isPlaying
         stop()
     }
 
@@ -214,7 +245,7 @@ final class PlaybackController: NSObject {
     }
 
     func endScrub() {
-        if wasPlayingBeforeScrub {
+        if wasPlayingBeforeDrag {
             play()
         } else {
             hardSeek()

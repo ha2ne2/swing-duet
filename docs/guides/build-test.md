@@ -41,6 +41,7 @@ xcrun simctl addmedia booted docs/data/*.mp4     # docs/data/ はサンプル動
 - 合成のスイング風動画が欲しいときは `.claude/skills/e2e-simulator/gen-swing-video.swift`（使い方は SKILL.md）
 - アプリの「動画」タブは写真ライブラリの権限を求める。許可すれば 240fps のスローモーション動画も原本のまま取り込める
   （拒否したときの OS ピッカー経由は 30fps のレンダリング版）。E2E の `run.sh` は `xcrun simctl privacy booted grant photos com.ha2ne2.SwingDuet` で先に許可する
+  （iOS 26.2 では xcodebuild がアプリを入れ直すと消える。[TODO.md](../TODO.md) G）
 
 ### シミュレータの制約
 
@@ -74,7 +75,7 @@ build/analyze-swing --joints docs/data/x.mp4   # 左右の手首・腰・首の�
 ## 単体テスト
 
 Swift Testing（`SwingDuetTests/`）。検出ロジック（`SwingDetector`）、同期（`SyncEngine`）、動画の速さの推定（`SlowFactor`）、
-保存（`ClipStore`：旧データの移行・上限・相手の解決）、ジョグホイールの回転（`JogRotation`）を固定している。アプリをホストにするのでシミュレータで走る:
+保存（`ClipStore`：旧データの移行・上限・相手の解決）、ジョグホイールの回転（`JogRotation`）、ループ範囲の端（`LoopRange`）を固定している。アプリをホストにするのでシミュレータで走る:
 
 ```bash
 xcodebuild test -project SwingDuet.xcodeproj -scheme SwingDuetTests \
