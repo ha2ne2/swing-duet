@@ -137,7 +137,7 @@ private struct SlotPane: View {
         ZStack {
             Color.black
             if let clip {
-                VideoThumbnail(url: store.videoURL(of: clip), time: clip.thumbnailTime(of: .address), maxSize: 800)
+                ClipThumbnail(clip: clip, phase: .address, maxSize: 800)
                 status(of: clip)
             } else {
                 Button(action: onTap) {

@@ -8,7 +8,7 @@ import AVFoundation
 /// プレビューは常に「選択中のフェーズの時刻」を映す（その値が変わるたびにシークする）ので、操作側はフェーズと時刻を変えるだけでよい
 struct PhaseEditView: View {
     @Binding var config: VideoConfig
-    let videoURL: URL
+    let asset: AVAsset
     let side: VideoSide
 
     @Environment(\.dismiss) private var dismiss
@@ -19,9 +19,9 @@ struct PhaseEditView: View {
     @State private var selectedPhase: SwingPhase = .impact
     @State private var player = AVPlayer()
 
-    init(config: Binding<VideoConfig>, videoURL: URL, side: VideoSide) {
+    init(config: Binding<VideoConfig>, asset: AVAsset, side: VideoSide) {
         self._config = config
-        self.videoURL = videoURL
+        self.asset = asset
         self.side = side
         self._phases = State(initialValue: config.wrappedValue.phases)
         self._manualSlowFactor = State(initialValue: config.wrappedValue.slowFactor)
@@ -91,8 +91,11 @@ struct PhaseEditView: View {
                     .bold()
                 }
             }
-            .onAppear {
-                player.replaceCurrentItem(with: AVPlayerItem(url: videoURL))
+            .task {
+                // NOTE: 映像だけの合成が作れなければプレビューは黒のまま（動画は比較画面で既に読めている）。フェーズの操作はできる
+                if let item = try? await VideoImporter.playerItem(for: asset) {
+                    player.replaceCurrentItem(with: item)
+                }
                 player.isMuted = true
                 seek(to: phases.time(of: selectedPhase))
             }

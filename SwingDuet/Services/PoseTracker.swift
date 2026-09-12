@@ -36,21 +36,13 @@ struct PoseTrack {
     }
 }
 
-private extension Collection where Element == Double {
-    /// 中央値（要素が無ければ nil）
-    var median: Double? {
-        guard !isEmpty else { return nil }
-        let sorted = self.sorted()
-        return sorted[sorted.count / 2]
-    }
-}
-
 /// Vision の人体姿勢推定で動画の人物を追跡し、フレームごとの手首・腰・首の位置と関節の外接矩形を得る。
 /// 複数人が写る動画（2 視点の合成など）では、腰位置が前フレームに最も近い人物を追い続ける（初回は最も大きく写る人物）。
+/// 動画ファイルは `track(asset:...)` で読む。撮影中のフレームを 1 枚ずつ渡すときは `FrameTracker` を直接使う
 enum PoseTracker {
 
     /// 解析レート（この頻度まで間引いて Vision を実行する）
-    private static let sampleRate: Double = 30.0
+    static let sampleRate: Double = 30.0
     /// 関節の信頼度がこれ未満なら見えていない扱いにする
     private static let minJointConfidence: Float = 0.3
     /// 手首だけは、直前のフレームから続いている（`continuingDistance` 以内）ならこの信頼度でも採用する。
@@ -59,23 +51,18 @@ enum PoseTracker {
     private static let continuingDistance: CGFloat = 0.1
 
     static func track(
-        asset: AVURLAsset,
+        asset: AVAsset,
         videoTrack: AVAssetTrack,
         frameRate: Double,
         orientation: CGImagePropertyOrientation
     ) throws -> PoseTrack {
+        var tracker = FrameTracker()
         var frames: [PoseFrame] = []
-        var wrists = WristTracker()
-        try forEachTrackedPerson(asset: asset, videoTrack: videoTrack, frameRate: frameRate, orientation: orientation) { time, person in
-            frames.append(PoseFrame(
-                time: time,
-                wrist: wrists.update(with: person),
-                root: person.flatMap { location(of: .root, in: $0) },
-                neck: person.flatMap { location(of: .neck, in: $0) },
-                bodyBounds: person.flatMap { jointBounds(of: $0) }))
+        try forEachSampledFrame(asset: asset, videoTrack: videoTrack, frameRate: frameRate) { time, pixelBuffer in
+            let person = tracker.person(in: pixelBuffer, orientation: orientation)
+            frames.append(tracker.frame(at: time, person: person))
         }
-        medianFilterWrists(&frames)
-        return PoseTrack(frames: frames)
+        return PoseTrack(frames: medianFilteredWrists(frames))
     }
 
     /// 動画の回転メタデータ（preferredTransform）を Vision に渡す向きに直す
@@ -86,13 +73,56 @@ enum PoseTracker {
         return .up
     }
 
-    // MARK: - フレームの読み出しと人物の追跡
+    // MARK: - フレーム 1 枚ずつの追跡
 
-    /// 解析レートに間引いたフレームごとに、追跡対象の人物（見つからなければ nil）を時刻とともに渡す。
+    /// フレームを 1 枚ずつ受け取って同じ人物を追い続ける状態（人物の選択と、片手しか見えないときの手首の続き）。
+    /// 動画ファイルの読み出しでも撮影中のフレームでも同じ
+    struct FrameTracker {
+        /// 追跡中の人物を 1 秒（解析レート分のフレーム）続けて見失ったら、腰位置のアンカーを捨てて最も大きく写る人物を選び直す。
+        /// 長回しでは人物が球を取りに行って戻る・最初に別のものを掴むことがあり、捨てないと二度と追い直せない
+        private static let reacquireAfterMisses = Int(PoseTracker.sampleRate)
+
+        private let request = VNDetectHumanBodyPoseRequest()
+        /// 追跡中の人物の腰位置。複数人が写る動画で同じ人物を追い続けるために使う
+        private var bodyAnchor: CGPoint?
+        private var misses = 0
+        private var wrists = WristTracker()
+
+        init() {}
+
+        /// このフレームの追跡対象の人物（見つからなければ nil）
+        mutating func person(in pixelBuffer: CVPixelBuffer, orientation: CGImagePropertyOrientation) -> VNHumanBodyPoseObservation? {
+            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
+            guard (try? handler.perform([request])) != nil else { return nil }
+            let person = selectPerson(request.results ?? [], near: bodyAnchor)
+            if let person {
+                bodyAnchor = anchor(of: person) ?? bodyAnchor
+                misses = 0
+            } else {
+                misses += 1
+                if misses >= Self.reacquireAfterMisses { bodyAnchor = nil }
+            }
+            return person
+        }
+
+        /// 追跡対象の人物からフレーム 1 枚の結果を作る（人物が見つからなかったフレームも、手首の続きを切るために渡す）
+        mutating func frame(at time: Double, person: VNHumanBodyPoseObservation?) -> PoseFrame {
+            PoseFrame(
+                time: time,
+                wrist: wrists.update(with: person),
+                root: person.flatMap { location(of: .root, in: $0) },
+                neck: person.flatMap { location(of: .neck, in: $0) },
+                bodyBounds: person.flatMap { jointBounds(of: $0) })
+        }
+    }
+
+    // MARK: - 動画ファイルの読み出し
+
+    /// 解析レートに間引いたフレームを時刻とともに渡す。
     /// 解析 CLI（scripts/analyze-swing）の関節ダンプからも使うので private にしない
-    static func forEachTrackedPerson(
-        asset: AVURLAsset, videoTrack: AVAssetTrack, frameRate: Double, orientation: CGImagePropertyOrientation,
-        _ body: (Double, VNHumanBodyPoseObservation?) -> Void
+    static func forEachSampledFrame(
+        asset: AVAsset, videoTrack: AVAssetTrack, frameRate: Double,
+        _ body: (Double, CVPixelBuffer) -> Void
     ) throws {
         let reader = try AVAssetReader(asset: asset)
         let output = AVAssetReaderTrackOutput(
@@ -103,23 +133,15 @@ enum PoseTracker {
         reader.add(output)
         guard reader.startReading() else { throw VideoError.unreadable }
 
-        let request = VNDetectHumanBodyPoseRequest()
         let stride = max(1, Int((frameRate / sampleRate).rounded()))
         var frameIndex = 0
-        var bodyAnchor: CGPoint? = nil   // 追跡中の人物の腰位置。複数人が写る動画で同じ人物を追い続けるために使う
         while reader.status == .reading {
             guard let sample = output.copyNextSampleBuffer() else { break }
             defer { frameIndex += 1 }
             if frameIndex % stride != 0 { continue }
             guard let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { continue }
             autoreleasepool {
-                let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
-                var person: VNHumanBodyPoseObservation? = nil
-                if (try? handler.perform([request])) != nil {
-                    person = selectPerson(request.results ?? [], near: bodyAnchor)
-                }
-                if let person { bodyAnchor = anchor(of: person) ?? bodyAnchor }
-                body(CMSampleBufferGetPresentationTimeStamp(sample).seconds, person)
+                body(CMSampleBufferGetPresentationTimeStamp(sample).seconds, pixelBuffer)
             }
         }
         if reader.status == .failed {
@@ -127,13 +149,15 @@ enum PoseTracker {
         }
     }
 
-    /// 追跡対象の人物を選ぶ。初回は最も大きく写っている人物、以降は腰位置が前フレームに最も近い人物
-    /// （離れすぎていれば見失い扱いで nil）
+    /// 追跡対象の人物を選ぶ。初回（アンカー無し）は最も大きく写っている人物、以降は腰位置が前フレームに最も近い人物
+    /// （離れすぎていれば見失い扱いで nil）。腰と首の両方が見えている人物がいなければ選ばない（体の大きさが測れない観測を掴むと、
+    /// そのアンカーに引きずられて本当の人物を追えなくなる）
     private static func selectPerson(
         _ observations: [VNHumanBodyPoseObservation], near tracked: CGPoint?
     ) -> VNHumanBodyPoseObservation? {
         guard let tracked else {
-            return observations.max { bodySize(of: $0) < bodySize(of: $1) }
+            guard let largest = observations.max(by: { bodySize(of: $0) < bodySize(of: $1) }), bodySize(of: largest) > 0 else { return nil }
+            return largest
         }
         let maxJump: CGFloat = 0.2   // 腰は 1 フレームでこれ以上動かない（正規化距離）
         let distances = observations.compactMap { observation in
@@ -216,12 +240,14 @@ enum PoseTracker {
     }
 
     /// 手首の単発の外れ値（誤検出の瞬間的な飛びなど）を抑える 3 点メディアン
-    private static func medianFilterWrists(_ frames: inout [PoseFrame]) {
-        guard frames.count >= 3 else { return }
+    private static func medianFilteredWrists(_ frames: [PoseFrame]) -> [PoseFrame] {
+        guard frames.count >= 3 else { return frames }
+        var filtered = frames
         let wrists = frames.map(\.wrist)
         for i in 1..<(wrists.count - 1) {
             guard let a = wrists[i - 1], let b = wrists[i], let c = wrists[i + 1] else { continue }
-            frames[i].wrist = CGPoint(x: [a.x, b.x, c.x].sorted()[1], y: [a.y, b.y, c.y].sorted()[1])
+            filtered[i].wrist = CGPoint(x: [a.x, b.x, c.x].sorted()[1], y: [a.y, b.y, c.y].sorted()[1])
         }
+        return filtered
     }
 }

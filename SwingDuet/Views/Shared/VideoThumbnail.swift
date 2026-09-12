@@ -8,7 +8,7 @@ import AVFoundation
 /// NOTE: `scaledToFill` で枠に合わせると画像が枠からはみ出し、SwiftUI でははみ出した部分が隣のボタンのタッチを奪う。
 ///       枠の形に切り出した画像を `scaledToFit` で描けば、はみ出しそのものが起きない
 struct VideoThumbnail: View {
-    let url: URL
+    let asset: AVAsset
     let time: Double
     /// 切り出す縦横比（幅 ÷ 高さ）。nil なら切り出さない
     var aspect: CGFloat? = nil
@@ -26,8 +26,8 @@ struct VideoThumbnail: View {
                     .scaledToFit()
             }
         }
-        .task(id: url) {
-            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        .task(id: Key(asset: asset, time: time)) {
+            let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
             generator.maximumSize = CGSize(width: maxSize, height: maxSize)
             let cmTime = CMTime(seconds: time, preferredTimescale: 600)
@@ -35,6 +35,12 @@ struct VideoThumbnail: View {
             guard let cgImage = try? await generator.image(at: cmTime).image else { return }
             image = UIImage(cgImage: Self.crop(cgImage, to: aspect))
         }
+    }
+
+    /// 描き直す単位（動画か時刻が変わったとき。解析が終わってフェーズの時刻が決まると時刻が変わる）
+    private struct Key: Equatable {
+        let asset: AVAsset
+        let time: Double
     }
 
     /// 中央で `aspect`（幅 ÷ 高さ）に切り出す
@@ -51,5 +57,30 @@ struct VideoThumbnail: View {
             rect.origin.y = (height - rect.height) / 2
         }
         return image.cropping(to: rect) ?? image
+    }
+}
+
+/// クリップのサムネイル。動画を `ClipStore.videoAsset(of:)` で解いてから描く（写真ライブラリの参照は非同期。解けなければ黒のまま）
+struct ClipThumbnail: View {
+    @EnvironmentObject private var store: ClipStore
+    let clip: Clip
+    /// 出すコマのフェーズ（解析が済んでいなければ先頭）
+    let phase: SwingPhase
+    var aspect: CGFloat? = nil
+    var maxSize: CGFloat = 256
+
+    @State private var asset: AVAsset?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let asset {
+                VideoThumbnail(asset: asset, time: clip.thumbnailTime(of: phase), aspect: aspect, maxSize: maxSize)
+            }
+        }
+        .task(id: clip.id) {
+            // NOTE: サムネイルは無くても機能に影響しないので、解けない（写真アプリで消された等）ときは黒のまま。理由はステージで出す
+            asset = try? await store.videoAsset(of: clip)
+        }
     }
 }

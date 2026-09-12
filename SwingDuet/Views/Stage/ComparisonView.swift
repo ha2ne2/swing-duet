@@ -1,8 +1,10 @@
 import SwiftUI
+import AVFoundation
 
 /// 比較画面：左（スイング）と右（お手本）の 2 本を共通タイムラインで同時再生する。
 ///
-/// PlaybackController は表示時に 1 度だけ作り、本体（ComparisonContent）に渡す。
+/// 動画（`ClipStore.videoAsset(of:)`。写真ライブラリの参照は iCloud からのダウンロードを含む）を解いてから PlaybackController を 1 度だけ作り、
+/// 本体（ComparisonContent）に渡す。解けなければ（写真アプリで消された等）理由を出す。
 /// NOTE: `@State` の初期値は View が作り直されるたびに評価されるので、init で作ると親（StageView）の再描画（保存時）ごとに
 ///       AVPlayer 2 つを持つ使い捨ての PlaybackController ができる。`State` のドキュメントが勧めるとおり `task` で遅延生成する
 struct ComparisonView: View {
@@ -12,19 +14,37 @@ struct ComparisonView: View {
     /// ペイン右上の「替える」をタップしたとき（その側の動画を選び直す）
     let onSelectVideo: (VideoSide) -> Void
 
-    @State private var controller: PlaybackController?
+    /// 解いた動画と、それで作った controller
+    @State private var loaded: (mine: AVAsset, model: AVAsset, controller: PlaybackController)?
+    @State private var loadError: String?
 
     var body: some View {
         Group {
-            if let controller {
-                ComparisonContent(left: left, right: right, controller: controller, onSelectVideo: onSelectVideo)
+            if let loaded {
+                ComparisonContent(left: left, right: right, mineAsset: loaded.mine, modelAsset: loaded.model,
+                                  controller: loaded.controller, onSelectVideo: onSelectVideo)
+            } else if let loadError {
+                ContentUnavailableView("動画を読み込めません", systemImage: "video.slash",
+                                       description: Text(loadError + "\n一覧の「…」から削除できます。"))
             } else {
-                Color.black.task {
-                    controller = PlaybackController(
-                        mineURL: store.videoURL(of: left),
-                        modelURL: store.videoURL(of: right),
-                        mine: left.video, model: left.pairedConfig(of: right),
-                        settings: store.playback)
+                ZStack {
+                    Color.black
+                    ProgressView("動画を読み込み中…")
+                        .tint(.white)
+                }
+                .task {
+                    do {
+                        let mine = try await store.videoAsset(of: left)
+                        let model = try await store.videoAsset(of: right)
+                        let controller = PlaybackController(
+                            mineItem: try await VideoImporter.playerItem(for: mine),
+                            modelItem: try await VideoImporter.playerItem(for: model),
+                            mine: left.video, model: left.pairedConfig(of: right),
+                            settings: store.playback)
+                        loaded = (mine, model, controller)
+                    } catch {
+                        loadError = error.localizedDescription
+                    }
                 }
             }
         }
@@ -37,6 +57,9 @@ private struct ComparisonContent: View {
     @EnvironmentObject private var store: ClipStore
     private let left: Clip
     private let right: Clip
+    /// 解いた動画（フェーズ調整のプレビューに渡す）
+    private let mineAsset: AVAsset
+    private let modelAsset: AVAsset
     private let controller: PlaybackController
     private let onSelectVideo: (VideoSide) -> Void
 
@@ -44,9 +67,12 @@ private struct ComparisonContent: View {
     @State private var model: VideoConfig
     @State private var editingSide: VideoSide?
 
-    init(left: Clip, right: Clip, controller: PlaybackController, onSelectVideo: @escaping (VideoSide) -> Void) {
+    init(left: Clip, right: Clip, mineAsset: AVAsset, modelAsset: AVAsset, controller: PlaybackController,
+         onSelectVideo: @escaping (VideoSide) -> Void) {
         self.left = left
         self.right = right
+        self.mineAsset = mineAsset
+        self.modelAsset = modelAsset
         self.controller = controller
         self.onSelectVideo = onSelectVideo
         _mine = State(initialValue: left.video)
@@ -108,7 +134,7 @@ private struct ComparisonContent: View {
         .sheet(item: $editingSide) { side in
             PhaseEditView(
                 config: side == .mine ? $mine : $model,
-                videoURL: store.videoURL(of: side == .mine ? left : right),
+                asset: side == .mine ? mineAsset : modelAsset,
                 side: side)
         }
     }

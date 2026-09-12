@@ -47,6 +47,29 @@ struct SwingDetectorTests {
     /// 3 フレーム以内（アドレスは速度の平滑化の分だけ動き出しの 3 フレーム前になる。丸め誤差込み）
     private func near(_ a: Double, _ b: Double) -> Bool { abs(a - b) <= 0.12 }
 
+    /// ゆっくりした素振り（トップまで上げてアドレスへ戻して止まる）の直後に本番を打つ：素振りの下ろしを本番のダウンスイングと繋げず、
+    /// 本番（30fps ではダウンスイングがブレて欠測になる）だけを候補にする。トップとインパクトは欠測の中なので推定
+    @Test func slowRehearsalFollowedByTheRealSwingYieldsOnlyTheRealSwing() {
+        var s = Series()
+        s.hold(0, 2.0)
+        s.ramp(to: 1.6, 3.5)     // ゆっくり上げる
+        s.hold(1.6, 1.0)
+        s.ramp(to: 0.1, 2.0)     // ゆっくり下ろす
+        s.hold(0.1, 0.5); let realAddress = s.time   // アドレスで止まる
+        s.ramp(to: 0.45, 0.25)   // 本番のテークバック
+        s.gap(0.5)               // 切り返し〜インパクト〜フォローの前半はブレて見えない
+        s.ramp(to: 1.6, 0.1); let follow = s.time
+        s.ramp(to: 1.7, 0.5)
+        s.hold(1.5, 1.0)
+
+        let candidates = s.detect()
+        #expect(candidates.count == 1)
+        let c = candidates[0]
+        #expect(c.phases.address > realAddress - 0.6 && c.phases.address < realAddress + 0.3)   // 素振りの始まり（0 秒）ではない
+        #expect(c.phases.impact > realAddress && c.phases.impact <= follow)
+        #expect(c.estimated.contains(.impact))
+    }
+
     @Test func fullSwingIsDetectedWithAllPhasesObserved() {
         var s = Series()
         s.hold(0, 0.5); let takeaway = s.time
@@ -125,7 +148,7 @@ struct SwingDetectorTests {
         s.hold(1.4, 1.5); let transition = s.time
         s.ramp(to: 0.1, 1.2); let impactZone = s.time
         s.hold(0.1, 0.5)                        // インパクト付近：画面上は止まって見える
-        s.ramp(to: 1.1, 0.5)                    // フォロー
+        s.ramp(to: 1.1, 1.5)                    // フォロー（ダウンスイングより遅い。実データでも常にそう）
         s.gap(0.3)                              // 肩を回るときに手首が隠れる
         s.hold(1.1, 1 / s.fps); s.ramp(to: 1.6, 0.6); let finishReached = s.time
         s.hold(1.6, 1.0)

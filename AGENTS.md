@@ -227,7 +227,7 @@ SPM パッケージ・CocoaPods は使っていない。
 - **シミュレータの制約**: Vision の姿勢推定はシミュレータでは動作しない（常にフォールバック位相＋ `lowConfidence` になる）。
   検出精度に関わる変更は実機で確認する
 - **署名**: `DEVELOPMENT_TEAM` は pbxproj に設定済み（自動署名）
-- **テスト**: Swift Testing のターゲット `SwingDuetTests`（検出ロジック・同期・動画の速さ・保存・ジョグホイール・ループ範囲の端の単体テスト。実行方法は build-test.md）。
+- **テスト**: Swift Testing のターゲット `SwingDuetTests`（検出ロジック・ショットの分け方・同期・動画の速さ・保存・ジョグホイール・ループ範囲の端の単体テスト。実行方法は build-test.md）。
   `PhaseSet` のテストは未整備（[docs/TODO.md](./docs/TODO.md) B）
 - コメント規約（セクション 5.3、日本語コメント）は Swift コードにも適用する
 
@@ -307,7 +307,7 @@ SPM パッケージ・CocoaPods は使っていない。
 
 ### 6.1 データの扱い
 
-- 当面は**ローカル保存のみ**を前提とする（動画は `Documents/Videos/`、設定は `Documents/library.json`）
+- 当面は**ローカル保存のみ**を前提とする（動画は写真ライブラリの参照。権限が無いときの OS ピッカー経由だけ `Documents/Videos/` にコピー。設定は `Documents/library.json`）
 - スイング動画は撮影した人物が写る**パーソナルな情報**である
 
 エージェントは、コード提案の際に以下を守ること：

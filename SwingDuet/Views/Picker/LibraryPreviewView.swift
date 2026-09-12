@@ -126,7 +126,7 @@ struct LibraryPreviewView: View {
         switch source {
         case .asset(let asset):
             shotAt = asset.creationDate
-            item = await Self.originalPlayerItem(for: asset)
+            item = await PhotoLibrary.requestOriginalAsset(asset).map { AVPlayerItem(asset: $0) }
         case .file(let url):
             shotAt = await VideoImporter.creationDate(of: url)
             item = AVPlayerItem(url: url)
@@ -157,19 +157,5 @@ struct LibraryPreviewView: View {
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         timeObserver = nil
         endObserver = nil
-    }
-
-    /// 写真ライブラリの動画の原本の再生アイテム（iCloud にしか無ければダウンロードする）。取れなければ nil。
-    /// `requestPlayerItem` はスロー効果を掛けた編集後の状態を返すので、原本を `requestAVAsset(version: .original)` で取る
-    private static func originalPlayerItem(for asset: PHAsset) async -> AVPlayerItem? {
-        let options = PHVideoRequestOptions()
-        options.version = .original
-        options.isNetworkAccessAllowed = true
-        options.deliveryMode = .automatic
-        return await withCheckedContinuation { continuation in
-            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, _ in
-                continuation.resume(returning: avAsset.map { AVPlayerItem(asset: $0) })
-            }
-        }
     }
 }

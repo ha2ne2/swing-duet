@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 /// ピッカーで選ばれた動画（`VideoPickerSheet` の結果）
 enum PickedVideo {
@@ -179,7 +180,7 @@ private struct SourceThumbnail: View {
         case .asset(let asset):
             AssetThumbnail(asset: asset, targetSize: CGSize(width: 120, height: 160))
         case .file(let url):
-            VideoThumbnail(url: url, time: 0.5, aspect: 120 / 160)
+            VideoThumbnail(asset: AVURLAsset(url: url), time: 0.5, aspect: 120 / 160)
         }
     }
 }

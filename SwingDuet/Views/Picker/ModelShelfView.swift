@@ -77,7 +77,7 @@ private struct ClipCard<MenuContent: View>: View {
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 6) {
-                VideoThumbnail(url: store.videoURL(of: clip), time: clip.thumbnailTime(of: .address), aspect: 1, maxSize: 400)
+                ClipThumbnail(clip: clip, phase: .address, aspect: 1, maxSize: 400)
                     .aspectRatio(1, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(alignment: .topLeading) {

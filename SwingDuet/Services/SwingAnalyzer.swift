@@ -35,6 +35,25 @@ struct SwingAnalysisResult {
         return CGRect(enclosing: rects.flatMap { [CGPoint(x: $0.minX, y: $0.minY), CGPoint(x: $0.maxX, y: $0.maxY)] })
     }
 
+    /// 動画に写る 1 球ずつのショット（切り出す範囲と採用するスイング。素振りは含めない）。1 本のスイング動画なら 1 つ、検出失敗時は空
+    var shots: [Shot] { ShotSplitter.shots(candidates: candidates, duration: duration) }
+
+    /// `range` の部分だけを 1 本の動画として見た解析結果（時刻は range の先頭を 0 にずらす）。
+    /// 長い動画を 1 球ずつに切り出すとき、切り出した動画を解析し直さずに結果を作る。スイングは切り出した範囲の系列で検出し直す
+    /// （範囲の外の素振りの尻尾が候補に混ざらないように）
+    func sliced(to range: ClosedRange<Double>) -> SwingAnalysisResult {
+        let frames = pose.frames.filter { range.contains($0.time) }.map { frame in
+            var shifted = frame
+            shifted.time -= range.lowerBound
+            return shifted
+        }
+        let slicedPose = PoseTrack(frames: frames)
+        let slicedDuration = range.upperBound - range.lowerBound
+        return SwingAnalysisResult(
+            duration: slicedDuration, frameRate: frameRate, videoAspect: videoAspect, pose: slicedPose,
+            candidates: SwingDetector.detect(track: slicedPose, duration: slicedDuration))
+    }
+
     /// 取り込んだ動画の設定を作る（拡大率と位置は自動フィットどおりの初期値）
     func videoConfig(fileName: String) -> VideoConfig {
         VideoConfig(
@@ -49,15 +68,24 @@ struct SwingAnalysisResult {
     }
 }
 
-/// 動画ファイルを読めないときのエラー（解析と取り込みで共通）
+/// 動画を読めないときのエラー（解析・取り込み・写真ライブラリの参照で共通）
 enum VideoError: LocalizedError {
     case noVideoTrack
     case unreadable
+    /// 写真ライブラリの参照が引けない（写真アプリで消された・アクセスが許可されていない）
+    case missingInLibrary
+    /// 写真ライブラリにはあるが原本を取れない（iCloud からダウンロードできないなど）
+    case unavailable
+    /// 長い動画を 1 球ずつに分けて取り込み済み（もう一度選んだ）
+    case alreadySplit
 
     var errorDescription: String? {
         switch self {
         case .noVideoTrack: return "動画トラックが見つかりませんでした。"
         case .unreadable: return "動画を読み込めませんでした。別の動画を選択してください。"
+        case .missingInLibrary: return "写真ライブラリに動画がありません。写真アプリで削除されたか、アクセスが許可されていません。"
+        case .unavailable: return "動画を読み込めませんでした。iCloud からダウンロードできない可能性があります。"
+        case .alreadySplit: return "この動画は 1 球ずつに分けて取り込み済みです。一覧にそのスイングがあります。"
         }
     }
 }
@@ -67,7 +95,12 @@ enum VideoError: LocalizedError {
 enum SwingAnalyzer {
 
     static func analyze(url: URL) async throws -> SwingAnalysisResult {
-        let video = try await loadVideo(url: url)
+        try await analyze(asset: AVURLAsset(url: url))
+    }
+
+    /// 動画は `AVAsset` で受ける（アプリ内のファイルも写真ライブラリの原本も同じ）
+    static func analyze(asset: AVAsset) async throws -> SwingAnalysisResult {
+        let video = try await loadVideo(asset: asset)
         let pose = try PoseTracker.track(
             asset: video.asset, videoTrack: video.track, frameRate: video.frameRate, orientation: video.orientation)
         return SwingAnalysisResult(
@@ -80,7 +113,7 @@ enum SwingAnalyzer {
 
     /// 解析に使う動画の情報（`loadVideo` で読む）
     struct Video {
-        var asset: AVURLAsset
+        var asset: AVAsset
         var track: AVAssetTrack
         var duration: Double
         var frameRate: Double
@@ -91,7 +124,10 @@ enum SwingAnalyzer {
 
     /// 解析に必要な動画の情報をまとめて読む。解析 CLI（scripts/analyze-swing）の関節ダンプからも使うので private にしない
     static func loadVideo(url: URL) async throws -> Video {
-        let asset = AVURLAsset(url: url)
+        try await loadVideo(asset: AVURLAsset(url: url))
+    }
+
+    static func loadVideo(asset: AVAsset) async throws -> Video {
         let duration = try await asset.load(.duration).seconds
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw VideoError.noVideoTrack

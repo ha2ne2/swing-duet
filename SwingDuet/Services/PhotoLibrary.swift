@@ -1,13 +1,16 @@
 import Foundation
+import AVFoundation
 import Combine
 import Photos
 import UIKit
 
-/// 写真ライブラリ（PhotoKit）。動画の一覧（権限を求め、限定アクセスで選び直したときなどの変更に追従する）と、原本の書き出し。
+/// 写真ライブラリ（PhotoKit）。動画の一覧（権限を求め、限定アクセスで選び直したときなどの変更に追従する）と、
+/// 参照で持つクリップの動画の引き当て（`fetchVideo` → `requestOriginalAsset`）。
 ///
 /// 権限を取る理由は 2 つ。動画だけを撮影日順に並べた自前のピッカーを出すことと、
-/// スローモーション動画の原本（120 / 240fps・実速）を取り込むこと（`exportOriginal`）。権限の要らない `PhotosPicker` は
-/// スローモーション動画を 30fps のレンダリング版（スロー効果の焼き込み）で渡すので、原本はここからしか取れない
+/// スローモーション動画の原本（120 / 240fps・実速）を読むこと。権限の要らない `PhotosPicker` は
+/// スローモーション動画を 30fps のレンダリング版（スロー効果の焼き込み）で渡すので、原本はここからしか取れない。
+/// 写真ライブラリの動画はコピーせず参照で持つ（設計は docs/design/260912_2011-photo-library-reference-storage.md）
 @MainActor
 final class PhotoLibrary: NSObject, ObservableObject, PHPhotoLibraryChangeObserver {
     /// 読み取りの権限（PhotoKit に読み取り専用のレベルは無く、`readWrite` が読み取りの権限）
@@ -57,34 +60,68 @@ final class PhotoLibrary: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         PHPhotoLibrary.shared().presentLimitedLibraryPicker(from: top)
     }
 
-    /// 原本のファイルを一時ディレクトリへ書き出す（iCloud にしか無ければダウンロードする）。
-    /// スローモーション動画は `.video` が高フレームレートの原本で、`.fullSizeVideo` は編集適用済みの書き出し
-    nonisolated static func exportOriginal(_ asset: PHAsset) async throws -> URL {
-        let resources = PHAssetResource.assetResources(for: asset)
-        guard let resource = resources.first(where: { $0.type == .video }) ?? resources.first(where: { $0.type == .fullSizeVideo }) else {
-            throw VideoError.noVideoTrack
+    /// 保存した識別子から動画を引く。`localID` で見つからなければ `cloudID` から引き直す（バックアップの復元で `localIdentifier` は変わる）。
+    /// 戻り値の `localID` は引き直したときだけ元と違う（呼び手が保存し直す）。どちらでも見つからなければ nil（写真アプリで消された・許可されていない）
+    nonisolated static func fetchVideo(localID: String, cloudID: String?) -> (asset: PHAsset, localID: String)? {
+        if let asset = PHAsset.fetchAssets(withLocalIdentifiers: [localID], options: nil).firstObject {
+            return (asset, localID)
         }
-        let ext = (resource.originalFilename as NSString).pathExtension
-        let dest = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + "." + (ext.isEmpty ? "mov" : ext))
-        let options = PHAssetResourceRequestOptions()
+        guard let cloudID else { return nil }
+        let mapping = PHPhotoLibrary.shared().localIdentifierMappings(for: [PHCloudIdentifier(stringValue: cloudID)])
+        guard let found = mapping.values.first.flatMap({ try? $0.get() }),
+              let asset = PHAsset.fetchAssets(withLocalIdentifiers: [found], options: nil).firstObject else { return nil }
+        return (asset, found)
+    }
+
+    /// 動画の `PHCloudIdentifier`（文字列）。取れなければ nil
+    nonisolated static func cloudIdentifier(of asset: PHAsset) -> String? {
+        let mapping = PHPhotoLibrary.shared().cloudIdentifierMappings(forLocalIdentifiers: [asset.localIdentifier])
+        return mapping[asset.localIdentifier].flatMap { try? $0.get() }?.stringValue
+    }
+
+    /// 切り出したショットなどの動画ファイルを写真ライブラリに保存し、アルバム `albumName`（無ければ作る）に入れる。
+    /// 戻り値は参照に使う識別子。`creationDate` を渡すと写真アプリでその日時に並ぶ（撮った動画から切り出したショットは元の撮影時刻）
+    nonisolated static func saveVideo(at url: URL, creationDate: Date?, albumName: String) async throws -> (localID: String, cloudID: String?) {
+        let existingAlbum = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: {
+            let options = PHFetchOptions()
+            options.predicate = NSPredicate(format: "title == %@", albumName)
+            return options
+        }()).firstObject
+        var localID: String?
+        try await PHPhotoLibrary.shared().performChanges {
+            let creation = PHAssetCreationRequest.forAsset()
+            creation.addResource(with: .video, fileURL: url, options: nil)
+            creation.creationDate = creationDate
+            guard let placeholder = creation.placeholderForCreatedAsset else { return }
+            localID = placeholder.localIdentifier
+            let album = existingAlbum.flatMap { PHAssetCollectionChangeRequest(for: $0) }
+                ?? PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: albumName)
+            album.addAssets([placeholder] as NSArray)
+        }
+        guard let localID, let asset = PHAsset.fetchAssets(withLocalIdentifiers: [localID], options: nil).firstObject else {
+            throw VideoError.unavailable
+        }
+        return (localID, cloudIdentifier(of: asset))
+    }
+
+    /// 動画の原本（スローモーションなら高フレームレートの実速。写真アプリのスロー効果は掛けない）。iCloud にしか無ければダウンロードする。
+    /// `requestPlayerItem` は編集後の状態を返すので、`requestAVAsset(version: .original)` で取る。取れなければ nil
+    nonisolated static func requestOriginalAsset(_ asset: PHAsset) async -> AVAsset? {
+        let options = PHVideoRequestOptions()
+        options.version = .original
         options.isNetworkAccessAllowed = true
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            PHAssetResourceManager.default().writeData(for: resource, toFile: dest, options: options) { error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume()
-                }
+        options.deliveryMode = .automatic
+        return await withCheckedContinuation { continuation in
+            PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, _ in
+                continuation.resume(returning: avAsset)
             }
         }
-        return dest
     }
 }
 
 /// ピッカーで選んだ動画の出どころ
 enum LibrarySource: Hashable {
-    /// 写真ライブラリの動画（権限あり。原本を取り込める）
+    /// 写真ライブラリの動画（権限あり。原本を参照する）
     case asset(PHAsset)
     /// OS のピッカーが渡した一時ファイル（権限なし。スローモーション動画は 30fps のレンダリング版）
     case file(URL)

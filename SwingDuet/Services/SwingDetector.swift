@@ -11,7 +11,7 @@ struct HandSample {
 }
 
 /// 1 回のスイング候補（採点の内訳付き）
-struct SwingCandidate {
+struct SwingCandidate: Equatable {
     var phases: PhaseSet
     /// 振り上げの大きさ（手の高さの最大 − アドレスの高さ。体の大きさ単位）
     var rise: Double
@@ -38,6 +38,9 @@ struct SwingCandidate {
 ///
 /// 手首が見えない区間（後方視点ではトップ〜インパクトが体の陰に入る）に切り返しが掛かるときは、再出現をインパクト、
 /// バックスイング : ダウンスイング = 3 : 1 の比でトップに置き、`estimated` に記録する。
+///
+/// ゆっくりした素振りを下ろしてそのまま本番を打つ流れ（練習場で多い）は、インパクト候補で手が止まっているかで見分ける
+/// （本物のインパクトで手は止まらない。docs/design/260912_1951-in-app-slowmo-capture-and-shot-split.md §10）。
 enum SwingDetector {
 
     /// これ未満なら手が「低い」（アドレス・インパクト）。実測はアドレス −0.2〜0.1
@@ -60,6 +63,10 @@ enum SwingDetector {
     private static let anotherSwingRatio = 1.0
     /// トップが見えないときの置き場所（バックスイング : ダウンスイング = 3 : 1）
     private static let backswingShare = 0.75
+    /// インパクト付近の低い区間で速度の最小がダウンスイングの最大のこの割合未満なら、手は止まっている = 次のスイングのアドレス（本物のインパクトで手は止まらない）
+    private static let impactRestRatio = 0.2
+    /// 見えている形を捨てて欠測の中の切り返しに落とすとき、消える前に手がアドレスからこれ以上（体の大きさ単位）上がっていることを要る（テークバック直後の欠測）
+    private static let takeawayRise = 0.2
 
     static func detect(track: PoseTrack, duration: Double) -> [SwingCandidate] {
         let samples = handSamples(track: track)
@@ -175,16 +182,50 @@ enum SwingDetector {
         let gap = ((a + 1)..<end).first { samples[$0].speed == nil }
         let gapBeforeDescent = gap.map { $0 <= (down ?? end) } ?? false
 
+        /// フォロー（`up2` で高くなった区間）の後に手が低く戻るなら、その下りがフォローの上がりより速ければ、その高い区間は別のスイングのトップだった
+        /// （素振りの直後の本番など）。上がりの速さはインパクトの次のサンプルから見る（インパクトのサンプルの速度は、そこへ到達したダウンスイングの速さ）。
+        /// 切り返しが欠測で上がりの速さが取れないときは判定しない
+        func isAnotherSwing(afterImpact impact: Int, up2: Int) -> Bool {
+            guard let down2 = firstLow(from: up2 + 1) else { return false }
+            let followRise = maxSpeed(in: (impact + 1)..<(up2 + 1))
+            guard followRise > 0 else { return false }
+            let lastHigh = (up2..<down2).last { samples[$0].height >= highHeight }!
+            return maxSpeed(in: lastHigh..<(down2 + 1)) >= anotherSwingRatio * followRise
+        }
+        /// 見えている形（高い → 低い → 高い）からのトップ・インパクト・フォローの立ち上がり。形が別のスイングにまたがっていれば nil
+        func fromVisibleShape() -> (top: Int, impact: Int, up2: Int)? {
+            guard let s = shape(from: (gapBeforeDescent ? gap : nil) ?? (a + 1)) else { return nil }
+            let top = topIndex(in: s.up..<s.down)
+            let impact = lowest(in: s.down..<s.up2)
+            // インパクト付近の低い区間で手が止まり（速度の最小がダウンスイングの最大の impactRestRatio 未満）、止まった後の動きが
+            // 下ろしより速いか、低いまま欠測になる（30fps の本番はダウンスイングがブレて消える）なら、止まった所は次のスイングのアドレス。
+            // 見えている形は「ゆっくりした素振りの下ろし → アドレス → 本番」か「フィニッシュ → 次のアドレス → 次のスイング」で、スイングではない。
+            // 後方視点ではインパクト付近の手が奥へ動いて止まって見えるが、本物のフォローは下ろしより遅く、手首が隠れる欠測は肩の高さで起きるので残る
+            let descentPeak = maxSpeed(in: top..<(impact + 1))
+            let restSpeed = (s.down..<s.up2).filter { samples[$0].height < lowHeight }.compactMap { samples[$0].speed }.min() ?? .infinity
+            if restSpeed < impactRestRatio * descentPeak {
+                let after = (impact + 1)..<(s.up2 + 1)
+                if maxSpeed(in: after) >= descentPeak || after.contains(where: { samples[$0].speed == nil && samples[$0 - 1].height < highHeight }) {
+                    return nil
+                }
+            }
+            if isAnotherSwing(afterImpact: impact, up2: s.up2) { return nil }
+            return (top, impact, s.up2)
+        }
+
         var estimated: Set<SwingPhase> = []
         let topIdx: Int?   // nil = 見えないので比で置く
         let impactIdx: Int
         let up2: Int       // フォローで手が高くなったところ
-        if let s = shape(from: (gapBeforeDescent ? gap : nil) ?? (a + 1)) {
+        if let visible = fromVisibleShape() {
             // トップ〜インパクトが見えている（欠測があってもバックスイングの途中で、その後に形が見える）
-            topIdx = topIndex(in: s.up..<s.down)
-            impactIdx = lowest(in: s.down..<s.up2)
-            up2 = s.up2
-        } else if gapBeforeDescent, let gap, let reappear = firstHigh(from: gap) {
+            topIdx = visible.top
+            impactIdx = visible.impact
+            up2 = visible.up2
+        } else if gapBeforeDescent, let gap, let reappear = firstHigh(from: gap),
+                  // 見えている形が無い、または別のスイングにまたがって捨てた。テークバック直後の欠測に切り返しが掛かっているなら、そこから作る。
+                  // 形を捨てた後の落ち先としては、消える前に手が上がり始めていること（`takeawayRise`）を要る
+                  shape(from: gap) == nil || ((a + 1)..<gap).contains(where: { samples[$0].height - samples[a].height >= takeawayRise }) {
             // 切り返しが欠測の中。インパクトは再出現から次に高くなるまでの最低点に置くが、
             // 本当のインパクトは欠測の中かもしれないので推定扱いにする
             impactIdx = lowest(in: gap..<(reappear + 1))
@@ -198,22 +239,13 @@ enum SwingDetector {
                 estimated.insert(.top)
             }
             up2 = reappear
+            if isAnotherSwing(afterImpact: impactIdx, up2: up2) { return nil }
         } else {
             // 高くなったまま戻らない（振り上げただけ）、低いまま終わる（トップからアドレス位置へ戻すだけ）
             return nil
         }
 
-        // フォローの後に手が低く戻るなら、その下りがフォローの上がりより速ければ、この高い区間は別のスイングのトップだった
-        // （素振りの直後の本番など）。この区間からはスイングが成立しない。
-        // 上がりの速さはインパクトの次のサンプルから見る（インパクトのサンプルの速度は、そこへ到達したダウンスイングの速さ）。
-        // 切り返しが欠測で上がりの速さが取れないときは判定しない
         let down2 = firstLow(from: up2 + 1)
-        let followRise = maxSpeed(in: (impactIdx + 1)..<(up2 + 1))
-        if let down2, followRise > 0 {
-            let lastHigh = (up2..<down2).last { samples[$0].height >= highHeight }!
-            if maxSpeed(in: lastHigh..<(down2 + 1)) >= anotherSwingRatio * followRise { return nil }
-        }
-
         // フィニッシュ：フォローで手が上がりきる山（そこから finishDrop 下がるまで）の高さの finishHeightRatio に最初に達したところ。
         // 肩を回るときの小さな窪みでは山を切らない
         var finishPeak = samples[up2].height

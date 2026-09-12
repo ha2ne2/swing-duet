@@ -85,10 +85,11 @@ final class PlaybackController: NSObject {
         activeSeeks.values.contains { $0 > 0 }
     }
 
-    convenience init(mineURL: URL, modelURL: URL, mine: VideoConfig, model: VideoConfig, settings: PlaybackSettings) {
+    /// - mineItem / modelItem: 再生するアイテム（`VideoImporter.playerItem(for:)`。映像トラックだけ）
+    convenience init(mineItem: AVPlayerItem, modelItem: AVPlayerItem, mine: VideoConfig, model: VideoConfig, settings: PlaybackSettings) {
         self.init(mine: SyncEngine.Timing(mine), model: SyncEngine.Timing(model), settings: settings)
-        minePlayer.replaceCurrentItem(with: AVPlayerItem(url: mineURL))
-        modelPlayer.replaceCurrentItem(with: AVPlayerItem(url: modelURL))
+        minePlayer.replaceCurrentItem(with: mineItem)
+        modelPlayer.replaceCurrentItem(with: modelItem)
         hardSeek()
     }
 

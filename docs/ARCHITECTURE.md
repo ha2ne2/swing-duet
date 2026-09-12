@@ -11,8 +11,8 @@ SwingDuet の技術スタック・モジュール構成・主要な仕組み（�
 | 動画再生         | AVFoundation（`AVPlayer` × 2 本、`rate` と `seek` で同期）                                     |
 | フレーム読み出し | AVFoundation `AVAssetReader`（解析用に 30fps 相当へ間引き）                                    |
 | 姿勢推定         | Vision `VNDetectHumanBodyPoseRequest`（左右手首の平均位置を追跡）                             |
-| 動画の取り込み   | Photos（PhotoKit）で写真ライブラリの動画を一覧し `PHAssetResourceManager` で原本を書き出す（§2）。権限が無いときは PhotosUI `PhotosPicker` + CoreTransferable `FileRepresentation(contentType: .movie)`。取り込み後に AVFoundation `AVAssetExportSession`（パススルー）で映像トラックだけにする（§4） |
-| 永続化           | JSON（`Documents/library.json`）+ 動画ファイル（`Documents/Videos/`）。**外部依存なし**            |
+| 動画の取り込み   | Photos（PhotoKit）で写真ライブラリの動画を一覧し、選んだ動画は識別子で**参照**する（原本は `PHImageManager.requestAVAsset(version: .original)` で読む。§2）。権限が無いときは PhotosUI `PhotosPicker` + CoreTransferable `FileRepresentation(contentType: .movie)` でコピーし、AVFoundation `AVAssetExportSession`（パススルー）で映像トラックだけにする（§4） |
+| 永続化           | JSON（`Documents/library.json`）。動画は写真ライブラリの参照（コピーは `Documents/Videos/`。OS ピッカー経由と参照にする前に取り込んだもの）。**外部依存なし** |
 | 言語 / 最低 OS   | Swift 5 言語モード / iOS 17                                                                    |
 | プロジェクト     | `SwingDuet.xcodeproj`（手書き。`PBXFileSystemSynchronizedRootGroup` で `SwingDuet/` 配下を自動収集） |
 
@@ -32,8 +32,9 @@ SwingDuet/
 │   └── Geometry.swift            # CGPoint / CGRect の小さな補助（距離・外接矩形）
 ├── Services/                     # 入出力・解析・再生制御
 │   ├── SwingAnalyzer.swift       # 自動解析の入口。PoseTracker → SwingDetector をつなぎ、保存用の VideoConfig にする（§5）。動画を読めないときの VideoError
-│   ├── PoseTracker.swift         # Vision の姿勢推定で人物を追跡（手首・腰・首の位置、関節の外接矩形）
+│   ├── PoseTracker.swift         # Vision の姿勢推定で人物を追跡（手首・腰・首の位置、関節の外接矩形）。フレーム 1 枚ずつの FrameTracker と動画ファイルの読み出し
 │   ├── SwingDetector.swift       # 手の高さの系列からスイング区間・4 フェーズを検出し候補を採点（純粋計算）
+│   ├── ShotSplitter.swift        # 候補の列を 1 球ずつのショット（切り出す範囲）に組む。素振りは除く（純粋計算）
 │   ├── PhotoLibrary.swift        # 写真ライブラリ（PhotoKit）：権限と動画の一覧（変更に追従）、限定アクセスの選び直し、原本の書き出し。ピッカーで選んだ動画の出どころ LibrarySource
 │   ├── VideoImporter.swift       # OS のピッカー（PhotosPicker）から動画を受け取る・撮影日時・映像トラックだけへの書き換え（stripAudioTrack）
 │   ├── ClipStore.swift           # クリップの永続化（JSON + 動画ファイル管理）、旧データの移行、解析キュー、上限、元に戻す
@@ -80,17 +81,26 @@ SwingDuet/
 `pairing` に持つ（相手が違えば位置も違うのでスイング側に置く。お手本自身の `scale / offset` は初期値のまま）。
 お手本のフェーズは 1 か所（お手本のクリップ）にしか無いので、どのスイングのステージで直しても全部に効く。
 「いつものお手本」は保存せず、`pairedAt` が最新の相手から導く（`ClipStore.usualPartner`）。
-★ の無い解析済みのスイングは追加のたびに新しい順に 60 本（`ClipStore.swingLimit`）だけ残す。
+★ の無い解析済みのスイングは追加のたびに新しい順に 200 本（`ClipStore.swingLimit`）だけ残す（当日のものは数えず、流さない）。
 保存形式には版（`Library.version`）があり、古い版を読んだときは `ClipStore.load` が組み替えて保存し直す（版 2 で `slowFactor` をユーザーの選択だけにした）。
-削除は JSON から外すだけで、直前の分を `lastDeleted` に持って「元に戻す」で戻せる。動画ファイルはクリップ同士で共有し、
-JSON のどこからも参照されなくなったファイルを起動時に `ClipStore.removeUnreferencedVideos` が片付ける（取り込みの途中で終了したときの残りも同様）。
+削除は JSON から外すだけで、直前の分を `lastDeleted` に持って「元に戻す」で戻せる（写真ライブラリの動画は残る）。コピーの動画ファイルは
+JSON のどこからも参照されなくなったものを起動時に `ClipStore.removeUnreferencedVideos` が片付ける（取り込みの途中で終了したときの残りも同様）。
 旧形式（`projects.json` の比較ペアと `models.json` の登録済みお手本）は初回起動時に `ClipStore.migrateLegacy` がクリップへ組み替える。
 
 **取り込みと解析**：「動画」タブ（`LibraryGridView`）は PhotoKit の権限を取り、写真ライブラリの動画を撮影日順に並べる。
-選んだ動画は `PhotoLibrary.exportOriginal`（`PHAssetResourceManager`）で原本を一時ファイルへ書き出し、`ClipStore.importVideo` で
-`Documents/Videos/` へ移す。権限が無いときは `PhotosPicker`（30fps のレンダリング版）に落ちる。同じ写真ライブラリの動画（`assetID`）を
-既に持っていれば書き出さずにファイルを共有し、解析済みなら結果も写す（`ClipStore.obtain`）。解析は `ClipStore` のキューが取り込み順に
-1 本ずつ行い（`VideoImporter.stripAudioTrack` → `SwingAnalyzer.analyze`。理由は §4）、途中で終了しても次回起動時に `pending` のものから再開する。
+選んだ動画は**コピーせず参照で持つ**（`Clip.source` = `.library`。`assetID` が `PHAsset.localIdentifier`、`cloudID` が復元で識別子が変わったときの引き直し用。
+`video.fileName` は空）。動画を読む窓口は `ClipStore.videoAsset(of:)` の 1 つで、参照は `PhotoLibrary.fetchVideo` → `requestOriginalAsset`
+（原本。iCloud にしか無ければダウンロード）で `AVAsset` にし、写真アプリで消されていれば `VideoError.missingInLibrary` を投げる（ステージに理由を出す）。
+権限が無いときは `PhotosPicker`（30fps のレンダリング版）に落ち、この経路だけ `ClipStore.importVideo` で `Documents/Videos/` へコピーする（`.file`）。
+同じ写真ライブラリの動画（`assetID`）を解析済みで既に持っていれば結果を写す（`ClipStore.obtain`）。解析は `ClipStore` のキューが取り込み順に
+1 本ずつ行い（コピーは `VideoImporter.stripAudioTrack` の後で。`SwingAnalyzer.analyze(asset:)`）、途中で終了しても次回起動時に `pending` のものから再開する。
+コピーから参照へ変えた経緯は [design/260912_2011](./design/260912_2011-photo-library-reference-storage.md)。
+
+**長い動画の分割**（`ClipStore.split`）：スイングの解析でショット（`SwingAnalysisResult.shots`。§5）が 2 つ以上あれば、1 球ずつ
+`VideoImporter.exportSegment`（パススルー）で一時ファイルに切り出し、`PhotoLibrary.saveVideo` で写真ライブラリのアルバム「SwingDuet」に保存して
+参照のクリップにする（保存できなければコピー）。解析結果は `sliced(to:)` で範囲の分を写すので解析し直さない。元のクリップは最後のショットに
+置き換える（id を引き継ぐので開いたままのステージは最後の球を映す）。分けた長い動画の識別子は `Library.splitTakes` に残し、
+もう一度選ばれたら `VideoError.alreadySplit` で断る。
 
 **ステージ**（`StageView`）は左のクリップ 1 本と、`ClipStore.partner(of:)` で解決した相手（最後に比べた相手 → いつものお手本 → 無し）を持ち、
 両方の解析が済めば `ComparisonView`、それまでは解析中・お手本なし（右が ⊕）・失敗の表示。ペイン右上の「替える」（`PaneSwapButton`）から「動画を選ぶ」シートを
@@ -156,7 +166,8 @@ JSON のどこからも参照されなくなったファイルを起動時に `C
 - 再生の設定（`PlaybackSettings`：同期のとり方・揃えるフェーズ・速度・ループ範囲）の持ち主は controller（`settings`）。
   `ComparisonView` がその変化を `ClipStore.playback` に書き、次に開く比較の初期値になる（アプリ全体で 1 つ。再生位置は保存しない）
 - 比較が開いたら `playWhenReady` が両方の `AVPlayerItem` の準備（`readyToPlay`）を待って自動で再生を始める
-- **音声トラックは取り込み時に落とす**（`stripAudioTrack`）。再生は常にミュートだが、
+- **音声トラックは落とす**：コピーは取り込み時にファイルを書き換え（`stripAudioTrack`）、写真ライブラリの参照はファイルを触れないので
+  再生時に映像トラックだけの合成にする（`VideoImporter.playerItem(for:)`。比較画面とフェーズ調整のプレビュー）。再生は常にミュートだが、
   音声トラックのある `AVPlayerItem` は再生開始・シークのたびに音声レンダラの起動を待って `currentTime` が 100〜200ms 止まり、
   ドリフト補正がそれをシークで直し、そのシークがまた時計を止めて連鎖する（速度 × 停止時間 > 80ms で発生。実機の x0.3 で顕在化した。
   [research/260907_0254](./research/260907_0254-model-video-stutter-on-device.md)）
@@ -178,8 +189,11 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
 設計の経緯と実測値は [design/260910_0236](./design/260910_0236-hand-height-phase-detection.md)。
 スロー動画で秒の閾値が壊れる分析は [research/260910_0220](./research/260910_0220-slowmo-detection-failure.md)。
 
-1. **追跡**（PoseTracker）: `AVAssetReader` でフレームを読み、`frameRate / 30` 間隔で間引いて `VNDetectHumanBodyPoseRequest` を実行。
-   複数人が写るとき（Golfboy の 2 視点合成など）は腰の位置が前フレームに最も近い人物を追い続ける（初回は最も大きく写る人物）。
+1. **追跡**（PoseTracker）: `AVAssetReader` でフレームを読み、`frameRate / 30` 間隔で間引いて `VNDetectHumanBodyPoseRequest` を実行
+   （フレーム 1 枚ずつの追跡は `FrameTracker` が持ち、撮影中のフレームにも同じものを使う）。
+   複数人が写るとき（Golfboy の 2 視点合成など）は腰の位置が前フレームに最も近い人物を追い続ける（初回は最も大きく写る人物。
+   腰と首の両方が見えていない観測は掴まない）。追跡中の人物を 1 秒（解析フレーム 30 個）見失ったらアンカーを捨てて選び直す。
+   長回しでは人物が画面を離れて戻る・序盤に誤検出を掴むことがあり、捨てないと二度と追い直せない（14 分の練習場の動画で検出率 0% になった原因）。
    手首は両手首の中点。片方しか見えないフレームは直前の「手首 → 中点」のずれを足して中点相当にし（切り替わりで位置が飛ばないように）、
    直前の点から 0.1 以内で続いていれば信頼度 0.15 まで採用する（他の関節は 0.3 未満を無視）。3 点メディアンで単発の飛びを消す。
    腰（root）・首（neck）の位置と、見えている関節の外接矩形（ペインの自動フィットに使う `focusRect`。§2）もフレームごとに残す
@@ -194,6 +208,13 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
    - フィニッシュ: フォローで手が上がりきる山（そこから 0.3 下がるまで）の高さの 90% に最初に達した点
    - フォローの後に手が低く戻る速さがフォローで上がった速さ以上なら、その高い区間は別のスイングのトップなので、この区間からはスイングを作らない
      （素振りの直後に本番があるとき）。高くならない（振り上げただけ）・低いまま終わる（トップからアドレス位置へ戻すだけ）も候補にしない
+   - インパクト付近の低い区間で手が止まり（速度の最小がダウンスイングの最大の 20% 未満）、止まった後の動きが下ろしより速いか低いまま欠測になる
+     （30fps の本番はブレて消える）なら、そこは次のスイングのアドレスなので、見えている形からはスイングを作らない。
+     ゆっくりした素振りをアドレスへ戻してそのまま本番を打つ流れ（練習場で多い）で、素振りの下ろしと本番を 1 つに繋げないため。
+     後方視点ではインパクト付近の手が奥へ動いて止まって見えるが、本物のフォローは下ろしより遅く、手首が隠れる欠測は肩の高さで起きるので残る
+   - 見えている形を捨てたとき（上の止まり、または別のスイングにまたがる）、テークバック直後に欠測があり、消える前に手が上がり始めていれば
+     「切り返しが欠測の中」の推定に落とす。30fps の本番はダウンスイング〜インパクトが丸ごとブレて消え、形の探索がフォロー → フィニッシュ →
+     次の球のアドレスまでまたいでしまうため（14 分の練習場の動画で、素振り直後の本番 8 回がこれで拾えた）
    - **手首が見えない区間**（後方視点ではトップ〜インパクトが体の陰に入る。30fps のブレでも欠ける）に切り返しが掛かるときは、
      再出現から次に高くなるまでの最低点をインパクト、消える前に高ければその時点を、まだ上がり途中ならアドレスから
      バックスイング : ダウンスイング = 3 : 1 の位置をトップに置き、`SwingCandidate.estimated` に記録する
@@ -201,6 +222,11 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
    素振りは振り上げ・速度とも小さく、本番と同じ振り切りなら後のスイングが選ばれる。候補はすべて `VideoConfig.candidates` に保存し、
    フェーズ調整画面で切り替えられる
 5. `PhaseSet.sanitize` で順序と範囲を強制
+   - **長い動画を 1 球ずつに分ける**（`ShotSplitter` → `SwingAnalysisResult.shots`）: 候補のフィニッシュから次のアドレスまで 6 秒以内なら同じ組
+     （素振りと本番）とみなし、組の中で最も振り切った候補に比べて振り上げ・ピーク速度とも 6 割未満の候補を素振りとして捨てる（同程度なら両方とも本番。
+     自動ティーアップでは本番が 5〜6 秒おきに続く）。残った候補の中央値に対して両方 6 割未満のものも素振りとみなして捨てる（比べる相手が無ければ残す）。範囲はアドレスの 1.5 秒前〜フィニッシュの 1.5 秒後で、
+     前のショットと重ねない。`sliced(to:)` で範囲の中だけを 1 本の動画として見た結果（時刻は先頭基準、スイングは検出し直し）が得られ、
+     切り出した動画を解析し直さずにクリップにできる（設計は [design/260912_1951](./design/260912_1951-in-app-slowmo-capture-and-shot-split.md)）
 6. **動画の速さの推定**（`VideoConfig.estimatedSlowFactor` → `SlowFactor.estimate`）: 焼き込みスローには倍率のメタデータが無いので、
    フェーズのダウンスイング長を実速の代表値 0.37 秒と比べ、1 / 2 / 4 / 8 / 16 / 32 のうち log2 で最も近いものにする
    （境目 0.52 / 1.04 / 2.08 / 4.2 / 8.3 秒。実速寄りに丸める）。フェーズの純関数なので保存せず、手で直せば追従する
@@ -234,8 +260,8 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
 
 - ビルド・シミュレータ・実機の手順: [guides/build-test.md](./guides/build-test.md)
 - 通しの自動 E2E（XCUITest ハーネス）: [.claude/skills/e2e-simulator/SKILL.md](../.claude/skills/e2e-simulator/SKILL.md)
-- 写真ライブラリの権限を拒否したときの OS ピッカー（PhotosPicker）経由では、スローモーション動画が 30fps のレンダリング版になる（権限があれば原本を取り込む。§2）
+- 写真ライブラリの権限を拒否したときの OS ピッカー（PhotosPicker）経由では、スローモーション動画が 30fps のレンダリング版になる（権限があれば原本を参照する。§2）
 - 画面構成（ホーム / 動画を選ぶ / ステージ）の設計: [design/260911_0530](./design/260911_0530-diary-screen-flow.md)
 - 実機でお手本だけがカクついた原因（音声トラック）と対策の比較: [research/260907_0254](./research/260907_0254-model-video-stutter-on-device.md)
-- 動画を写真ライブラリの参照ではなくコピーで持つ理由: [research/260907_0316](./research/260907_0316-copy-vs-reference-video-storage.md)
+- 動画をコピーで持っていた理由と、参照へ変えた判断: [research/260907_0316](./research/260907_0316-copy-vs-reference-video-storage.md) → [design/260912_2011](./design/260912_2011-photo-library-reference-storage.md)
 - 初回検証の記録: [research/260906_1531-simulator-verification.md](./research/260906_1531-simulator-verification.md)

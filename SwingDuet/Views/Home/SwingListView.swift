@@ -87,7 +87,7 @@ struct SwingListView: View {
                     Text(group.day.dayLabel)
                 } footer: {
                     if group.day == sections.last?.day {
-                        Text("★ 以外は \(ClipStore.swingLimit) 本まで残ります")
+                        Text("★ 以外は \(ClipStore.swingLimit) 本まで残ります（今日の分は数えません）")
                     }
                 }
             }
@@ -239,7 +239,7 @@ private struct SwingRow: View {
     }
 
     private func thumbnail(of clip: Clip) -> some View {
-        VideoThumbnail(url: store.videoURL(of: clip), time: clip.thumbnailTime(of: .impact), aspect: 44 / 60)
+        ClipThumbnail(clip: clip, phase: .impact, aspect: 44 / 60)
             .frame(width: 44, height: 60)
             .clipShape(RoundedRectangle(cornerRadius: 6))
     }

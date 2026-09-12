@@ -1,10 +1,11 @@
 // スイング検出を macOS 上で実行する開発用 CLI（実機なしで検出ロジックを確認する。Vision は Mac でも動く）。
 //
-// ビルド:  swiftc -O -o build/analyze-swing SwingDuet/Services/{SwingAnalyzer,PoseTracker,SwingDetector}.swift \
+// ビルド:  swiftc -O -o build/analyze-swing SwingDuet/Services/{SwingAnalyzer,PoseTracker,SwingDetector,ShotSplitter}.swift \
 //              SwingDuet/Models/*.swift scripts/analyze-swing/main.swift
-// 使い方:  build/analyze-swing [--series] [--joints] <動画>...
+// 使い方:  build/analyze-swing [--series] [--joints] [--shots] <動画>...
 //          --series  手の高さ（腰 = 0、首 = 1）と速度（体の大きさ/秒）の系列も出す（# の長さは速度）
 //          --joints  左右の手首・腰・首の生の位置と信頼度を出す（手首が隠れる区間を調べるとき）
+//          --shots   長い動画を 1 球ずつに分ける範囲（ShotSplitter）と、切り出した範囲での検出結果を出す
 import Foundation
 import Vision
 
@@ -20,9 +21,9 @@ extension SwingAnalyzer {
         let video = try await loadVideo(url: url)
         let names: [VNHumanBodyPoseObservation.JointName] = [.leftWrist, .rightWrist, .root, .neck]
         var frames: [JointFrame] = []
-        try PoseTracker.forEachTrackedPerson(
-            asset: video.asset, videoTrack: video.track, frameRate: video.frameRate, orientation: video.orientation
-        ) { time, person in
+        var tracker = PoseTracker.FrameTracker()
+        try PoseTracker.forEachSampledFrame(asset: video.asset, videoTrack: video.track, frameRate: video.frameRate) { time, pixelBuffer in
+            let person = tracker.person(in: pixelBuffer, orientation: video.orientation)
             var joints: [VNHumanBodyPoseObservation.JointName: VNRecognizedPoint] = [:]
             for name in names {
                 if let point = try? person?.recognizedPoint(name) { joints[name] = point }
@@ -64,6 +65,18 @@ func printReport(_ result: SwingAnalysisResult, name: String, elapsed: TimeInter
     if showSeries { printSeries(result) }
 }
 
+/// 1 球ずつの切り出し範囲と、その範囲だけを解析し直した結果（長い動画の分割の確認用）
+func printShots(_ result: SwingAnalysisResult) {
+    let shots = result.shots
+    print("  ショット \(shots.count) 本（候補 \(result.candidates.count)。組の中で明らかに小さい候補は素振りとして除く）")
+    for (i, shot) in shots.enumerated() {
+        let sliced = result.sliced(to: shot.range)
+        print(String(format: "  ショット%d: %.2f〜%.2f 秒（%.1f 秒）  採用 %@", i + 1, shot.range.lowerBound, shot.range.upperBound,
+                     shot.range.upperBound - shot.range.lowerBound, describe(shot.swing.phases)))
+        print(String(format: "           切り出し後: %@  候補 %d  信頼度%@", describe(sliced.phases), sliced.candidates.count, sliced.lowConfidence ? "低" : "可"))
+    }
+}
+
 /// 手の高さと速度の系列。手首を検出できたフレームだけにある。腰・首が取れていないフレームは r / n を空白にする
 func printSeries(_ result: SwingAnalysisResult) {
     let samples = SwingDetector.handSamples(track: result.pose)
@@ -101,9 +114,10 @@ func printJoints(url: URL) async throws {
 let args = CommandLine.arguments.dropFirst()
 let showSeries = args.contains("--series")
 let showJoints = args.contains("--joints")
+let showShots = args.contains("--shots")
 let paths = args.filter { !$0.hasPrefix("--") }
 guard !paths.isEmpty else {
-    print("usage: analyze-swing [--series] [--joints] <video>...")
+    print("usage: analyze-swing [--series] [--joints] [--shots] <video>...")
     exit(1)
 }
 
@@ -115,6 +129,7 @@ Task {
             let started = Date()
             let result = try await SwingAnalyzer.analyze(url: url)
             printReport(result, name: url.lastPathComponent, elapsed: Date().timeIntervalSince(started), showSeries: showSeries)
+            if showShots { printShots(result) }
             if showJoints { try await printJoints(url: url) }
         } catch {
             print("\(url.lastPathComponent): ERROR \(error)")

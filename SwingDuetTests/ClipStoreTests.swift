@@ -137,6 +137,69 @@ struct ClipStoreTests {
         #expect(store.swings.filter { !$0.isFavorite && $0.isAnalyzed }.count == ClipStore.swingLimit)
     }
 
+    /// 当日のスイングは上限に数えず、流れない
+    @Test func todaysSwingsAreNeitherCountedNorFlowedOut() {
+        let store = makeStore()
+        let old = Date(timeIntervalSince1970: 1_700_000_000)
+        var ids: [UUID] = []
+        for i in 0..<ClipStore.swingLimit {
+            ids.append(store.add(role: .swing, fileName: "s\(i).mov", shotAt: old.addingTimeInterval(Double(i) * 60), assetID: nil).id)
+        }
+        for i in 0..<3 {
+            ids.append(store.add(role: .swing, fileName: "t\(i).mov", shotAt: Date().addingTimeInterval(Double(-i) * 60), assetID: nil).id)
+        }
+        for id in ids {
+            var done = store.clip(id: id)!
+            done.analysis = .done
+            store.update(done)
+        }
+        store.add(role: .swing, fileName: "now.mov", shotAt: Date(), assetID: nil)   // 当日の追加では何も流れない
+        #expect(store.swings.count == ClipStore.swingLimit + 4)
+        store.add(role: .swing, fileName: "later.mov", shotAt: old.addingTimeInterval(1e6), assetID: nil)
+        var later = store.swings.first { $0.fileName == "later.mov" }!
+        later.analysis = .done
+        store.update(later)
+        store.add(role: .swing, fileName: "trigger.mov", shotAt: old.addingTimeInterval(2e6), assetID: nil)
+        #expect(store.clip(id: ids[0]) == nil)                  // 過去の最も古いものが流れた
+        #expect(ids.suffix(3).allSatisfy { store.clip(id: $0) != nil })   // 当日の分は残る
+    }
+
+    // MARK: - 動画の出どころ
+
+    /// ファイル名が空で写真ライブラリの識別子があれば参照。ファイル名があればコピー（旧データも）
+    @Test func sourceIsLibraryReferenceOnlyWhenThereIsNoFile() throws {
+        let store = makeStore()
+        let referenced = store.add(role: .swing, fileName: "", shotAt: nil, assetID: "asset-1", cloudID: "cloud-1")
+        #expect(referenced.source == .library(localID: "asset-1", cloudID: "cloud-1"))
+        let copied = store.add(role: .swing, fileName: "c.mov", shotAt: nil, assetID: "asset-2")
+        #expect(copied.source == .file("c.mov"))
+
+        // 保存して読み直しても同じ。cloudID の無い旧データはコピー
+        let reloaded = makeStore()
+        #expect(reloaded.clip(id: referenced.id)?.source == .library(localID: "asset-1", cloudID: "cloud-1"))
+        #expect(reloaded.clip(id: copied.id)?.source == .file("c.mov"))
+        try write("""
+        {"version":2,"clips":[{"id":"\(UUID().uuidString)","role":"swing","name":"","createdAt":"2026-09-01T00:00:00Z","assetID":"asset-3",
+          "isFavorite":false,"video":{"fileName":"old.mov","duration":3,"frameRate":30,"phases":{"address":0.2,"top":0.8,"impact":1.0,"finish":1.5}},
+          "analysis":{"done":{}}}]}
+        """, to: "library.json")
+        #expect(makeStore().swings.first?.source == .file("old.mov"))
+    }
+
+    /// 分割済みの長い動画の記録は保存され、無い旧データでも読める
+    @Test func splitTakesPersistAndDefaultToEmpty() throws {
+        try write("""
+        {"version":2,"clips":[],"splitTakes":["take-1"]}
+        """, to: "library.json")
+        var library = try JSONDecoder().decode(Library.self, from: Data(contentsOf: directory.appendingPathComponent("library.json")))
+        #expect(library.splitTakes == ["take-1"])
+        try write("""
+        {"version":2,"clips":[]}
+        """, to: "library.json")
+        library = try JSONDecoder().decode(Library.self, from: Data(contentsOf: directory.appendingPathComponent("library.json")))
+        #expect(library.splitTakes.isEmpty)
+    }
+
     @Test func addingTheSameLibraryVideoCopiesTheAnalysisAndResetsTheTransform() {
         let store = makeStore()
         let first = store.add(role: .model, name: "A", fileName: "a.mov", shotAt: nil, assetID: "asset-1")

@@ -7,6 +7,15 @@ extension CGPoint {
     }
 }
 
+extension Collection where Element == Double {
+    /// 中央値（要素が無ければ nil）。外れ値に引きずられない代表値が要るところで使う
+    var median: Double? {
+        guard !isEmpty else { return nil }
+        let sorted = self.sorted()
+        return sorted[sorted.count / 2]
+    }
+}
+
 extension CGRect {
     /// 点の集まりを囲む最小の矩形。点が無ければ nil
     init?(enclosing points: [CGPoint]) {
