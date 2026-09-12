@@ -221,6 +221,9 @@ SPM パッケージ・CocoaPods は使っていない。
   + Photos（PhotoKit。写真ライブラリの動画の一覧と原本の取り込み）+ PhotosUI（権限が無いときの `PhotosPicker`）。iOS 17 以降 / Swift 5 言語モード。詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 - **ビルド・動作確認手順**: [docs/guides/build-test.md](./docs/guides/build-test.md)。
   シミュレータで通しの自動 E2E を回すときは [.claude/skills/e2e-simulator/SKILL.md](./.claude/skills/e2e-simulator/SKILL.md)
+- **出先の iPhone に入れる（OTA）**: Mac に USB でも同じ LAN でもつながっていない iPhone には
+  [.claude/skills/ota-install/SKILL.md](./.claude/skills/ota-install/SKILL.md)。ビルド済みの .app を Mac から一時トンネルで配り、
+  iPhone の Safari から入れる。**Mac でサーバーとトンネルが動いている間だけ届く**（止めると URL は無効）
 - **シミュレータの制約**: Vision の姿勢推定はシミュレータでは動作しない（常にフォールバック位相＋ `lowConfidence` になる）。
   検出精度に関わる変更は実機で確認する
 - **署名**: `DEVELOPMENT_TEAM` は pbxproj に設定済み（自動署名）

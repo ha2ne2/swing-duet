@@ -86,7 +86,7 @@ xcodebuild test -project SwingDuet.xcodeproj -scheme SwingDuetTests \
 
 ## 実機へのインストール
 
-iPhone をケーブルで Mac につなぎ:
+iPhone をケーブルで Mac につなぎ（Mac のそばに無い iPhone には OTA：[.claude/skills/ota-install/SKILL.md](../../.claude/skills/ota-install/SKILL.md)）:
 
 ```bash
 xcodebuild build -project SwingDuet.xcodeproj -scheme SwingDuet \
