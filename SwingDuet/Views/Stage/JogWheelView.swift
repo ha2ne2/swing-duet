@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 再生ボタンを中心にしたジョグホイール。帯を回すと基準側動画の 1 コマ単位で進み（時計回りが進む）、帯の左右をタップすると ±1 コマ。
+/// 再生ボタンを中心にしたジョグホイール。帯を回すと 1 コマ（`SyncEngine.frameStep`）単位で進み（時計回りが進む）、帯の左右をタップすると ±1 コマ。
 /// 回した量が移動量、回した速さが速さで、指を置いたまま往復できる。回し続けると 1 周ごとに 1 目盛りのコマ数が倍になる
 /// （`JogRotation.framesPerDetent`。逆回転や指を止めると 1 コマに戻る）ので、1 周目は 1 コマずつ、3 周目からは 4 コマずつ動かせる
 /// （設計は docs/design/260911_0741-jog-wheel-frame-stepping.md、根拠は docs/research/260911_1226-jog-wheel-acceleration-survey.md）。
@@ -12,7 +12,7 @@ struct JogWheelView: View {
     /// 外径（pt）。帯の幅と再生ボタンはこれに比例する（132 で帯 32・再生 52。横画面は 96 に縮める）
     var diameter: CGFloat = 132
 
-    /// 1 周のコマ数（30fps の動画なら 1 周 = 基準側の 1 秒）
+    /// 1 周のコマ数（30fps の動画なら 1 周 = 1 秒）
     private static let framesPerTurn = 30
     private static let degreesPerFrame = 360.0 / Double(framesPerTurn)
     /// 帯の左右のタップ領域（中心からの角度 ±60°）。`cos` がこの値以上なら右、以下の負なら左
@@ -108,9 +108,12 @@ struct JogWheelView: View {
         let after = controller.commonTime
         atEnd = after == before
         guard !atEnd else { return }
-        let crossed = [SwingPhase.top, .impact].contains { phase in
-            let t = controller.sync.commonTime(of: phase)
-            return (before >= t) != (after >= t)
+        // 同期しないときはトップ / インパクトの位置が側ごとに違うので、どちらの側のものを通過しても鳴らす
+        let crossed = VideoSide.allCases.contains { side in
+            [SwingPhase.top, .impact].contains { phase in
+                let t = controller.sync.commonTime(of: phase, for: side)
+                return (before >= t) != (after >= t)
+            }
         }
         if crossed { bumps += 1 } else { ticks += 1 }
     }

@@ -1,8 +1,10 @@
 import SwiftUI
 
-/// 共通タイムラインの 1 本のシークバー。
+/// 共通タイムラインのシークバー。
 /// バックスイング / ダウンスイング / フォローを色分けし（凡例は出さない）、ドラッグで 2 本を同時にシークする。
-/// ループ範囲（`LoopMode.range`。既定はスイング全体）は白い枠 `TrimFrame` で囲み、外を暗くする。
+/// 同期しているときはフェーズの位置が両側で同じなので帯は 1 本。同期しないときは側ごとに違うので上（自分）と下（お手本）の 2 本に分け、
+/// 等速で流したときのフェーズのずれをそのまま見せる（スイング区間の外は灰色）。
+/// ループ範囲（`PlaybackController.loop`。既定はスイング全体）は白い枠 `TrimFrame` で囲み、外を暗くする。
 /// 枠の左右の太い縦棒がつまみで、ドラッグすると端が最も近いフェーズから整数コマの位置で動く。「ループしない」では枠もつまみも出ない
 /// （設計は docs/design/260912_0252-loop-trim-handles.md。動かした範囲はループのメニューの行で読める）
 struct SeekBarView: View {
@@ -10,6 +12,8 @@ struct SeekBarView: View {
 
     private static let barHeight: CGFloat = 28
     private static let handleWidth: CGFloat = 12
+    /// スイング区間の外（アドレスより前・フィニッシュより後。同期しないときだけ幅がある）
+    private static let outsideColor = Color(white: 0.3)
     /// つまみのドラッグを測るバーの座標系の名前
     private static let coordinateSpace = "seekBar"
 
@@ -20,6 +24,9 @@ struct SeekBarView: View {
 
     private var sync: SyncEngine { controller.sync }
 
+    /// 区間を塗る帯を出す側（同期しているときは 1 本、同期しないときは自分・お手本の 2 本）
+    private var bars: [VideoSide] { sync.basis == .free ? VideoSide.allCases : [.mine] }
+
     var body: some View {
         GeometryReader { geo in
             // つまみは範囲の外側に付くので、目盛りの両端をつまみの幅だけ空ける。範囲がスイング全体でもつまみが横の余白（16pt）を越えず、
@@ -29,12 +36,9 @@ struct SeekBarView: View {
             let upper = x(for: controller.loopRange.upperBound, width: width)
             ZStack(alignment: .leading) {
                 ZStack(alignment: .leading) {
-                    // 区間の色分け
-                    HStack(spacing: 0) {
-                        ForEach(SwingSegment.allCases) { segment in
-                            Rectangle()
-                                .fill(segment.color.opacity(0.85))
-                                .frame(width: segmentWidth(segment, totalWidth: width))
+                    VStack(spacing: 2) {
+                        ForEach(bars) { side in
+                            segmentBar(for: side, width: width)
                         }
                     }
                     // ループ範囲の外を沈める（スイング全体 / ループしないでは幅 0）
@@ -46,14 +50,6 @@ struct SeekBarView: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                // フェーズ境界（トップ / インパクト）
-                ForEach([SwingPhase.top, SwingPhase.impact], id: \.self) { phase in
-                    Rectangle()
-                        .fill(.white.opacity(0.9))
-                        .frame(width: 1.5)
-                        .offset(x: x(for: sync.commonTime(of: phase), width: width))
-                }
-
                 // 再生ヘッド
                 RoundedRectangle(cornerRadius: 1.5)
                     .fill(.white)
@@ -61,7 +57,7 @@ struct SeekBarView: View {
                     .shadow(radius: 2)
                     .offset(x: x(for: controller.commonTime, width: width) - 2)
 
-                if controller.loop.range != nil {
+                if controller.loop != nil {
                     // 範囲の枠（左右の縦棒がつまみ）と、つまみの中央の印
                     TrimFrame(lower: lower, upper: upper, handleWidth: Self.handleWidth, lineWidth: 1.5)
                         .fill(.white, style: FillStyle(eoFill: true))
@@ -78,7 +74,7 @@ struct SeekBarView: View {
             // NOTE: overlay の暗黙の ZStack は子を「子の最大の大きさ」の中央に寄せるので、大きさの違う子を並べると小さい子がずれる。
             //       明示的な ZStack をバーの大きさに固定し、各子をバーの左端から置く
             .overlay(alignment: .leading) {
-                if let range = controller.loop.range {
+                if let range = controller.loop {
                     ZStack(alignment: .leading) {
                         ForEach(LoopRange.Bound.allCases, id: \.self) { bound in
                             handleHitArea(bound, edge: range[bound], lower: lower, upper: upper, width: width)
@@ -109,6 +105,31 @@ struct SeekBarView: View {
         .frame(height: Self.barHeight)
     }
 
+    // MARK: - 帯
+
+    /// その側の区間の色分けと、フェーズ境界（トップ / インパクト）の線
+    private func segmentBar(for side: VideoSide, width: CGFloat) -> some View {
+        ZStack(alignment: .leading) {
+            HStack(spacing: 0) {
+                Self.outsideColor
+                    .frame(width: x(for: sync.commonTime(of: .address, for: side), width: width))
+                ForEach(SwingSegment.allCases) { segment in
+                    let range = sync.commonRange(of: segment, for: side)
+                    Rectangle()
+                        .fill(segment.color.opacity(0.85))
+                        .frame(width: max(x(for: range.upperBound, width: width) - x(for: range.lowerBound, width: width), 0))
+                }
+                Self.outsideColor
+            }
+            ForEach([SwingPhase.top, SwingPhase.impact], id: \.self) { phase in
+                Rectangle()
+                    .fill(.white.opacity(0.9))
+                    .frame(width: 1.5)
+                    .offset(x: x(for: sync.commonTime(of: phase, for: side), width: width))
+            }
+        }
+    }
+
     // MARK: - つまみ
 
     /// つまみの中心の x（枠の縦棒の中心。開始は範囲の左端の外側、終了は右端の外側）
@@ -118,7 +139,7 @@ struct SeekBarView: View {
 
     /// つまみの当たり（見た目は `TrimFrame` の縦棒）。44pt 四方でバーの上下に 8pt はみ出す
     private func handleHitArea(_ bound: LoopRange.Bound, edge: LoopEdge, lower: CGFloat, upper: CGFloat, width: CGFloat) -> some View {
-        let time = sync.commonTime(of: edge)
+        let time = sync.commonTime(of: edge, as: bound)
         return Color.clear
             .frame(width: 44, height: 44)
             .contentShape(Rectangle())
@@ -144,19 +165,13 @@ struct SeekBarView: View {
             .accessibilityHint("上下にスワイプで 1 コマ")
             .accessibilityAdjustableAction { direction in
                 controller.beginTrim()
-                controller.trim(bound, to: time + (direction == .increment ? 1.0 : -1.0) * sync.referenceFrameDuration)
+                controller.trim(bound, to: time + (direction == .increment ? 1.0 : -1.0) * sync.frameStep)
                 controller.endTrim()
             }
             .accessibilityIdentifier(bound == .start ? "seekBar.loopStart" : "seekBar.loopEnd")
     }
 
     // MARK: - 座標
-
-    private func segmentWidth(_ segment: SwingSegment, totalWidth: CGFloat) -> CGFloat {
-        let range = sync.commonRange(of: segment)
-        let fraction = (range.upperBound - range.lowerBound) / sync.commonDuration
-        return max(totalWidth * CGFloat(fraction), 0)
-    }
 
     private func x(for time: Double, width: CGFloat) -> CGFloat {
         let fraction = min(max(time / sync.commonDuration, 0), 1)

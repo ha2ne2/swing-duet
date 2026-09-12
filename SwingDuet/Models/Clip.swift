@@ -118,20 +118,20 @@ struct Library: Codable {
 
     var version: Int = Library.currentVersion
     var clips: [Clip] = []
-    /// 同期の基準側（アプリ全体で 1 つ）
-    var reference: VideoSide = .model
+    /// 比較画面の再生の設定（アプリ全体で 1 つ）
+    var playback = PlaybackSettings()
 }
 
 extension Library {
     private enum CodingKeys: String, CodingKey {
-        case version, clips, reference
+        case version, clips, playback
     }
 
-    /// `version` を書く前のデータ（版 0）も読めるようにする
+    /// `version` を書く前のデータ（版 0）と、`playback` の無いデータも読めるようにする
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
         clips = try c.decode([Clip].self, forKey: .clips)
-        reference = try c.decode(VideoSide.self, forKey: .reference)
+        playback = try c.decodeIfPresent(PlaybackSettings.self, forKey: .playback) ?? PlaybackSettings()
     }
 }

@@ -1,14 +1,13 @@
 import SwiftUI
 
-/// 比較画面の下段の操作パネル：基準の切り替え・共通シークバー・再生操作。
+/// 比較画面の下段の操作パネル：同期のとり方の切り替え・共通シークバー・再生操作。
 /// 比較前のステージも同じ View を（`PlaybackController.placeholder` で）飾りとして出し、両ペインがそろった瞬間に高さが変わらないようにする
 struct ControlPanelView: View {
-    let controller: PlaybackController
-    @Binding var reference: VideoSide
+    @Bindable var controller: PlaybackController
 
     var body: some View {
         VStack(spacing: 8) {
-            ReferencePicker(reference: $reference)
+            SyncBasisPicker(basis: $controller.syncBasis)
                 .padding(.horizontal)
 
             SeekBarView(controller: controller)
@@ -21,18 +20,18 @@ struct ControlPanelView: View {
     }
 }
 
-/// 同期の基準（自分基準 / お手本基準）の切り替え。行の右端に置く
-private struct ReferencePicker: View {
-    @Binding var reference: VideoSide
+/// 同期のとり方（自分基準 / お手本基準 / 同期しない）の切り替え。行の右端に置く
+private struct SyncBasisPicker: View {
+    @Binding var basis: SyncBasis
 
     var body: some View {
-        Picker("基準", selection: $reference) {
-            ForEach(VideoSide.allCases) { side in
-                Text("\(side.label)基準").tag(side)
+        Picker("同期", selection: $basis) {
+            ForEach(SyncBasis.allCases) { basis in
+                Text(basis.label).tag(basis)
             }
         }
         .pickerStyle(.segmented)
-        .frame(width: 170)
+        .frame(width: 260)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }

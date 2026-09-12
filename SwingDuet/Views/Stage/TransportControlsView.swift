@@ -7,9 +7,10 @@ struct TransportControlsView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            // フェーズへのジャンプ（フィニッシュは終端なので省く）
+            // フェーズへのジャンプ（フィニッシュは終端なので省く）。同期しないときは押したフェーズで両方を揃え直すので、揃えているものを塗る
             HStack(spacing: 8) {
                 ForEach([SwingPhase.address, .top, .impact]) { phase in
+                    let isAnchor = controller.syncBasis == .free && controller.sync.anchor == phase
                     Button {
                         controller.jump(to: phase)
                     } label: {
@@ -17,9 +18,10 @@ struct TransportControlsView: View {
                             .font(.caption)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
-                            .background(.quaternary, in: Capsule())
+                            .background(isAnchor ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary), in: Capsule())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityValue(isAnchor ? "ここで揃えている" : "")
                 }
             }
 
@@ -53,26 +55,26 @@ struct TransportControlsView: View {
 
     /// スイング全体より狭い範囲（区間か、つまみで動かした範囲）をループしている
     private var isPartialLoop: Bool {
-        controller.loop.range.map { $0 != .all } ?? false
+        controller.loop.map { $0 != .all } ?? false
     }
 
     private var loopMenu: some View {
         Menu {
             Picker("ループ範囲", selection: $controller.loop) {
-                Text("スイング全体").tag(PlaybackController.LoopMode.all)
+                Text("スイング全体").tag(Optional(LoopRange.all))
                 ForEach(SwingSegment.allCases) { segment in
-                    Text("\(segment.label)のみ").tag(PlaybackController.LoopMode.segment(segment))
+                    Text("\(segment.label)のみ").tag(Optional(LoopRange.segment(segment)))
                 }
                 // つまみで動かした範囲は上の項目に一致しないので、いまの範囲を項目として足す（Picker は選択が項目に無いと未定義）
-                if let range = controller.loop.range, range != .all, range.segment == nil {
-                    Text("\(range.start.label) 〜 \(range.end.label)").tag(controller.loop)
+                if let range = controller.loop, range != .all, range.segment == nil {
+                    Text("\(range.start.label) 〜 \(range.end.label)").tag(Optional(range))
                 }
-                Text("ループしない").tag(PlaybackController.LoopMode.off)
+                Text("ループしない").tag(LoopRange?.none)
             }
         } label: {
             Image(systemName: isPartialLoop ? "repeat.1" : "repeat")
                 .font(.title3)
-                .foregroundStyle(controller.loop == .off ? Color.secondary : Color.accentColor)
+                .foregroundStyle(controller.loop == nil ? Color.secondary : Color.accentColor)
         }
         // NOTE: 画面下端のボタンからメニューが上に開くと iOS は項目を逆順（先頭がボタン側）に並べる。
         //       スイング全体 → 各区間 → ループしない の宣言順で見せたいので固定する

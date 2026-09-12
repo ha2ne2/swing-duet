@@ -25,8 +25,9 @@ SwingDuet/
 │   ├── Swing.swift               # SwingPhase / SwingSegment / PhaseSet（4 フェーズと 3 区間）
 │   ├── VideoConfig.swift         # VideoSide / VideoConfig（動画の情報・解析結果・表示変換）
 │   ├── Clip.swift                # Clip / ClipRole / AnalysisState / Pairing / Library（保存単位と保存する全体）
-│   ├── SyncEngine.swift          # 共通タイムライン ⇔ 各動画時刻の区間別線形写像（§3）
+│   ├── SyncEngine.swift          # SyncBasis / SyncEngine：共通タイムライン ⇔ 各動画時刻の写像（同期の区間別線形伸縮、同期しない等速。§3）
 │   ├── LoopRange.swift           # LoopEdge / LoopRange（ループ範囲の端。フェーズからのコマ数で持ち、丸め・詰めは純粋計算）
+│   ├── PlaybackSettings.swift    # 比較画面の再生の設定（同期のとり方・揃えるフェーズ・速度・ループ範囲。アプリ全体で 1 つ保存）
 │   ├── Formatting.swift          # 日時・時間の表記と、日付ごとの節への分け方
 │   └── Geometry.swift            # CGPoint / CGRect の小さな補助（距離・外接矩形）
 ├── Services/                     # 入出力・解析・再生制御
@@ -36,17 +37,17 @@ SwingDuet/
 │   ├── PhotoLibrary.swift        # 写真ライブラリ（PhotoKit）：権限と動画の一覧（変更に追従）、限定アクセスの選び直し、原本の書き出し。ピッカーで選んだ動画の出どころ LibrarySource
 │   ├── VideoImporter.swift       # OS のピッカー（PhotosPicker）から動画を受け取る・撮影日時・映像トラックだけへの書き換え（stripAudioTrack）
 │   ├── ClipStore.swift           # クリップの永続化（JSON + 動画ファイル管理）、旧データの移行、解析キュー、上限、元に戻す
-│   └── PlaybackController.swift  # CADisplayLink マスタークロック + 区間別レート再生（§4）
+│   └── PlaybackController.swift  # CADisplayLink マスタークロックで 2 本を SyncEngine の倍率で再生。再生の設定の持ち主（§4）
 └── Views/                        # 画面ごとのフォルダ
     ├── Home/
     │   └── SwingListView.swift   # ホーム（起動画面）。スイングの一覧（★ お気に入り / 撮影日ごと）、＋、選択モード、元に戻す
     ├── Stage/
     │   ├── StageView.swift       # ステージ。左のスイングと相手（右）。両方の解析が済めば ComparisonView、それまでは解析中 / お手本なし / 失敗の表示
-    │   ├── ComparisonView.swift  # 比較（ペイン 2 つ + 操作パネル）。左右の編集をクリップに保存し、同期設定を controller に反映
+    │   ├── ComparisonView.swift  # 比較（ペイン 2 つ + 操作パネル）。左右の編集をクリップに、再生の設定を Library に保存
     │   ├── VideoPaneView.swift   # 動画ペイン（自動フィット・拡大縮小・位置合わせ。下端中央にフェーズ調整）
     │   ├── PaneSwapButton.swift  # ペイン右上の「替える」（比較前の SlotPane と共通）。動画に重ねるカプセル paneChip
-    │   ├── ControlPanelView.swift # 操作パネル（基準切替 + シークバー + 再生操作）。比較前のステージにも飾りとして出す
-    │   ├── SeekBarView.swift     # 区間色分けの共通シークバー。ループ範囲を枠で囲んで外を暗くし、両端のつまみで端をコマ単位に動かす
+    │   ├── ControlPanelView.swift # 操作パネル（同期のとり方の切替 + シークバー + 再生操作）。比較前のステージにも飾りとして出す
+    │   ├── SeekBarView.swift     # 区間色分けの共通シークバー（同期しないときは上下 2 本）。ループ範囲を枠で囲んで外を暗くし、両端のつまみで端をコマ単位に動かす
     │   ├── TransportControlsView.swift # フェーズジャンプ / ジョグホイール / 速度 / ループ
     │   ├── JogWheelView.swift    # 再生ボタンを中心にしたジョグホイール（回してコマ送り、左右タップで ±1、触覚）
     │   ├── JogRotation.swift     # 回転を目盛りに数え、周回でギア（1 目盛りのコマ数）を上げる純粋計算
@@ -97,26 +98,38 @@ JSON のどこからも参照されなくなったファイルを起動時に `C
 
 ## 3. 同期の仕組み（SyncEngine）
 
-- **共通タイムライン**は**実世界の秒**。長さは基準側（`reference`）のスイング区間（アドレス〜フィニッシュ）を
-  基準側の速さ `VideoConfig.effectiveSlowFactor`（動画秒 ÷ 実秒。実速なら 1、1/8 の焼き込みスローなら 8）で割ったもの
-- 各フェーズの位置（`commonTime(of:)`）も基準側で決まる（基準側のアドレスが 0。同じく速さで割る）
+**共通タイムライン**は**実世界の秒**。同期のとり方（`SyncBasis`：自分基準 / お手本基準 / 同期しない。アプリ全体で 1 つ、`Library.playback` に保存）で
+写像が変わる。フェーズの位置は `commonTime(of:for:)` で側ごとに読む（同期しているときは両側で同じ）。
+
+**自分基準 / お手本基準**（区間ごとの線形伸縮）：
+
+- 長さは基準側のスイング区間（アドレス〜フィニッシュ）を基準側の速さ `VideoConfig.effectiveSlowFactor`
+  （動画秒 ÷ 実秒。実速なら 1、1/8 の焼き込みスローなら 8）で割ったもの。各フェーズの位置も基準側で決まる（基準側のアドレスが 0）
 - 非基準側は各区間（バックスイング / ダウンスイング / フォロー。区間の始点・終点は `SwingSegment.start / end`）を
   線形に伸縮して写像する（`videoTime(at:for:)`）。これにより 4 点が必ず一致する
-- 区間ごとの速度倍率 `rateMultiplier(for:in:)` = その側の区間長（動画秒）÷ 共通タイムライン上の区間長（実秒）。
+- 速度倍率 `rateMultiplier(for:at:)` はその時刻の区間の、その側の区間長（動画秒）÷ 共通タイムライン上の区間長（実秒）。
   基準側は `slowFactor` そのもの。非基準側の速さは区間長の比に含まれるので、同期に使うのは基準側の `slowFactor` だけでよい
   （左右両方がスローでも同じ。設計は [design/260911_0805](./design/260911_0805-slow-factor-on-clips.md)）
-- コマ送りの 1 ステップは基準側動画の 1 フレーム（`referenceFrameDuration`。共通タイムライン上では 1 ÷ (fps × slowFactor)）
+- コマ送りの 1 ステップ（`frameStep`）は基準側動画の 1 フレーム（共通タイムライン上では 1 ÷ (fps × slowFactor)）
+
+**同期しない**（等速。設計は [design/260912_1047](./design/260912_1047-free-run-alignment.md)）：
+
+- 伸縮せず、両方をそれぞれの速さで実秒に戻し、揃えるフェーズ `anchor`（同期しないに入った時点ではインパクト。フェーズジャンプのボタンで替える）の瞬間だけ一致させる。
+  長さは早い方のアドレスから遅い方のフィニッシュまでで、フェーズの位置は側ごとに違う
+- 速度倍率は常にその側の `slowFactor`。共通タイムラインがその側の動画の端の外に及ぶ範囲では 0（端の絵のまま待つ）
+- コマ送りの 1 ステップは細かい方の 1 フレーム（どちらの動画のコマも飛ばさない）
+- ループ範囲の端（`LoopEdge`）は開始なら早い方、終了なら遅い方のフェーズから数える（「ダウンスイングのみ」は両方のダウンスイングを含む範囲）
 
 ## 4. 再生の仕組み（PlaybackController）
 
 - `CADisplayLink`（30〜60Hz）がマスタークロック。毎 tick で `commonTime += dt × speed`。
   共通タイムラインが実秒なので `speed` は**実速に対する倍率**（x1 = 実速。スロー動画でも同じ）
-- 各 `AVPlayer` は「再生速度 × 区間倍率」の `rate` で走らせ、区間境界で `rate` を切り替える
+- 各 `AVPlayer` は「再生速度 × `SyncEngine` の倍率」の `rate` で走らせ、倍率が変わる tick（同期しているときは区間境界）で `rate` を切り替える
   （1/8 スローの動画を基準に x1 で見ると `rate` は 8。ローカルファイルなら再生できるが、滑らかさは実機で確認する）
 - 実時刻と期待時刻のドリフトが **80ms（実秒）** を超えたらシークで補正（許容 20ms）。`currentTime` の揺れは実秒でほぼ一定なので、
   動画秒で比べる閾値には rate を掛ける（rate 8 で 80ms のまま比べると常に超えてシークが連鎖する）。
   一時停止・ジャンプ・コマ送り・スクラブ終了時は許容ゼロの精密シーク
-- コマ送りはジョグホイール（`JogWheelView`）。帯を 12° 回すごとに基準側の 1 コマ（1 周 30 コマ）、帯の左右のタップで ±1 コマ。
+- コマ送りはジョグホイール（`JogWheelView`）。帯を 12° 回すごとに 1 コマ（`SyncEngine.frameStep`。1 周 30 コマ）、帯の左右のタップで ±1 コマ。
   回し続けると 1 周ごとに 1 目盛りのコマ数が倍になる（`JogRotation.framesPerDetent`：1 周目 1、2 周目 2、3 周目以降 4。
   指を離す・0.3 秒止まる・逆回転で 1 に戻る）。瞬間の速さで決めないのは、親指の円運動は伸ばす区間だけ速いという手の構造上の偏りがあり、
   速さで決めると 1 周の中で重さが脈打つため（[research/260911_1226](./research/260911_1226-jog-wheel-acceleration-survey.md)）。
@@ -128,8 +141,8 @@ JSON のどこからも参照されなくなったファイルを起動時に `C
   （YouTube 由来のお手本や 240fps の原本はキーフレーム間隔が 120〜235 フレーム）、まとめないとシークバーで戻るときだけカクつく
   （[research/260912_0249](./research/260912_0249-seekbar-backward-scrub-stutter.md)）。後退の絵の更新はそれでも復号の速さが上限で、
   根本策はキーフレーム間隔を詰める取り込み時の再エンコード（[TODO.md](./TODO.md) I）
-- ループ範囲は `loop`（`LoopMode`：ループする範囲 `LoopRange` / ループしない）。範囲を出たら先頭へ戻る（ループしないなら停止）。
-  範囲の端 `LoopEdge` はフェーズからのコマ数で持つので、フェーズ修正・基準切替で共通タイムラインが伸縮しても端がフェーズに付いてくる
+- ループ範囲は `loop`（`LoopRange?`。nil ならループしない）。範囲を出たら先頭へ戻る（ループしないなら停止）。
+  範囲の端 `LoopEdge` はフェーズからのコマ数で持つので、フェーズ修正・同期のとり方の切替で共通タイムラインが伸縮しても端がフェーズに付いてくる
   （既定の「スイング全体」`LoopRange.all` はアドレスとフィニッシュ、メニューの「ダウンスイングのみ」は区間の両端を、コマ数 0 で置いた範囲）。
   シークバーはループする間つねに範囲の両端につまみを出す。つまみのドラッグ（`beginTrim` / `trim` / `endTrim`）は端を最も近いフェーズから
   整数コマに丸め、反対側と 1 コマ以上離し、時計を端に置いて映像で端のコマを見せる。シークのまとめ方はコマ送りと同じ
@@ -138,7 +151,10 @@ JSON のどこからも参照されなくなったファイルを起動時に `C
   `NavigationStack` の戻るスワイプを止める（応答チェーンで `UINavigationController` を見つけ、左端の `interactivePopGestureRecognizer` と
   iOS 26 からの画面全体の `interactiveContentPopGestureRecognizer` を無効にし、一覧へ戻ったら元に戻す。後者は前者が受け持たない場合に働くので
   片方だけでは止まらない。一覧へは左上の「<」で戻る）
-- フェーズ修正・基準切替時は `updateSync` で相対位置（進捗率）を保って追従する
+- フェーズ修正（`updateVideos`）と同期のとり方の切替（`syncBasis`）は相対位置（進捗率）を保って追従する。
+  同期しないときのフェーズジャンプ（`jump(to:)`）はそのフェーズで揃え直してから移る
+- 再生の設定（`PlaybackSettings`：同期のとり方・揃えるフェーズ・速度・ループ範囲）の持ち主は controller（`settings`）。
+  `ComparisonView` がその変化を `ClipStore.playback` に書き、次に開く比較の初期値になる（アプリ全体で 1 つ。再生位置は保存しない）
 - 比較が開いたら `playWhenReady` が両方の `AVPlayerItem` の準備（`readyToPlay`）を待って自動で再生を始める
 - **音声トラックは取り込み時に落とす**（`stripAudioTrack`）。再生は常にミュートだが、
   音声トラックのある `AVPlayerItem` は再生開始・シークのたびに音声レンダラの起動を待って `currentTime` が 100〜200ms 止まり、

@@ -301,6 +301,13 @@ final class FlowTests: XCTestCase {
         tapIfExists(app.buttons["自分基準"], "reference=mine", timeout: 3)
         usleep(500_000); shot("reference_mine")
 
+        // 同期しない（等速で流し、押したフェーズで両方を揃える。シークバーが上下 2 本になる）
+        if tapIfExists(app.buttons["同期しない"], "sync=free", timeout: 3) {
+            usleep(500_000); shot("sync_free")
+            tapIfExists(app.buttons["トップ"], "align at top", timeout: 3)
+            usleep(500_000); shot("sync_free_top")
+        }
+
         // 再生速度（表示をタップすると 0.1 / 0.2 / 0.3 / 0.5 / 1.0 を巡回する）
         let speed = app.buttons["再生速度"]
         if speed.waitForExistence(timeout: 3) {

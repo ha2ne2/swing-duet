@@ -14,9 +14,9 @@ final class ClipStore: ObservableObject {
     static let swingLimit = 60
 
     @Published private(set) var clips: [Clip] = []
-    /// 同期の基準側（アプリ全体で 1 つ）
-    @Published var reference: VideoSide = .model {
-        didSet { if reference != oldValue { persist() } }
+    /// 比較画面の再生の設定（アプリ全体で 1 つ）
+    @Published var playback = PlaybackSettings() {
+        didSet { if playback != oldValue { persist() } }
     }
     /// 解析を実行中のクリップ
     @Published private(set) var analyzingID: UUID?
@@ -58,7 +58,7 @@ final class ClipStore: ObservableObject {
     /// 読み込んだものが古い版なら組み替えて保存し直す
     private func load(_ library: Library) {
         clips = library.clips
-        reference = library.reference
+        playback = library.playback
         guard library.version < Library.currentVersion else { return }
         if library.version < 2 {
             // 版 2: 動画の速さはユーザーの選択だけを保存し、無ければ推定に従う。
@@ -311,7 +311,7 @@ final class ClipStore: ObservableObject {
     // MARK: - 保存
 
     private func persist() {
-        write(Library(clips: clips, reference: reference), to: libraryURL)
+        write(Library(clips: clips, playback: playback), to: libraryURL)
     }
 
     private func read<T: Decodable>(_ type: T.Type, from url: URL) -> T? {
@@ -353,14 +353,14 @@ final class ClipStore: ObservableObject {
     private var legacyModelsURL: URL { documentsURL.appendingPathComponent("models.json") }
 
     /// 旧データがあればクリップに組み替える。比較の左はスイング、右は登録済みお手本（紐付きがあればそれ、無ければ新しいお手本）。
-    /// 右ペインの位置合わせはスイング側の `pairing` へ。基準は最新の比較の値
+    /// 右ペインの位置合わせはスイング側の `pairing` へ。同期の基準は最新の比較の値
     private func migrateLegacy() -> Library? {
         let projects = read([LegacyProject].self, from: legacyProjectsURL) ?? []
         let models = read([LegacyModel].self, from: legacyModelsURL) ?? []
         guard !projects.isEmpty || !models.isEmpty else { return nil }
 
         var clips = models.map { Clip(id: $0.id, role: .model, name: $0.name, createdAt: $0.createdAt, video: $0.config) }
-        var reference: VideoSide = .model
+        var playback = PlaybackSettings()
         // 旧データは新しい順に並んでいるので、古い比較から順に組み替える（同じ動画のお手本を 1 つにまとめるため）
         for project in projects.reversed() {
             let partnerID = project.modelID.flatMap { id in clips.first { $0.id == id }?.id }
@@ -376,9 +376,9 @@ final class ClipStore: ObservableObject {
                 partnerID: partnerID, scale: project.model.scale, offsetX: project.model.offsetX, offsetY: project.model.offsetY,
                 pairedAt: project.createdAt)
             clips.append(Clip(id: project.id, role: .swing, createdAt: project.createdAt, video: project.mine, pairing: pairing))
-            reference = project.reference ?? .model
+            playback.syncBasis = SyncBasis(reference: project.reference ?? .model)
         }
-        return Library(version: 0, clips: clips, reference: reference)
+        return Library(version: 0, clips: clips, playback: playback)
     }
 
     private func removeLegacyFiles() {

@@ -6,10 +6,9 @@ import UIKit
 
 /// 2 本の動画を 1 つの共通タイムラインで駆動する再生コントローラ。
 ///
-/// CADisplayLink をマスタークロックとして共通時刻（実秒）を進め、各動画は
-/// 現在の区間（バックスイング / ダウンスイング / フォロー）ごとの速度倍率で再生する。
-/// 倍率は基準側の速さ（焼き込みスローの戻し）と区間長の比を含むので、`speed` 1.0 でどちらの動画も実速で流れる。
-/// 区間の切り替わりでレートを更新し、ドリフトが閾値を超えたらシークで補正する（シーク中の側は補正しない）。
+/// CADisplayLink をマスタークロックとして共通時刻（実秒）を進め、各動画は `SyncEngine` がその時刻に決める速度倍率で再生する
+/// （同期しているときは区間ごと、同期しないときは常にその側の速さ）。倍率は焼き込みスローの戻しを含むので、`speed` 1.0 でどちらの動画も実速で流れる。
+/// 倍率が変わる tick でレートを更新し、ドリフトが閾値を超えたらシークで補正する（シーク中の側は補正しない）。
 ///
 /// NOTE: `ObservableObject` ではなく `@Observable` にしている。`commonTime` は再生中に毎 tick（最大 60Hz）変わるので、
 /// `ObservableObject` だと比較画面の View がすべて毎 tick 再描画され、再生中はループ範囲の Menu の項目が押せなくなる。
@@ -17,23 +16,6 @@ import UIKit
 @MainActor
 @Observable
 final class PlaybackController: NSObject {
-
-    /// ループ範囲
-    enum LoopMode: Hashable {
-        /// ループする範囲。既定はスイング全体（`LoopRange.all`）。メニューの「ダウンスイングのみ」等は区間の両端に置いた範囲で、
-        /// どれもシークバーのつまみで端を動かせる
-        case range(LoopRange)
-        /// ループしない（末尾で停止）
-        case off
-
-        static let all: LoopMode = .range(.all)
-        static func segment(_ segment: SwingSegment) -> LoopMode { .range(.segment(segment)) }
-
-        var range: LoopRange? {
-            if case .range(let range) = self { return range }
-            return nil
-        }
-    }
 
     /// タップで切り替える再生速度（この順に巡回する）
     static let speedPresets: [Double] = [0.1, 0.2, 0.3, 0.5, 1.0]
@@ -44,9 +26,10 @@ final class PlaybackController: NSObject {
 
     /// 動画を持たない不活性なコントローラ。比較前のステージで、比較画面と同じ操作パネルを飾りとして出すのに使う
     /// （形を真似た別の View を持つと、操作パネルを変えたときに高さがずれる）
-    static let placeholder = PlaybackController(sync: SyncEngine(
-        minePhases: .fallback(duration: 1), modelPhases: .fallback(duration: 1),
-        reference: .model, referenceFrameDuration: 1.0 / 30.0, referenceSlowFactor: 1))
+    static let placeholder: PlaybackController = {
+        let timing = SyncEngine.Timing(phases: .fallback(duration: 1), slowFactor: 1, frameDuration: 1.0 / 30.0, duration: 1)
+        return PlaybackController(mine: timing, model: timing, settings: PlaybackSettings())
+    }()
 
     private let minePlayer = AVPlayer()
     private let modelPlayer = AVPlayer()
@@ -54,24 +37,42 @@ final class PlaybackController: NSObject {
     private(set) var commonTime: Double = 0
     private(set) var isPlaying = false
     /// 再生速度（実速に対する倍率。x1 で実世界の速さ。焼き込みスローでも `SyncEngine` が戻す）
-    var speed: Double = 0.3 {
+    var speed: Double {
         didSet {
             if isPlaying { applyRates() }
         }
     }
-    /// ループ範囲。範囲の外にいたら先頭へ移る
-    var loop: LoopMode = .all {
+    /// ループ範囲。nil ならループしない（末尾で停止）。メニューの「ダウンスイングのみ」等は区間の両端に置いた範囲で、
+    /// スイング全体（`LoopRange.all`）も含めどれもシークバーのつまみで端を動かせる。範囲の外にいたら先頭へ移る
+    var loop: LoopRange? {
         didSet {
             if !loopRange.contains(commonTime) { move(to: loopRange.lowerBound) }
         }
     }
     private(set) var sync: SyncEngine
 
+    /// 同期のとり方。切り替えると相対位置（進捗率）を保って追従する。
+    /// 揃えるフェーズ（`jump(to:)` で替えたもの）は同期しない間だけ引き継ぎ、同期しないに入ったときは既定に戻す
+    var syncBasis: SyncBasis {
+        get { sync.basis }
+        set {
+            var newSync = sync
+            newSync.basis = newValue
+            if newValue == .free, sync.basis != .free { newSync.anchor = PlaybackSettings().anchor }
+            replaceSync(newSync)
+        }
+    }
+
+    /// いまの再生の設定（保存する分。`ComparisonView` が変化を見て `ClipStore` に書く）
+    var settings: PlaybackSettings {
+        PlaybackSettings(syncBasis: sync.basis, anchor: sync.anchor, speed: speed, loop: loop)
+    }
+
     // 再生機構の内部状態。View は読まないので観測対象から外す
     @ObservationIgnored private var displayLink: CADisplayLink?
     @ObservationIgnored private var lastTimestamp: CFTimeInterval?
-    /// いまのレートが前提にしている区間（`applyRates` で更新）。再生中に区間が変わった tick でだけレートを設定し直す
-    @ObservationIgnored private var ratedSegment: SwingSegment?
+    /// いまプレーヤーに設定した側ごとの倍率（`applyRates` で更新）。再生中に倍率が変わる tick でだけレートを設定し直す
+    @ObservationIgnored private var ratedMultiplier: [VideoSide: Double] = [:]
     /// スクラブ・つまみのドラッグを始めたとき再生中だった（離したら再開する）
     @ObservationIgnored private var wasPlayingBeforeDrag = false
     /// 側ごとの実行中のシーク数（`seek` で増やし、完了ハンドラで減らす）。0 でない側はドリフト補正しない
@@ -84,17 +85,20 @@ final class PlaybackController: NSObject {
         activeSeeks.values.contains { $0 > 0 }
     }
 
-    convenience init(mineURL: URL, modelURL: URL, sync: SyncEngine) {
-        self.init(sync: sync)
+    convenience init(mineURL: URL, modelURL: URL, mine: VideoConfig, model: VideoConfig, settings: PlaybackSettings) {
+        self.init(mine: SyncEngine.Timing(mine), model: SyncEngine.Timing(model), settings: settings)
         minePlayer.replaceCurrentItem(with: AVPlayerItem(url: mineURL))
         modelPlayer.replaceCurrentItem(with: AVPlayerItem(url: modelURL))
         hardSeek()
     }
 
     /// プレーヤーに動画を入れない（`placeholder` 用）
-    private init(sync: SyncEngine) {
-        self.sync = sync
+    private init(mine: SyncEngine.Timing, model: SyncEngine.Timing, settings: PlaybackSettings) {
+        sync = SyncEngine(mine: mine, model: model, basis: settings.syncBasis, anchor: settings.anchor)
+        speed = settings.speed
+        loop = settings.loop
         super.init()
+        commonTime = loopRange.lowerBound   // 復元したループ範囲の先頭から
         for side in VideoSide.allCases {
             let player = player(for: side)
             player.isMuted = true
@@ -109,7 +113,7 @@ final class PlaybackController: NSObject {
 
     /// 現在のループ範囲（共通タイムライン上の秒）。ループしないときは末尾で止まるまでの全体
     var loopRange: ClosedRange<Double> {
-        sync.commonRange(of: loop.range ?? .all)
+        sync.commonRange(of: loop ?? .all)
     }
 
     // MARK: - 再生 / 停止
@@ -173,15 +177,17 @@ final class PlaybackController: NSObject {
         min(max(time, loopRange.lowerBound), loopRange.upperBound)
     }
 
+    /// フェーズへ移る。同期しないときはそのフェーズで両方を揃え直してから移る（両方の映像がそのフェーズのコマになる）
     func jump(to phase: SwingPhase) {
-        move(to: clampedToLoop(sync.commonTime(of: phase)))
+        if sync.basis == .free { sync.anchor = phase }
+        move(to: clampedToLoop(sync.firstCommonTime(of: phase)))
     }
 
-    /// コマ送り（基準側動画の 1 フレーム単位。ループ範囲の端で止まる）。再生中なら止める。
+    /// コマ送り（`SyncEngine.frameStep` 単位。ループ範囲の端で止まる）。再生中なら止める。
     /// 取りこぼさないよう、コマ数は時計に足し込んでおく（シークは `show` がまとめる）
     func stepFrame(by frames: Int) {
         stop()
-        show(clampedToLoop(commonTime + sync.referenceFrameDuration * Double(frames)))
+        show(clampedToLoop(commonTime + sync.frameStep * Double(frames)))
     }
 
     /// 時計を time に置いてプレーヤーをシークする（ジョグホイール・シークバー・つまみのドラッグ用）。`precise` は許容ゼロ。
@@ -211,11 +217,11 @@ final class PlaybackController: NSObject {
     /// ループ範囲の端を time へ動かす（`LoopRange.move`：最も近いフェーズから整数コマ、反対側と 1 コマ以上離す）。
     /// 時計をその端に置いて両方の映像で端のコマを見せる。範囲が無い（ループしない）ときは何もしない
     func trim(_ bound: LoopRange.Bound, to time: Double) {
-        guard var range = loop.range else { return }
+        guard var range = loop else { return }
         range.move(bound, to: time, in: sync)
         // 先に時計を端へ置く（`loop` の didSet が範囲外と見て先頭へ動かさないように）
-        show(sync.commonTime(of: range[bound]))
-        loop = .range(range)
+        show(sync.commonTime(of: range[bound], as: bound))
+        loop = range
     }
 
     /// 再生中に始めたなら範囲の先頭から再開する。止まっていたなら時計は端に残す（ジョグホイールで端の前後を確かめられる）
@@ -223,8 +229,13 @@ final class PlaybackController: NSObject {
         if wasPlayingBeforeDrag { play() }
     }
 
-    /// フェーズ修正・基準切り替え時に呼ぶ。相対位置（進捗率）を保って追従する
-    func updateSync(_ newSync: SyncEngine) {
+    /// フェーズ修正・動画の速さの選び直しを反映する（同期のとり方と揃えるフェーズはそのまま）
+    func updateVideos(mine: VideoConfig, model: VideoConfig) {
+        replaceSync(SyncEngine(mine: mine, model: model, basis: sync.basis, anchor: sync.anchor))
+    }
+
+    /// 写像を差し替え、相対位置（進捗率）を保って追従する
+    private func replaceSync(_ newSync: SyncEngine) {
         guard newSync != sync else { return }
         let fraction = commonTime / sync.commonDuration
         sync = newSync
@@ -278,7 +289,7 @@ final class PlaybackController: NSObject {
         commonTime += dt * speed
 
         if commonTime >= loopRange.upperBound {
-            if loop == .off {
+            if loop == nil {
                 commonTime = loopRange.upperBound
                 pause()
             } else {
@@ -287,18 +298,18 @@ final class PlaybackController: NSObject {
             return
         }
 
-        if sync.segment(at: commonTime) != ratedSegment { applyRates() }
+        if VideoSide.allCases.contains(where: { sync.rateMultiplier(for: $0, at: commonTime) != ratedMultiplier[$0] }) { applyRates() }
         correctDrift()
     }
 
     // MARK: - プレーヤー制御
 
-    /// 現在の区間と再生速度から両プレーヤーのレートを設定する
+    /// いまの時刻の倍率と再生速度から両プレーヤーのレートを設定する
     private func applyRates() {
-        let segment = sync.segment(at: commonTime)
-        ratedSegment = segment
         for side in VideoSide.allCases {
-            player(for: side).rate = Float(speed * sync.rateMultiplier(for: side, in: segment))
+            let multiplier = sync.rateMultiplier(for: side, at: commonTime)
+            ratedMultiplier[side] = multiplier
+            player(for: side).rate = Float(speed * multiplier)
         }
     }
 

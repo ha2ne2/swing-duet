@@ -62,7 +62,7 @@ struct ClipStoreTests {
         #expect(created.role == .model)
         #expect(created.fileName == "x.mov")
         #expect(created.video.scale == 1)                      // お手本自身の位置合わせは初期値に戻す
-        #expect(store.reference == .mine)                      // 最新の比較の基準
+        #expect(store.playback.syncBasis == .mine)             // 最新の比較の基準
         #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("library.json").path))
         #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("projects.json").path))
         #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("models.json").path))
@@ -209,10 +209,15 @@ struct ClipStoreTests {
         #expect(store.clips.count == 2)
         #expect(store.lastDeleted.isEmpty)
 
-        store.reference = .mine
+        store.playback = PlaybackSettings(
+            syncBasis: .free, anchor: .top, speed: 1.0,
+            loop: LoopRange(start: LoopEdge(phase: .top, frames: -3), end: LoopEdge(phase: .impact, frames: 6)))
         let reopened = makeStore()
         #expect(reopened.clips.count == 2)
-        #expect(reopened.reference == .mine)
+        #expect(reopened.playback == store.playback)
+
+        store.playback.loop = nil   // ループしない（JSON ではキーごと省かれる）
+        #expect(makeStore().playback.loop == nil)
     }
 
     private func markDone(_ clip: Clip, in store: ClipStore) {

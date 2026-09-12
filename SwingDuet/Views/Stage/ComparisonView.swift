@@ -23,14 +23,15 @@ struct ComparisonView: View {
                     controller = PlaybackController(
                         mineURL: store.videoURL(of: left),
                         modelURL: store.videoURL(of: right),
-                        sync: SyncEngine(mine: left.video, model: left.pairedConfig(of: right), reference: store.reference))
+                        mine: left.video, model: left.pairedConfig(of: right),
+                        settings: store.playback)
                 }
             }
         }
     }
 }
 
-/// 比較画面の本体。左右の編集（フェーズ・表示変換）と基準を保存し、同期設定の変更を controller に反映する。
+/// 比較画面の本体。左右の編集（フェーズ・表示変換）と再生の設定を保存し、フェーズの変更を controller に反映する。
 /// 左の編集はスイングに、右のフェーズと速さはお手本そのもの（そのお手本を使うすべてのスイングに効く）に、右の位置合わせはスイングの `pairing` に書く
 private struct ComparisonContent: View {
     @EnvironmentObject private var store: ClipStore
@@ -74,13 +75,13 @@ private struct ComparisonContent: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
 
-            ControlPanelView(controller: controller, reference: $store.reference)
+            ControlPanelView(controller: controller)
         }
         .onChange(of: mine) { _, newValue in
             var clip = left
             clip.video = newValue
             store.update(clip)
-            updateSync()
+            updateVideos()
         }
         .onChange(of: model) { _, newValue in
             // 相手には解析結果だけを写し、位置合わせは pairing に持つ（相手が ★ お気に入りのスイングなら、そのスイング自身の位置合わせを壊さない）
@@ -93,10 +94,10 @@ private struct ComparisonContent: View {
             var clip = left
             clip.pairing = Pairing(partnerID: right.id, transformOf: newValue, pairedAt: left.pairing?.pairedAt ?? Date())
             store.update(clip)
-            updateSync()
+            updateVideos()
         }
-        .onChange(of: store.reference) { _, _ in
-            updateSync()
+        .onChange(of: controller.settings) { _, settings in
+            store.playback = settings   // 次に開く比較も同じ設定から始める
         }
         .task {
             await controller.playWhenReady()   // 開いたら自動で再生
@@ -112,8 +113,8 @@ private struct ComparisonContent: View {
         }
     }
 
-    private func updateSync() {
-        controller.updateSync(SyncEngine(mine: mine, model: model, reference: store.reference))
+    private func updateVideos() {
+        controller.updateVideos(mine: mine, model: model)
     }
 
     private func editPhases(_ side: VideoSide) {

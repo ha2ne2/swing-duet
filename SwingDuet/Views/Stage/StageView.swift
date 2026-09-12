@@ -118,7 +118,7 @@ private struct SetupStageView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
 
-            ControlPanelView(controller: .placeholder, reference: .constant(.model))
+            ControlPanelView(controller: .placeholder)
                 .opacity(0.35)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
