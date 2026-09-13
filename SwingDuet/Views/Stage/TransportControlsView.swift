@@ -35,9 +35,13 @@ struct TransportControlsView: View {
         }
     }
 
-    /// 再生速度。タップで PlaybackController.speedPresets を巡回する
+    /// 再生速度。タップで PlaybackController.speedPresets を巡回する（x1 → x1/2 → x1/4 → x1/8 → x1）
     private var speedButton: some View {
-        let speedText = String(format: "x%.2f", controller.speed)
+        // プリセットは x1 以下の 1/2^n なので、小数（x1/8 が x0.13）ではなく分数で出す
+        let denominator = Int((1 / controller.speed).rounded())
+        let (speedText, spokenSpeed) = denominator <= 1
+            ? ("x1", "等倍")
+            : ("x1/\(denominator)", "\(denominator)分の1の速さ")
         return Button {
             controller.cycleSpeed()
         } label: {
@@ -49,7 +53,7 @@ struct TransportControlsView: View {
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("再生速度")
-        .accessibilityValue(speedText)
+        .accessibilityValue(spokenSpeed)
         .accessibilityHint("タップで切り替え")
     }
 

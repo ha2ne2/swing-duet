@@ -17,8 +17,9 @@ import UIKit
 @Observable
 final class PlaybackController: NSObject {
 
-    /// タップで切り替える再生速度（この順に巡回する）
-    static let speedPresets: [Double] = [0.1, 0.2, 0.3, 0.5, 1.0]
+    /// タップで切り替える再生速度（この順に巡回する）。x1 から押すたびに半分になり、x1/8 の次は x1 へ戻る。
+    /// 操作パネルは分数（x1/4）で出すので、増やすときも x1 以下の 1/2^n にすること
+    static let speedPresets: [Double] = [1.0, 0.5, 0.25, 0.125]
     /// 実時刻と期待時刻のずれがこれ（実秒）を超えたらシークで補正する。動画秒で比べるときは rate を掛ける
     private static let driftThreshold = 0.08
     /// スクラブとドリフト補正のシークの許容幅。許容ゼロの精密シークは止まった位置のコマを出すときだけ使う（コマ単位の復号で重い）
@@ -96,7 +97,7 @@ final class PlaybackController: NSObject {
     /// プレーヤーに動画を入れない（`placeholder` 用）
     private init(mine: SyncEngine.Timing, model: SyncEngine.Timing, settings: PlaybackSettings) {
         sync = SyncEngine(mine: mine, model: model, basis: settings.syncBasis, anchor: settings.anchor)
-        speed = settings.speed
+        speed = Self.nearestPreset(to: settings.speed)
         loop = settings.loop
         super.init()
         commonTime = loopRange.lowerBound   // 復元したループ範囲の先頭から
@@ -159,10 +160,20 @@ final class PlaybackController: NSObject {
 
     // MARK: - 再生速度
 
-    /// speedPresets の次の速度へ（最後の次は最初へ戻る）
+    /// speedPresets の次の速度（最後の次は最初へ戻る）。プリセットに無い値からは先頭へ
+    static func nextSpeed(after speed: Double) -> Double {
+        guard let current = speedPresets.firstIndex(of: speed) else { return speedPresets[0] }
+        return speedPresets[(current + 1) % speedPresets.count]
+    }
+
+    /// 一番近いプリセット。プリセットを変える前に保存された設定（x0.3 等）が残っていても、
+    /// 巡回の起点と分数の表記が合うように初期化時に通す
+    static func nearestPreset(to speed: Double) -> Double {
+        speedPresets.min { abs($0 - speed) < abs($1 - speed) } ?? speedPresets[0]
+    }
+
     func cycleSpeed() {
-        let current = Self.speedPresets.firstIndex(of: speed) ?? -1
-        speed = Self.speedPresets[(current + 1) % Self.speedPresets.count]
+        speed = Self.nextSpeed(after: speed)
     }
 
     // MARK: - 位置の移動

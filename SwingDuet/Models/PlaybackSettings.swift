@@ -7,8 +7,8 @@ struct PlaybackSettings: Codable, Equatable {
     var syncBasis: SyncBasis = .model
     /// 同期しないときに揃えるフェーズ
     var anchor: SwingPhase = .impact
-    /// 再生速度（実速に対する倍率。`PlaybackController.speedPresets` のどれか）
-    var speed: Double = 0.3
+    /// 再生速度（実速に対する倍率。`PlaybackController.speedPresets` のどれか。古い値は読み込み時に一番近いプリセットへ寄る）
+    var speed: Double = 0.25
     /// ループ範囲。nil ならループしない（JSON ではキーごと省かれる）
     var loop: LoopRange? = .all
 }
