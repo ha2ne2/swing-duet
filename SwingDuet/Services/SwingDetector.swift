@@ -55,8 +55,13 @@ enum SwingDetector {
     private static let addressSpeedRatio = 0.15
     /// トップ（切り返し）：最も高い点の後、高さが下がりながら速度がダウンスイングの最大のこの割合に達したところ
     private static let descentOnsetRatio = 0.3
-    /// フィニッシュ：フォローで手が最も高くなる（そこから `finishDrop` 下がるまでの山の）高さの、この割合に最初に達したところ
-    private static let finishHeightRatio = 0.9
+    /// フィニッシュ：フォローで手が最も高くなる（そこから `finishDrop` 下がるまでの山の）高さに、
+    /// 体の大きさ単位でこれだけ近づいた最初のところ（＝振り切った位置に着いた瞬間）
+    /// NOTE: 割合（山の高さの 90%）だと、正面視点は手が体の前を横切って高さの上がり方が緩く、振り切る前
+    ///       （実サンプルで 0.4〜0.5 秒手前）を拾う。山の頂点そのものは、振り切った姿勢のまま手が僅かに
+    ///       上へ流れる分だけ 0.4 秒遅れる。速度（手が止まったところ）は、正面では振り切った後も手が横へ
+    ///       流れて落ちず、後方ではすぐ止まるので、同じ比が両方の視点には効かない
+    private static let finishBand = 0.05
     private static let finishDrop = 0.3
     /// フォローの後に手が低く戻る速さが、フォローで上がった速さのこの倍以上なら、その高い区間は別のスイングのトップ
     /// （切り返しの後のダウンスイングは、その前の上がりより速い。フィニッシュから下ろす動きは上がりより遅い）
@@ -246,7 +251,7 @@ enum SwingDetector {
         }
 
         let down2 = firstLow(from: up2 + 1)
-        // フィニッシュ：フォローで手が上がりきる山（そこから finishDrop 下がるまで）の高さの finishHeightRatio に最初に達したところ。
+        // フィニッシュ：フォローで手が上がりきる山（そこから finishDrop 下がるまで）の高さに finishBand まで近づいた最初のところ。
         // 肩を回るときの小さな窪みでは山を切らない
         var finishPeak = samples[up2].height
         var humpEnd = up2
@@ -255,7 +260,7 @@ enum SwingDetector {
             finishPeak = max(finishPeak, samples[j].height)
             humpEnd = j
         }
-        let finishIdx = (up2...humpEnd).first { samples[$0].height >= finishHeightRatio * finishPeak }!
+        let finishIdx = (up2...humpEnd).first { samples[$0].height >= finishPeak - finishBand }!
 
         let addressTime = samples[a].time
         let impactTime = samples[impactIdx].time

@@ -159,9 +159,29 @@ struct SwingDetectorTests {
         #expect(near(c.phases.address, takeaway))
         #expect(near(c.phases.top, transition))
         #expect(c.phases.impact >= impactZone - 0.1 && c.phases.impact <= impactZone + 0.5)
-        // フィニッシュは山の高さの 90%（1.44）に達した時刻なので、1.6 に達する少し前
-        #expect(c.phases.finish >= finishReached - 0.3 && c.phases.finish <= finishReached)
+        // フィニッシュは山の高さ（1.6）から 0.05 以内に入った時刻なので、1.6 に達する直前
+        #expect(c.phases.finish >= finishReached - 0.15 && c.phases.finish <= finishReached)
         #expect(c.estimated.isEmpty)
+    }
+
+    /// 正面から撮ったスイング：フォローで手が体の前を横切るので高さの上がり方が緩く、
+    /// 振り切った後はその姿勢のまま僅かに上へ流れる。フィニッシュが上がりの途中でも、流れた先でもないこと
+    @Test func gradualFrontViewFollowThroughFinishesWhereTheHandsStopRising() {
+        var s = Series()
+        s.hold(0, 0.5)
+        s.ramp(to: 1.6, 0.7)
+        s.ramp(to: -0.1, 0.25)
+        s.ramp(to: 1.0, 0.3)                                           // フォローの立ち上がり
+        s.ramp(to: 1.70, 2.0); let swungThrough = s.time - 1 / s.fps   // 振り切るまでは緩やかに上がる
+        s.hold(1.70, 0.4)
+        s.ramp(to: 1.74, 0.6)                                          // 振り切った姿勢のまま僅かに流れる
+        s.hold(1.74, 0.3)
+        s.ramp(to: 0.2, 0.6)                                           // クラブを下ろす
+
+        let candidates = s.detect()
+        #expect(candidates.count == 1)
+        let c = candidates[0]
+        #expect(c.phases.finish >= swungThrough - 0.15 && c.phases.finish <= swungThrough + 0.15)
     }
 
     @Test func occludedTopAndImpactAreEstimatedWhenWristsReappearHigh() {
