@@ -34,4 +34,14 @@ struct OrientationTests {
         #expect(PoseTracker.orientation(from: .rotation(degrees: -90)) == .left)
         #expect(CGAffineTransform.rotation(degrees: 360) == .identity)
     }
+
+    /// 表示される向きでの縦横比。90° 回す向きでは縦横が入れ替わる
+    /// （胴体が縦向きかの判定に使う。取り違えると縦撮りの後方視点で前傾したゴルファーを弾いてしまう）
+    @Test func shownAspectSwapsWidthAndHeightForQuarterTurns() {
+        #expect(PoseTracker.shownAspect(width: 1920, height: 1080, orientation: .up) == 1920.0 / 1080)
+        #expect(PoseTracker.shownAspect(width: 1920, height: 1080, orientation: .down) == 1920.0 / 1080)
+        #expect(PoseTracker.shownAspect(width: 1920, height: 1080, orientation: .right) == 1080.0 / 1920)
+        #expect(PoseTracker.shownAspect(width: 1920, height: 1080, orientation: .left) == 1080.0 / 1920)
+        #expect(PoseTracker.shownAspect(width: 0, height: 0, orientation: .up) == 1)
+    }
 }

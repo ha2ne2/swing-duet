@@ -95,6 +95,8 @@ enum PoseTracker {
         private let request = VNDetectHumanBodyPoseRequest()
         /// 追跡中の人物の腰位置。複数人が写る動画で同じ人物を追い続けるために使う
         private var bodyAnchor: CGPoint?
+        /// 追跡中の人物の大きさ（首〜腰）。近くに立つ別人へ乗り換えないための手掛かり
+        private var trackedSize: CGFloat?
         private var misses = 0
         private var wrists = WristTracker()
 
@@ -104,13 +106,19 @@ enum PoseTracker {
         mutating func person(in pixelBuffer: CVPixelBuffer, orientation: CGImagePropertyOrientation) -> VNHumanBodyPoseObservation? {
             let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
             guard (try? handler.perform([request])) != nil else { return nil }
-            let person = selectPerson(request.results ?? [], near: bodyAnchor)
+            let aspect = shownAspect(
+                width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer), orientation: orientation)
+            let person = selectPerson(request.results ?? [], near: bodyAnchor, size: trackedSize, aspect: aspect)
             if let person {
                 bodyAnchor = anchor(of: person) ?? bodyAnchor
+                trackedSize = bodySize(of: person)
                 misses = 0
             } else {
                 misses += 1
-                if misses >= Self.reacquireAfterMisses { bodyAnchor = nil }
+                if misses >= Self.reacquireAfterMisses {
+                    bodyAnchor = nil
+                    trackedSize = nil
+                }
             }
             return person
         }
@@ -164,22 +172,47 @@ enum PoseTracker {
         }
     }
 
-    /// 追跡対象の人物を選ぶ。初回（アンカー無し）は最も大きく写っている人物、以降は腰位置が前フレームに最も近い人物
-    /// （離れすぎていれば見失い扱いで nil）。腰と首の両方が見えている人物がいなければ選ばない（体の大きさが測れない観測を掴むと、
-    /// そのアンカーに引きずられて本当の人物を追えなくなる）
+    /// 追跡対象の人物を選ぶ。候補は「胴体が縦向き」（`isUpright`）で、追跡中なら「大きさが前フレームに近い」観測に絞る。
+    /// 初回（アンカー無し）は候補の中で最も大きく写っている人物、以降は腰位置が最も近い人物（離れすぎていれば見失い扱いで nil）
     private static func selectPerson(
-        _ observations: [VNHumanBodyPoseObservation], near tracked: CGPoint?
+        _ observations: [VNHumanBodyPoseObservation], near tracked: CGPoint?, size: CGFloat?, aspect: CGFloat
     ) -> VNHumanBodyPoseObservation? {
-        guard let tracked else {
-            guard let largest = observations.max(by: { bodySize(of: $0) < bodySize(of: $1) }), bodySize(of: largest) > 0 else { return nil }
-            return largest
+        // isUpright を通った観測は腰も首も見えているので、体の大きさは必ず 0 より大きい
+        var candidates = observations.filter { isUpright($0, aspect: aspect) }
+        guard let tracked else { return candidates.max(by: { bodySize(of: $0) < bodySize(of: $1) }) }
+
+        // 大きさが 1 フレームで急に変わることはない（実測で 1 コマ 9〜16%）。腰の近さだけで選ぶと、観客が並ぶ中継映像で、
+        // 追跡中のゴルファー（首〜腰 0.15）が一瞬とれなくなった隙に後ろの観客（0.09）へ乗り換えてしまう。
+        // 合う候補が無いフレームは誰も選ばず、見失いとして本人が戻るのを待つ（1 秒戻らなければアンカーを捨てて選び直す）
+        let maxSizeChange: CGFloat = 0.25
+        if let size, size > 0 {
+            candidates = candidates.filter { abs(bodySize(of: $0) / size - 1) <= maxSizeChange }
         }
         let maxJump: CGFloat = 0.2   // 腰は 1 フレームでこれ以上動かない（正規化距離）
-        let distances = observations.compactMap { observation in
+        let distances = candidates.compactMap { observation in
             anchor(of: observation).map { (observation, $0.distance(to: tracked)) }
         }
         guard let nearest = distances.min(by: { $0.1 < $1.1 }), nearest.1 <= maxJump else { return nil }
         return nearest.0
+    }
+
+    /// 胴体（腰 → 首）が縦向きか。観客が並ぶ映像では別々の人の関節をつないだ骨格が返ることがあり、それは腰と首が横に離れる。
+    /// 首〜腰の長さで「最も大きく写っている人物」を選ぶとその骨格が勝ってしまうので、先に外す。
+    /// 正規化座標は縦横で尺度が違うので、画面の縦横比を掛けて画素の比で比べる（縦長の動画では横の差が 1.8 倍に見える）
+    private static func isUpright(_ observation: VNHumanBodyPoseObservation, aspect: CGFloat) -> Bool {
+        guard let root = location(of: .root, in: observation), let neck = location(of: .neck, in: observation) else { return false }
+        return abs(neck.x - root.x) * aspect < abs(neck.y - root.y)
+    }
+
+    /// 表示される向きでの縦横比（幅 ÷ 高さ）。90° 回転する向きでは縦横が入れ替わる。
+    /// 撮影中は動画ファイルが無く `SwingAnalyzer.Video.aspect` を使えないので、フレームの大きさから出す。
+    /// 解析 CLI とテストからも呼ぶので private にしない
+    static func shownAspect(width: Int, height: Int, orientation: CGImagePropertyOrientation) -> CGFloat {
+        guard width > 0, height > 0 else { return 1 }
+        switch orientation {
+        case .left, .right, .leftMirrored, .rightMirrored: return CGFloat(height) / CGFloat(width)
+        default: return CGFloat(width) / CGFloat(height)
+        }
     }
 
     /// 人物の位置の代表点（腰。取れなければ首）
