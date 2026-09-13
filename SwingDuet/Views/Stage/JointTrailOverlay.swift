@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// 部位（手・頭・左右の肩・左右の股関節）の軌跡を動画に重ねて描く。
-/// スイング区間（アドレス〜フィニッシュ）の軌跡全体を薄く、再生位置までを濃く描き、いまの位置に丸を打つ。
+/// 再生位置までに**通ったところだけ**を描き、いまの位置に丸を打つ（まだ通っていない先を薄く出すと、
+/// 6 本ぶんの線が重なって形が読めなくなる）。
 /// 色は部位ごとに色相を変え、トップより前は淡く、トップ以降は同じ色相の濃い色にする（`BodyPart.color`）。
 /// 点は Catmull–Rom の曲線でつなぐので、姿勢推定の点の粗さが折れ線として出ない。
 /// 座標は正規化座標のまま持ち、描くときにペインの表示変換を掛ける（拡大しても線の太さは変わらない）
@@ -19,12 +20,10 @@ struct JointTrailOverlay: View {
     let scale: Double
     let offset: CGSize
 
-    private static let fullLineWidth: CGFloat = 2
-    private static let playedLineWidth: CGFloat = 3
-    private static let fullOpacity = 0.45
+    private static let lineWidth: CGFloat = 3
     private static let dotRadius: CGFloat = 4
-    /// 1 本の線に使う点の上限。240fps 原本のスイングは解析コマが 600 を超えることがあり、全部を毎コマ描くと
-    /// 2 つのペインで曲線が 1 万区間になる。この密度でも曲線は十分滑らかなので、多いときは等間隔に間引く
+    /// 1 本の線に使う点の目安（末尾の 1 点だけ超えることがある）。240fps 原本のスイングは解析コマが 600 を超えることがあり、
+    /// 全部を毎コマ描くと 2 つのペインで曲線が 1 万区間になる。この密度でも曲線は十分滑らかなので、多いときは等間隔に間引く
     private static let maxPoints = 80
 
     var body: some View {
@@ -37,28 +36,26 @@ struct JointTrailOverlay: View {
                     x: center.x + (fitted.x - center.x) * scale + offset.width,
                     y: center.y + (fitted.y - center.y) * scale + offset.height)
             }
+            // 軌跡はスイング区間だけを描くので、その外（同期しないときは共通タイムラインが区間の外まで伸びる）では
+            // いまの位置も出さない。出すと線の無いところに丸だけが浮く
+            let swing = phases.address...phases.finish
             for part in BodyPart.allCases {
                 let color = (before: part.color(afterTop: false), after: part.color(afterTop: true))
-                let current = trails.point(of: part, at: now)   // いまのコマの位置。線の先と丸の両方に使う
-                for stroke in trails.strokes(of: part, in: phases.address...phases.finish) {
+                let current = swing.contains(now) ? trails.point(of: part, at: now) : nil   // 線の先と丸に使う
+                for stroke in trails.strokes(of: part, in: swing) {
                     for (points, afterTop) in Self.split(stroke, atTop: phases.top) {
+                        // 間引きは線の全体に対して行う（再生位置までに掛けると、進むたびに採る点が入れ替わって線が揺れる）
                         let shown = Self.thinned(points)
-                        let tint = afterTop ? color.after : color.before
-                        context.stroke(
-                            Self.curve(through: shown.map { place($0.point) }),
-                            with: .color(tint.opacity(Self.fullOpacity)),
-                            style: StrokeStyle(lineWidth: Self.fullLineWidth, lineCap: .round, lineJoin: .round))
-                        // 再生位置まで（間引きで消えた分は、いまの点を足して線の先を現在位置に合わせる）
                         var played = shown.filter { $0.time <= now }
+                        // 間引きで消えた分は、いまの点を足して線の先を現在位置に合わせる
                         if !played.isEmpty, played.count < shown.count, let current {
                             played.append(TrailPoint(time: now, point: current))
                         }
-                        if played.count >= 2 {
-                            context.stroke(
-                                Self.curve(through: played.map { place($0.point) }),
-                                with: .color(tint),
-                                style: StrokeStyle(lineWidth: Self.playedLineWidth, lineCap: .round, lineJoin: .round))
-                        }
+                        guard played.count >= 2 else { continue }
+                        context.stroke(
+                            Self.curve(through: played.map { place($0.point) }),
+                            with: .color(afterTop ? color.after : color.before),
+                            style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round, lineJoin: .round))
                     }
                 }
                 if let current {
