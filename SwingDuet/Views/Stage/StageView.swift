@@ -13,6 +13,8 @@ struct StageView: View {
     @State private var errorMessage: String?
     /// 部位の軌跡を動画に重ねるか（アプリ全体で 1 つ。`ComparisonView` が同じキーを読む）
     @AppStorage(JointTrailOverlay.isEnabledKey) private var showTrails = false
+    /// 隠している部位の組（`TrailPartGroup.bit` の和）
+    @AppStorage(JointTrailOverlay.hiddenPartsKey) private var hiddenParts = 0
 
     init(swingID: UUID) {
         _currentID = State(initialValue: swingID)
@@ -45,6 +47,7 @@ struct StageView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 trailsButton
+                if showTrails { trailPartsMenu }   // 軌跡を出しているときだけ。出していなければ選ぶものが無い
                 favoriteButton
             }
         }
@@ -74,6 +77,27 @@ struct StageView: View {
         .accessibilityValue(showTrails ? "オン" : "オフ")
         .accessibilityHint("手・頭・左右の肩・左右の股関節の軌跡を動画に重ねる")
         .accessibilityIdentifier("stage.trails")
+    }
+
+    /// どの部位の軌跡を出すか。左右の対はまとめて 1 項目
+    private var trailPartsMenu: some View {
+        Menu {
+            ForEach(TrailPartGroup.allCases) { group in
+                Toggle(group.label, isOn: isShown(group))
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuOrder(.fixed)
+        .accessibilityLabel("軌跡の部位")
+        .accessibilityIdentifier("stage.trailParts")
+    }
+
+    /// その部位を出しているか（`hiddenParts` は隠している側を持つので反転する）
+    private func isShown(_ group: TrailPartGroup) -> Binding<Bool> {
+        Binding(
+            get: { hiddenParts & group.bit == 0 },
+            set: { isOn in hiddenParts = isOn ? hiddenParts & ~group.bit : hiddenParts | group.bit })
     }
 
     private var favoriteButton: some View {

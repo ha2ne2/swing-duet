@@ -1,5 +1,6 @@
 import Testing
 import CoreGraphics
+import SwiftUI
 @testable import SwingDuet
 
 /// 軌跡の描画の下ごしらえ（トップでの色の切り替えと、点の間引き）を固定する
@@ -50,5 +51,36 @@ struct JointTrailOverlayTests {
         #expect(thinned.first?.time == 0)
         #expect(thinned.last?.time == 599)                 // 線の終わりは必ず残す
         #expect(thinned.map(\.time) == thinned.map(\.time).sorted())
+    }
+
+    // MARK: - 曲線
+
+    /// 曲線は点を通らない（近くを通る）が、線の始まりと先だけは点にちょうど届く。
+    /// 先が届かないと、線の終わりと現在位置の丸がずれる
+    @Test func curveStartsAndEndsOnThePointsButPassesNearTheOnesBetween() {
+        let points = [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 2), CGPoint(x: 2, y: 0), CGPoint(x: 3, y: 2)]
+        var visited: [CGPoint] = []
+        JointTrailOverlay.curve(through: points).forEach { element in
+            switch element {
+            case .move(let to): visited.append(to)
+            case .curve(let to, _, _): visited.append(to)
+            case .line(let to): visited.append(to)
+            default: break
+            }
+        }
+        #expect(visited.first == points.first)
+        #expect(visited.last == points.last)
+        // 山（1,2）は通らずに内側を抜ける
+        let nearPeak = visited.filter { abs($0.x - 1) < 0.5 }.map(\.y).max() ?? 0
+        #expect(nearPeak < 2.0)
+        #expect(nearPeak > 1.0)
+    }
+
+    @Test func curveOfTwoPointsIsAStraightLine() {
+        var visited: [CGPoint] = []
+        JointTrailOverlay.curve(through: [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 1)]).forEach { element in
+            if case .line(let to) = element { visited.append(to) }
+        }
+        #expect(visited == [CGPoint(x: 1, y: 1)])
     }
 }

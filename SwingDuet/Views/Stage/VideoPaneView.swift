@@ -21,6 +21,8 @@ struct VideoPaneView: View {
     @GestureState private var live: Transform? = nil
     /// 部位の軌跡を動画に重ねるか（ステージ右上のボタンで切り替える。アプリ全体で 1 つ）
     @AppStorage(JointTrailOverlay.isEnabledKey) private var showTrails = false
+    /// 隠している部位の組（ステージ右上の「…」で切り替える）
+    @AppStorage(JointTrailOverlay.hiddenPartsKey) private var hiddenParts = 0
 
     private static let scaleRange: ClosedRange<Double> = 0.5...4.0
     /// 自動フィットで人物の周りに空ける余白（人物範囲の幅・高さに対する割合）
@@ -37,7 +39,8 @@ struct VideoPaneView: View {
                     .offset(shown.offset)
                 if let trails = trailsToDraw, let videoRect = Self.videoRect(config: config, paneSize: geo.size) {
                     TrailLayer(
-                        trails: trails, phases: config.phases, controller: controller, side: side,
+                        trails: trails, parts: TrailPartGroup.shownParts(hidden: hiddenParts),
+                        phases: config.phases, controller: controller, side: side,
                         videoRect: videoRect, scale: shown.scale, offset: shown.offset)
                         .allowsHitTesting(false)
                 }
@@ -211,6 +214,7 @@ struct VideoPaneView: View {
 ///       （プレーヤーとジェスチャー）が作り直される
 private struct TrailLayer: View {
     let trails: JointTrails
+    let parts: [BodyPart]
     let phases: PhaseSet
     let controller: PlaybackController
     let side: VideoSide
@@ -221,6 +225,7 @@ private struct TrailLayer: View {
     var body: some View {
         JointTrailOverlay(
             trails: trails,
+            parts: parts,
             phases: phases,
             now: controller.sync.videoTime(at: controller.commonTime, for: side),
             videoRect: videoRect,

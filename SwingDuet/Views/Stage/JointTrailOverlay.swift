@@ -1,16 +1,20 @@
 import SwiftUI
 
-/// 部位（手・頭・左右の肩・左右の股関節）の軌跡を動画に重ねて描く。
+/// 渡された部位の軌跡を動画に重ねて描く（どれを渡すかはステージ右上の「…」で決まる）。
 /// 再生位置までに**通ったところだけ**を描き、いまの位置に丸を打つ（まだ通っていない先を薄く出すと、
-/// 6 本ぶんの線が重なって形が読めなくなる）。
+/// 何本もの線が重なって形が読めなくなる）。
 /// 色は部位ごとに色相を変え、トップより前は淡く、トップ以降は同じ色相の濃い色にする（`BodyPart.color`）。
-/// 点は Catmull–Rom の曲線でつなぐので、姿勢推定の点の粗さが折れ線として出ない。
+/// 点は通らず、近くを通る曲線（B スプライン）でつなぐ。スイングは連続した運動なので、測定点を必ず通す必要はない。
 /// 座標は正規化座標のまま持ち、描くときにペインの表示変換を掛ける（拡大しても線の太さは変わらない）
 struct JointTrailOverlay: View {
     /// 軌跡の表示のオン・オフ（`UserDefaults` のキー。ステージ右上のボタンで切り替え、アプリ全体で 1 つ）
     static let isEnabledKey = "showJointTrails"
+    /// 隠している部位の組（`TrailPartGroup.bit` の和。ステージ右上の「…」で切り替え、アプリ全体で 1 つ）
+    static let hiddenPartsKey = "hiddenJointTrailParts"
 
     let trails: JointTrails
+    /// 描く部位（ステージ右上の「…」で選んだもの）
+    let parts: [BodyPart]
     let phases: PhaseSet
     /// いま映しているコマの時刻（その動画の秒）
     let now: Double
@@ -39,7 +43,7 @@ struct JointTrailOverlay: View {
             // 軌跡はスイング区間だけを描くので、その外（同期しないときは共通タイムラインが区間の外まで伸びる）では
             // いまの位置も出さない。出すと線の無いところに丸だけが浮く
             let swing = phases.address...phases.finish
-            for part in BodyPart.allCases {
+            for part in parts {
                 let color = (before: part.color(afterTop: false), after: part.color(afterTop: true))
                 let current = swing.contains(now) ? trails.point(of: part, at: now) : nil   // 線の先と丸に使う
                 for stroke in trails.strokes(of: part, in: swing) {
@@ -86,21 +90,27 @@ struct JointTrailOverlay: View {
         return result
     }
 
-    /// 点列を通る滑らかな曲線（Catmull–Rom スプラインを 3 次ベジェに直したもの）。2 点なら直線
+    /// 点の近くを通る滑らかな曲線（一様 3 次 B スプラインを 3 次ベジェに直したもの）。2 点なら直線。
+    ///
+    /// NOTE: 点を必ず通る曲線（Catmull–Rom）だと、姿勢推定のブレがそのまま角として出る。曲線が測定点を通ることを
+    ///       強いられるので仕組み上避けられない。スイングは連続した運動なので、点は通らず近くを通す方が形に忠実で、
+    ///       線の曲がりの揺れは半分になる（実測は docs/research/260914_0311-joint-trail-smoothing.md §7）。
+    ///       端の制御点を 2 つずつ重ねて、線の始まりと先だけは点にちょうど届かせる（先は再生位置に合わせるため）
     static func curve(through points: [CGPoint]) -> Path {
         var path = Path()
-        guard let first = points.first else { return path }
+        guard let first = points.first, let last = points.last else { return path }
         path.move(to: first)
         guard points.count > 2 else {
-            if points.count == 2 { path.addLine(to: points[1]) }
+            if points.count == 2 { path.addLine(to: last) }
             return path
         }
-        for i in 0..<(points.count - 1) {
-            let previous = points[max(i - 1, 0)], start = points[i], end = points[i + 1], next = points[min(i + 2, points.count - 1)]
+        let control = [first, first] + points + [last, last]
+        for i in 0..<(control.count - 3) {
+            let (a, b, c, d) = (control[i], control[i + 1], control[i + 2], control[i + 3])
             path.addCurve(
-                to: end,
-                control1: CGPoint(x: start.x + (end.x - previous.x) / 6, y: start.y + (end.y - previous.y) / 6),
-                control2: CGPoint(x: end.x - (next.x - start.x) / 6, y: end.y - (next.y - start.y) / 6))
+                to: CGPoint(x: (b.x + 4 * c.x + d.x) / 6, y: (b.y + 4 * c.y + d.y) / 6),
+                control1: CGPoint(x: (2 * b.x + c.x) / 3, y: (2 * b.y + c.y) / 3),
+                control2: CGPoint(x: (b.x + 2 * c.x) / 3, y: (b.y + 2 * c.y) / 3))
         }
         return path
     }

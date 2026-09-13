@@ -72,6 +72,25 @@ struct JointTrailsTests {
         #expect(trails(hands: points).strokes(of: .head, in: 0...1).isEmpty)   // 無い部位は線なし
     }
 
+    /// 出し分けは 4 つ。左右の対はひとつにまとめる
+    @Test func partsAreGroupedIntoFourSwitchesWithLeftAndRightTogether() {
+        #expect(TrailPartGroup.allCases.map(\.label) == ["頭", "肩", "手", "腰"])
+        // 並べ替えても保存に使う桁は動かさない（残っている選択が別の部位にずれるため）
+        #expect(TrailPartGroup.hands.bit == 1 && TrailPartGroup.head.bit == 2)
+        #expect(TrailPartGroup.shoulders.bit == 4 && TrailPartGroup.hips.bit == 8)
+        #expect(BodyPart.leftShoulder.group == .shoulders && BodyPart.rightShoulder.group == .shoulders)
+        #expect(BodyPart.leftHip.group == .hips && BodyPart.rightHip.group == .hips)
+    }
+
+    /// 隠す組は数 1 つで持つ。0 なら全部出す。組を足しても既定は表示のまま
+    @Test func hiddenGroupsAreKeptAsBitsAndDefaultToShown() {
+        #expect(TrailPartGroup.shownParts(hidden: 0) == BodyPart.allCases)
+        #expect(TrailPartGroup.shownParts(hidden: TrailPartGroup.hips.bit) == [.leftShoulder, .rightShoulder, .head, .hands])
+        let onlyHands = TrailPartGroup.allCases.filter { $0 != .hands }.reduce(0) { $0 | $1.bit }
+        #expect(TrailPartGroup.shownParts(hidden: onlyHands) == [.hands])
+        #expect(TrailPartGroup.shownParts(hidden: TrailPartGroup.allCases.reduce(0) { $0 | $1.bit }).isEmpty)
+    }
+
     /// 部位の並びは描く順（股関節が下、手が一番上）
     @Test func partsAreDrawnFromHipsUpToHands() {
         #expect(BodyPart.allCases == [.leftHip, .rightHip, .leftShoulder, .rightShoulder, .head, .hands])
@@ -84,6 +103,19 @@ struct JointTrailsTests {
         #expect(trails.point(of: .hands, at: 0.1 + 0.01)?.x == 3.0 / 8)   // 4 コマ目（0.1 秒）が最も近い
         #expect(trails.point(of: .hands, at: 2.0) == nil)                  // 0.1 秒以内に無い
         #expect(trails.point(of: .leftHip, at: 0.1) == nil)                // 無い部位
+    }
+
+    /// ほとんど動かない部位に掛ける移動平均の窓。コマ数に比例させ、5〜21 の奇数に収める
+    /// （実速の短いスイングで弧を潰さず、スローでは実時間で同じくらい均すため）
+    @Test func bodyWindowGrowsWithTheSwingAndStaysAnOddNumberInRange() {
+        #expect(JointTrails.bodyWindow(samples: 39) == 5)      // 実速の短いスイングは最小
+        #expect(JointTrails.bodyWindow(samples: 108) == 7)
+        #expect(JointTrails.bodyWindow(samples: 235) == 15)
+        #expect(JointTrails.bodyWindow(samples: 567) == 21)    // 1/8 スローでも上限で止める
+        for count in [0, 1, 30, 100, 300, 1000, 5000] {
+            let window = JointTrails.bodyWindow(samples: count)
+            #expect((5...21).contains(window) && window % 2 == 1)
+        }
     }
 
     // MARK: - 追跡結果からの変換
@@ -147,5 +179,7 @@ struct JointTrailsTests {
         let legacy = try JSONDecoder().decode(JointTrails.self, from: JSONSerialization.data(withJSONObject: object))
         #expect(legacy.version == 0)
         #expect(legacy.isCurrent == false)
+        // 版を上げたら、その版より前に作った軌跡はすべて作り直しの対象になる
+        #expect(JointTrails(version: JointTrails.currentVersion - 1, samples: []).isCurrent == false)
     }
 }

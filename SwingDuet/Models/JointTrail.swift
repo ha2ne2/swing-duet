@@ -11,6 +11,50 @@ enum BodyPart: CaseIterable {
     case rightShoulder
     case head
     case hands
+
+    /// スイングの弧そのもの（形を残したい）か、ほとんど動かない部位（強く均してよい）か。
+    /// 頭は起き上がりを読むのに使うが、動く量は小さいので後者に入れる
+    var movesAlongTheSwing: Bool { self == .hands }
+
+    /// 出し分けのまとまり。左右の対は別々に消したい場面が考えにくいので 1 つにする
+    var group: TrailPartGroup {
+        switch self {
+        case .hands: return .hands
+        case .head: return .head
+        case .leftShoulder, .rightShoulder: return .shoulders
+        case .leftHip, .rightHip: return .hips
+        }
+    }
+}
+
+/// 軌跡の出し分けの単位（ステージ右上の「…」で切り替える）。
+/// 並びはメニューに出す順（体の上から下へ）。**数は保存に使う桁なので、並べ替えても変えない**
+/// （変えると `UserDefaults` に残っている選択が別の部位にずれる）。部位を足すときは使っていない数を選ぶ
+enum TrailPartGroup: Int, CaseIterable, Identifiable {
+    case head = 1
+    case shoulders = 2
+    case hands = 0
+    case hips = 3
+
+    var id: Int { rawValue }
+
+    var label: String {
+        switch self {
+        case .hands: return "手"
+        case .head: return "頭"
+        case .shoulders: return "肩"
+        case .hips: return "腰"
+        }
+    }
+
+    /// 隠している組を 1 つの数にまとめるための桁（`UserDefaults` に整数 1 つで持つ。
+    /// 「隠す」側を立てるので、後から部位を足しても既定は表示になる）
+    var bit: Int { 1 << rawValue }
+
+    /// 隠す組の集合（数）から、描く部位を出す
+    static func shownParts(hidden: Int) -> [BodyPart] {
+        BodyPart.allCases.filter { hidden & $0.group.bit == 0 }
+    }
 }
 
 /// 解析レート（30fps）の 1 コマ分の部位の位置（正規化座標・左下原点。見えていなければ nil）。
@@ -21,7 +65,7 @@ struct JointTrailSample: Codable, Equatable {
     var time: Double
     /// 両手首の中点
     var hands: CGPoint? = nil
-    /// 鼻（後方視点で顔が見えないときは目・耳で代用）
+    /// 鼻（後方視点で顔が見えないときは目・耳で代用）。正面では起き上がりが読める
     var head: CGPoint? = nil
     var leftShoulder: CGPoint? = nil
     var rightShoulder: CGPoint? = nil
@@ -60,9 +104,13 @@ struct TrailPoint: Equatable {
 /// 部位ごとの軌跡。解析時に採用スイングの周り（`sampleRange`）を平滑化して保存し、比較画面で動画に重ねて描く。
 /// 動画に対する事実なので、フェーズを手で直しても変わらない（どの範囲を描くかは描くときのフェーズで決める）
 struct JointTrails: Codable, Equatable {
-    /// 部位の組の版。増やすと、古い版で作った軌跡は比較画面を開いたときに作り直される
-    /// （版 1: 首と腰の中心 → 両肩と両股関節に替えた）
-    static let currentVersion = 1
+    /// 軌跡を作るやり方の版。増やすと、古い版で作った軌跡は比較画面が軌跡を出すときに作り直される（`ClipStore.requestTrails`）。
+    /// **軌跡の中身が変わる直し（部位の組・平滑化・人物追跡）を入れたら必ず 1 つ増やす。**
+    /// 増やし忘れると、古いやり方で作った軌跡が端末に残ったままになり、見ているものが最新かどうか分からなくなる。
+    /// 描き方（曲線の引き方や色）だけの変更では増やさなくてよい（保存した点は変わらないため）。
+    /// 版 1: 首と腰の中心 → 両肩と両股関節。版 2: 観客の写る映像で人物を取り違えなくなった（追跡の直し）。
+    /// 版 3: 頭・肩・股関節（ほとんど動かない部位）を強く均すようにした
+    static let currentVersion = 3
 
     var version = JointTrails.currentVersion
     var samples: [JointTrailSample]
@@ -116,27 +164,47 @@ struct JointTrails: Codable, Equatable {
         return best?.point
     }
 
-    /// 5 点の Savitzky–Golay（2 次多項式の当てはめ）で各部位を平滑化したもの。姿勢推定の 1 コマごとの揺れを半分ほどに抑え、
-    /// 移動平均と違ってトップの折り返しの形を丸めない。窓に欠けが掛かる点と端の 2 点はそのまま
+    /// 部位ごとに平滑化したもの。姿勢推定の 1 コマごとの揺れを落とす。
+    ///
+    /// 手はスイングの弧そのものなので、形を残す 5 点の Savitzky–Golay（2 次多項式の当てはめ。移動平均と違って
+    /// トップの折り返しを丸めない）を掛ける。肩と股関節はほとんど動かず、線に占めるブレの割合が大きいので、
+    /// 形を残す必要がなく、より強い移動平均を掛ける（実測は docs/research/260914_0311-joint-trail-smoothing.md §12）
     func smoothed() -> JointTrails {
-        let weights: [Double] = [-3, 12, 17, 12, -3]
-        let total = weights.reduce(0, +)
-        guard samples.count >= weights.count else { return self }
         var result = samples
         for part in BodyPart.allCases {
-            let points = samples.map { $0.point(of: part) }
-            for i in 2..<(points.count - 2) {
-                let window = points[(i - 2)...(i + 2)].compactMap { $0 }
-                guard window.count == weights.count else { continue }
-                var x = 0.0, y = 0.0
-                for (weight, point) in zip(weights, window) {
-                    x += weight * point.x
-                    y += weight * point.y
-                }
-                result[i].set(CGPoint(x: x / total, y: y / total), of: part)
-            }
+            let weights: [Double] = part.movesAlongTheSwing
+                ? [-3, 12, 17, 12, -3]
+                : Array(repeating: 1, count: Self.bodyWindow(samples: samples.count))
+            let points = Self.convolved(samples.map { $0.point(of: part) }, weights: weights)
+            for i in result.indices { result[i].set(points[i], of: part) }
         }
         return JointTrails(version: version, samples: result)
+    }
+
+    /// ほとんど動かない部位に掛ける移動平均の窓（コマ数・奇数）。
+    /// スイングのコマ数に比例させて、動画の速さによらず実時間で同じくらい均す
+    /// （1/8 スローは実速の 8 倍のコマ数になる。5 コマ固定では実時間で 8 分の 1 しか均せない）
+    static func bodyWindow(samples: Int) -> Int {
+        let width = min(max(samples / 15, 5), 21)
+        return width % 2 == 0 ? width + 1 : width
+    }
+
+    /// 対称な重みの畳み込み。窓に欠けが掛かる点と端はそのまま返す（欠けを勝手に埋めない）
+    private static func convolved(_ points: [CGPoint?], weights: [Double]) -> [CGPoint?] {
+        let half = weights.count / 2, total = weights.reduce(0, +)
+        var result = points
+        guard points.count > weights.count, total > 0 else { return result }
+        for i in half..<(points.count - half) {
+            let window = points[(i - half)...(i + half)].compactMap { $0 }
+            guard window.count == weights.count else { continue }
+            var x = 0.0, y = 0.0
+            for (weight, point) in zip(weights, window) {
+                x += weight * point.x
+                y += weight * point.y
+            }
+            result[i] = CGPoint(x: x / total, y: y / total)
+        }
+        return result
     }
 }
 
