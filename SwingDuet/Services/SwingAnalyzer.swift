@@ -38,6 +38,12 @@ struct SwingAnalysisResult {
     /// 動画に写る 1 球ずつのショット（切り出す範囲と採用するスイング。素振りは含めない）。1 本のスイング動画なら 1 つ、検出失敗時は空
     var shots: [Shot] { ShotSplitter.shots(candidates: candidates, duration: duration) }
 
+    /// 部位（手・頭・左右の肩・左右の股関節）の軌跡。採用スイングの周り（`JointTrails.sampleRange`）だけを平滑化して持つ。検出に失敗していれば無し
+    var jointTrails: JointTrails? {
+        guard let chosen else { return nil }
+        return pose.jointTrails(in: JointTrails.sampleRange(chosen: chosen.phases, candidates: candidates.map(\.phases)))
+    }
+
     /// `range` の部分だけを 1 本の動画として見た解析結果（時刻は range の先頭を 0 にずらす）。
     /// 長い動画を 1 球ずつに切り出すとき、切り出した動画を解析し直さずに結果を作る。スイングは切り出した範囲の系列で検出し直す
     /// （範囲の外の素振りの尻尾が候補に混ざらないように）
@@ -64,7 +70,8 @@ struct SwingAnalysisResult {
             focusRect: focusRect,
             phases: phases,
             lowConfidence: lowConfidence,
-            candidates: candidates.map(\.phases))
+            candidates: candidates.map(\.phases),
+            jointTrails: jointTrails)
     }
 }
 
@@ -101,14 +108,23 @@ enum SwingAnalyzer {
     /// 動画は `AVAsset` で受ける（アプリ内のファイルも写真ライブラリの原本も同じ）
     static func analyze(asset: AVAsset) async throws -> SwingAnalysisResult {
         let video = try await loadVideo(asset: asset)
-        let pose = try PoseTracker.track(
-            asset: video.asset, videoTrack: video.track, frameRate: video.frameRate, orientation: video.orientation)
+        let pose = try track(video)
         return SwingAnalysisResult(
             duration: video.duration,
             frameRate: video.frameRate,
             videoAspect: video.aspect,
             pose: pose,
             candidates: SwingDetector.detect(track: pose, duration: video.duration))
+    }
+
+    /// 人物追跡だけを行う。解析済みのクリップに軌跡だけを後から作るとき（`ClipStore.requestTrails`）に使う
+    static func trackPose(asset: AVAsset) async throws -> PoseTrack {
+        try track(try await loadVideo(asset: asset))
+    }
+
+    private static func track(_ video: Video) throws -> PoseTrack {
+        try PoseTracker.track(
+            asset: video.asset, videoTrack: video.track, frameRate: video.frameRate, orientation: video.orientation)
     }
 
     /// 解析に使う動画の情報（`loadVideo` で読む）

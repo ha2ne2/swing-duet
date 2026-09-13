@@ -1,12 +1,13 @@
 import SwiftUI
-import AVFoundation
 
 /// 1 本の動画の表示ペイン。
 /// 初期表示は検出した人物（`config.focusRect`）が収まるように自動で拡大する。ピンチで拡大縮小（ピンチした位置を中心に）、
 /// ドラッグで位置合わせでき、拡大率と位置は自動フィットからの相対値として、指を離した時点で config に確定・保存される。
+/// 部位の軌跡（`config.jointTrails`）は `showTrails` のとき映像と同じ変換で重ねる（`JointTrailOverlay`）。
+/// 軌跡がまだ無い（または古い部位の組の）クリップは `ComparisonView` が作らせるので、その間は「作成中」を出す。
 /// この動画への操作は動画の上に重ねる。右上に「替える」（動画を選び直す）、下端中央に「フェーズ調整」
 struct VideoPaneView: View {
-    let player: AVPlayer
+    let controller: PlaybackController
     @Binding var config: VideoConfig
     let side: VideoSide
     /// クリップの表示名と倍率（VoiceOver と UI テストが「替える」の値として読む。画面には出さない）
@@ -18,6 +19,8 @@ struct VideoPaneView: View {
 
     /// 進行中のジェスチャーを反映した表示用の変換（指を離すと nil に戻り、確定値 config に従う）
     @GestureState private var live: Transform? = nil
+    /// 部位の軌跡を動画に重ねるか（ステージ右上のボタンで切り替える。アプリ全体で 1 つ）
+    @AppStorage(JointTrailOverlay.isEnabledKey) private var showTrails = false
 
     private static let scaleRange: ClosedRange<Double> = 0.5...4.0
     /// 自動フィットで人物の周りに空ける余白（人物範囲の幅・高さに対する割合）
@@ -29,9 +32,15 @@ struct VideoPaneView: View {
             let shown = live ?? fit.adjusted(by: config)
             ZStack {
                 Color.black
-                PlayerLayerView(player: player)
+                PlayerLayerView(player: controller.player(for: side))
                     .scaleEffect(shown.scale)
                     .offset(shown.offset)
+                if let trails = trailsToDraw, let videoRect = Self.videoRect(config: config, paneSize: geo.size) {
+                    TrailLayer(
+                        trails: trails, phases: config.phases, controller: controller, side: side,
+                        videoRect: videoRect, scale: shown.scale, offset: shown.offset)
+                        .allowsHitTesting(false)
+                }
             }
             .clipped()
             .contentShape(Rectangle())
@@ -41,6 +50,19 @@ struct VideoPaneView: View {
         .accessibilityLabel("\(side.label)の動画")
         .accessibilityValue(transformText)
         .accessibilityIdentifier("pane.\(side.rawValue)")
+        .overlay(alignment: .top) {
+            if isBuildingTrails {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                    Text("軌跡を作成中…")
+                }
+                .paneChip()
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("pane.\(side.rawValue).buildingTrails")
+            }
+        }
         .overlay(alignment: .topTrailing) {
             PaneSwapButton(side: side, title: title, onSwap: onSwap)
         }
@@ -56,6 +78,17 @@ struct VideoPaneView: View {
             .accessibilityLabel("\(side.label)のフェーズ調整")
             .accessibilityIdentifier("pane.\(side.rawValue).editPhases")
         }
+    }
+
+    /// いま描ける軌跡（表示がオフか、まだ作られていなければ nil）
+    private var trailsToDraw: JointTrails? {
+        guard showTrails, let trails = config.jointTrails, trails.isCurrent else { return nil }
+        return trails
+    }
+
+    /// 表示はオンだが軌跡がまだ無い（`ComparisonView` が作らせている最中）
+    private var isBuildingTrails: Bool {
+        showTrails && config.jointTrails?.isCurrent != true
     }
 
     /// 自動フィットに対する拡大率と位置（VoiceOver の読み上げと UI テストの検証に使う）
@@ -103,27 +136,32 @@ struct VideoPaneView: View {
         }
     }
 
+    /// 等倍・中央（resizeAspect）で表示される映像の位置（ペイン座標・pt）。縦横比が分からなければ nil
+    private static func videoRect(config: VideoConfig, paneSize: CGSize) -> CGRect? {
+        guard config.videoAspect > 0, paneSize.width > 0, paneSize.height > 0 else { return nil }
+        let width = min(paneSize.width, paneSize.height * config.videoAspect)
+        let height = width / config.videoAspect
+        return CGRect(x: (paneSize.width - width) / 2, y: (paneSize.height - height) / 2, width: width, height: height)
+    }
+
     /// 自動フィット：検出した人物の範囲（focusRect）が余白付きでペインに収まる変換。範囲が無ければ等倍・中央。
     /// 縮小はしない（人物が画面いっぱいなら等倍のまま）。映像の端がペインに入って黒帯が出る手前で位置を止める
     private static func autoFit(config: VideoConfig, paneSize: CGSize) -> Transform {
-        guard let focus = config.focusRect, focus.width > 0, focus.height > 0, config.videoAspect > 0,
-              paneSize.width > 0, paneSize.height > 0 else { return .identity }
+        guard let focus = config.focusRect, focus.width > 0, focus.height > 0,
+              let video = videoRect(config: config, paneSize: paneSize) else { return .identity }
 
-        // resizeAspect で表示される映像の大きさ（pt）
-        let videoWidth = min(paneSize.width, paneSize.height * config.videoAspect)
-        let videoHeight = videoWidth / config.videoAspect
         let padded = focus.insetBy(dx: -focusMargin * focus.width, dy: -focusMargin * focus.height)
         let scale = min(
-            paneSize.width / (padded.width * videoWidth),
-            paneSize.height / (padded.height * videoHeight),
+            paneSize.width / (padded.width * video.width),
+            paneSize.height / (padded.height * video.height),
             scaleRange.upperBound)
         guard scale > 1 else { return .identity }
 
         // 人物範囲の中心をペイン中心へ（Vision 座標は左下原点なので y は反転）
-        let dx = (padded.midX - 0.5) * videoWidth * scale
-        let dy = (0.5 - padded.midY) * videoHeight * scale
-        let maxX = max(0, (videoWidth * scale - paneSize.width) / 2)
-        let maxY = max(0, (videoHeight * scale - paneSize.height) / 2)
+        let dx = (padded.midX - 0.5) * video.width * scale
+        let dy = (0.5 - padded.midY) * video.height * scale
+        let maxX = max(0, (video.width * scale - paneSize.width) / 2)
+        let maxY = max(0, (video.height * scale - paneSize.height) / 2)
         return Transform(
             scale: scale,
             offset: CGSize(width: min(max(-dx, -maxX), maxX), height: min(max(-dy, -maxY), maxY)))
@@ -160,5 +198,28 @@ struct VideoPaneView: View {
             return base.translated(by: drag.translation)
         }
         return base
+    }
+}
+
+/// 軌跡に再生位置を渡すだけの入れ物。
+/// NOTE: `commonTime` を読む View をここだけに閉じ込める。ペイン本体で読むと、再生中は毎 tick ペイン全体
+///       （プレーヤーとジェスチャー）が作り直される
+private struct TrailLayer: View {
+    let trails: JointTrails
+    let phases: PhaseSet
+    let controller: PlaybackController
+    let side: VideoSide
+    let videoRect: CGRect
+    let scale: Double
+    let offset: CGSize
+
+    var body: some View {
+        JointTrailOverlay(
+            trails: trails,
+            phases: phases,
+            now: controller.sync.videoTime(at: controller.commonTime, for: side),
+            videoRect: videoRect,
+            scale: scale,
+            offset: offset)
     }
 }

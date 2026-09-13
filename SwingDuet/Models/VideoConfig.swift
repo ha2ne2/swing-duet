@@ -62,6 +62,9 @@ struct VideoConfig: Codable, Equatable {
     var lowConfidence: Bool = false
     /// 自動検出で見つかったスイング候補（時系列順）。素振りなど複数のスイングが写る動画で、フェーズ調整画面から選び直せる
     var candidates: [PhaseSet] = []
+    /// 部位（手・頭・左右の肩・左右の股関節）の軌跡（採用スイングの周り。比較画面で動画に重ねる）。
+    /// 検出に失敗した動画と古い保存データでは無し（`JointTrails.isCurrent` が false なら比較画面が作り直す）
+    var jointTrails: JointTrails? = nil
 
     /// 拡大率と位置を自動フィットどおり（1 と 0）に戻す
     mutating func resetTransform() {
@@ -99,10 +102,10 @@ struct VideoConfig: Codable, Equatable {
 
 extension VideoConfig {
     private enum CodingKeys: String, CodingKey {
-        case fileName, duration, frameRate, slowFactor, videoAspect, focusRect, scale, offsetX, offsetY, phases, lowConfidence, candidates
+        case fileName, duration, frameRate, slowFactor, videoAspect, focusRect, scale, offsetX, offsetY, phases, lowConfidence, candidates, jointTrails
     }
 
-    /// 後から追加したキー（candidates / videoAspect / focusRect / slowFactor）が無い保存データも読めるようにする
+    /// 後から追加したキー（candidates / videoAspect / focusRect / slowFactor / jointTrails）が無い保存データも読めるようにする
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         fileName = try c.decode(String.self, forKey: .fileName)
@@ -117,5 +120,6 @@ extension VideoConfig {
         phases = try c.decode(PhaseSet.self, forKey: .phases)
         lowConfidence = try c.decodeIfPresent(Bool.self, forKey: .lowConfidence) ?? false
         candidates = try c.decodeIfPresent([PhaseSet].self, forKey: .candidates) ?? []
+        jointTrails = try c.decodeIfPresent(JointTrails.self, forKey: .jointTrails)
     }
 }

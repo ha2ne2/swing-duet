@@ -66,6 +66,8 @@ private struct ComparisonContent: View {
     @State private var mine: VideoConfig
     @State private var model: VideoConfig
     @State private var editingSide: VideoSide?
+    /// 部位の軌跡を動画に重ねるか（ステージ右上のボタンで切り替える）。オンにしたとき、軌跡がまだ無いクリップには作らせる
+    @AppStorage(JointTrailOverlay.isEnabledKey) private var showTrails = false
 
     init(left: Clip, right: Clip, mineAsset: AVAsset, modelAsset: AVAsset, controller: PlaybackController,
          onSelectVideo: @escaping (VideoSide) -> Void) {
@@ -84,14 +86,14 @@ private struct ComparisonContent: View {
             // 動画ペイン（左右並び）
             HStack(spacing: 2) {
                 VideoPaneView(
-                    player: controller.player(for: .mine),
+                    controller: controller,
                     config: $mine,
                     side: .mine,
                     title: left.paneTitle,
                     onSwap: { onSelectVideo(.mine) },
                     onEditPhases: { editPhases(.mine) })
                 VideoPaneView(
-                    player: controller.player(for: .model),
+                    controller: controller,
                     config: $model,
                     side: .model,
                     title: right.paneTitle,
@@ -124,6 +126,18 @@ private struct ComparisonContent: View {
         }
         .onChange(of: controller.settings) { _, settings in
             store.playback = settings   // 次に開く比較も同じ設定から始める
+        }
+        .onChange(of: showTrails, initial: true) { _, isOn in
+            guard isOn else { return }
+            store.requestTrails(of: left.id)
+            store.requestTrails(of: right.id)
+        }
+        // 後から付いた軌跡を手元の設定にも写す。写さないと、拡大などで設定を保存し直したときに付いたばかりの軌跡を消してしまう
+        .onChange(of: left.video.jointTrails) { _, trails in
+            mine.jointTrails = trails
+        }
+        .onChange(of: right.video.jointTrails) { _, trails in
+            model.jointTrails = trails
         }
         .task {
             await controller.playWhenReady()   // 開いたら自動で再生

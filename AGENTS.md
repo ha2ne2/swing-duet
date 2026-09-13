@@ -20,7 +20,7 @@
 - やり取り・ドキュメントの言語は、特に断りがない限り**すべて日本語**とする
 - ドキュメント（AGENTS.md / 調査レポート / 設計書 / README など）も日本語を用いる
 - コード内の識別子（変数名・関数名など）は英語を使用
-- コメントは日本語に統一（詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) §6 参照）
+- コメントは日本語に統一（詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) §8 参照）
 
 **成果物・ファイルパスの提示**：
 
@@ -252,7 +252,7 @@ SPM パッケージ・CocoaPods は使っていない。
 
 ### 5.3 コメント規約
 
-コメントは**日本語**で記述する（[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) §6 参照）。
+コメントは**日本語**で記述する（[docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) §8 参照）。
 
 - コメントの種類：
   - `// TODO: [説明]` — 将来的に対応が必要な項目

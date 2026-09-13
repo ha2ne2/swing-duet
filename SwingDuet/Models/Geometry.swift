@@ -5,6 +5,13 @@ extension CGPoint {
     func distance(to other: CGPoint) -> CGFloat {
         hypot(x - other.x, y - other.y)
     }
+
+    /// 点の集まりの真ん中（空なら nil）。左右で対になる関節を 1 点にまとめるのに使う
+    static func center(of points: [CGPoint]) -> CGPoint? {
+        guard !points.isEmpty else { return nil }
+        let count = CGFloat(points.count)
+        return CGPoint(x: points.map(\.x).reduce(0, +) / count, y: points.map(\.y).reduce(0, +) / count)
+    }
 }
 
 extension Collection where Element == Double {

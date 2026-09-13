@@ -11,7 +11,7 @@ SwingDuet の技術スタック・モジュール構成・主要な仕組み（�
 | 動画再生         | AVFoundation（`AVPlayer` × 2 本、`rate` と `seek` で同期）                                     |
 | フレーム読み出し | AVFoundation `AVAssetReader`（解析用に 30fps 相当へ間引き）                                    |
 | 姿勢推定         | Vision `VNDetectHumanBodyPoseRequest`（左右手首の平均位置を追跡）                             |
-| 撮影             | AVFoundation `AVCaptureSession`（背面 / 前面の広角、1920×1080・240 / 120fps の `AVCaptureVideoDataOutput`）+ `AVAssetWriter`（HEVC・区切りファイル）+ Vision（15fps に間引いたライブ追跡）+ `AVAudioPlayer`（合図の音。§8） |
+| 撮影             | AVFoundation `AVCaptureSession`（背面 / 前面の広角、1920×1080・240 / 120fps の `AVCaptureVideoDataOutput`）+ `AVAssetWriter`（HEVC・区切りファイル）+ Vision（15fps に間引いたライブ追跡）+ `AVAudioPlayer`（合図の音。§6） |
 | 動画の取り込み   | Photos（PhotoKit）で写真ライブラリの動画を一覧し、選んだ動画は識別子で**参照**する（原本は `PHImageManager.requestAVAsset(version: .original)` で読む。§2）。権限が無いときは PhotosUI `PhotosPicker` + CoreTransferable `FileRepresentation(contentType: .movie)` でコピーし、AVFoundation `AVAssetExportSession`（パススルー）で映像トラックだけにする（§4） |
 | 永続化           | JSON（`Documents/library.json`）。動画は写真ライブラリの参照（コピーは `Documents/Videos/`。OS ピッカー経由と参照にする前に取り込んだもの）。**外部依存なし** |
 | 言語 / 最低 OS   | Swift 5 言語モード / iOS 17                                                                    |
@@ -25,6 +25,7 @@ SwingDuet/
 ├── Models/                       # 他に依存しない純粋な値型（Foundation だけ。解析 CLI もそのまま使う）
 │   ├── Swing.swift               # SwingPhase / SwingSegment / PhaseSet（4 フェーズと 3 区間）
 │   ├── VideoConfig.swift         # VideoSide / VideoConfig（動画の情報・解析結果・表示変換）
+│   ├── JointTrail.swift          # BodyPart / JointTrailSample / JointTrails（部位の軌跡。平滑化・線の切れ目・いまの点。§7）
 │   ├── Clip.swift                # Clip / ClipRole / AnalysisState / Pairing / Library（保存単位と保存する全体）
 │   ├── SyncEngine.swift          # SyncBasis / SyncEngine：共通タイムライン ⇔ 各動画時刻の写像（同期の区間別線形伸縮、同期しない等速。§3）
 │   ├── LoopRange.swift           # LoopEdge / LoopRange（ループ範囲の端。フェーズからのコマ数で持ち、丸め・詰めは純粋計算）
@@ -34,14 +35,14 @@ SwingDuet/
 │   └── Geometry.swift            # CGPoint / CGRect の小さな補助（距離・外接矩形）
 ├── Services/                     # 入出力・解析・再生制御
 │   ├── SwingAnalyzer.swift       # 自動解析の入口。PoseTracker → SwingDetector をつなぎ、保存用の VideoConfig にする（§5）。動画を読めないときの VideoError
-│   ├── PoseTracker.swift         # Vision の姿勢推定で人物を追跡（手首・腰・首の位置、関節の外接矩形）。フレーム 1 枚ずつの FrameTracker と動画ファイルの読み出し
+│   ├── PoseTracker.swift         # Vision の姿勢推定で人物を追跡（手首・頭・腰・首の位置、関節の外接矩形）。フレーム 1 枚ずつの FrameTracker と動画ファイルの読み出し
 │   ├── SwingDetector.swift       # 手の高さの系列からスイング区間・4 フェーズを検出し候補を採点（純粋計算）
 │   ├── ShotSplitter.swift        # 候補の列を 1 球ずつのショット（切り出す範囲）に組む。素振りは除く（純粋計算）
 │   ├── PhotoLibrary.swift        # 写真ライブラリ（PhotoKit）：権限と動画の一覧（変更に追従）、限定アクセスの選び直し、原本の書き出し。ピッカーで選んだ動画の出どころ LibrarySource
 │   ├── VideoImporter.swift       # OS のピッカー（PhotosPicker）から動画を受け取る・撮影日時・映像トラックだけへの書き換え（stripAudioTrack）
-│   ├── ClipStore.swift           # クリップの永続化（JSON + 動画ファイル管理）、旧データの移行、解析キュー（撮影中は止める・仮のフェーズの解析し直し）、上限、元に戻す
+│   ├── ClipStore.swift           # クリップの永続化（JSON + 動画ファイル管理）、旧データの移行、解析キュー（撮影中は止める・仮のフェーズの解析し直し・軌跡の作り直し）、上限、元に戻す
 │   ├── PlaybackController.swift  # CADisplayLink マスタークロックで 2 本を SyncEngine の倍率で再生。再生の設定の持ち主（§4）
-│   └── Capture/                  # 撮影（§8）
+│   └── Capture/                  # 撮影（§6）
 │       ├── CaptureController.swift # 撮影画面の中身。カメラ・書き込み・ライブ検出・切り出しと保存・合図をつなぐ（撮影のキュー / 追跡のキュー / main）
 │       ├── CaptureSession.swift  # AVCaptureSession の設定（フォーマットの選択・420v のデータ出力・熱と中断の通知）と AVAssetWriter の推奨設定
 │       ├── SegmentWriter.swift   # HEVC の区切りファイルへの書き込み（切り替えでフレームを落とさない）
@@ -56,7 +57,8 @@ SwingDuet/
     ├── Stage/
     │   ├── StageView.swift       # ステージ。左のスイングと相手（右）。両方の解析が済めば ComparisonView、それまでは解析中 / お手本なし / 失敗の表示
     │   ├── ComparisonView.swift  # 比較（ペイン 2 つ + 操作パネル）。左右の編集をクリップに、再生の設定を Library に保存
-    │   ├── VideoPaneView.swift   # 動画ペイン（自動フィット・拡大縮小・位置合わせ。下端中央にフェーズ調整）
+    │   ├── VideoPaneView.swift   # 動画ペイン（自動フィット・拡大縮小・位置合わせ。下端中央にフェーズ調整）。軌跡を映像と同じ変換で重ねる
+    │   ├── JointTrailOverlay.swift # 部位の軌跡の描画（曲線・トップ前後の濃淡・再生位置までの塗り分け。§7）
     │   ├── PaneSwapButton.swift  # ペイン右上の「替える」（比較前の SlotPane と共通）。動画に重ねるカプセル paneChip
     │   ├── ControlPanelView.swift # 操作パネル（同期のとり方の切替 + シークバー + 再生操作）。比較前のステージにも飾りとして出す
     │   ├── SeekBarView.swift     # 区間色分けの共通シークバー（同期しないときは上下 2 本）。ループ範囲を枠で囲んで外を暗くし、両端のつまみで端をコマ単位に動かす
@@ -75,7 +77,8 @@ SwingDuet/
         ├── PlayerLayerView.swift # AVPlayerLayer ラッパー
         ├── InteractivePopGestureBlocker.swift # NavigationStack の「戻る」スワイプを、置いた画面（ステージ）にいる間だけ止める
         ├── Alerts.swift          # 名前を付けるアラート・エラーのアラート。Optional を isPresented に変える Binding.isPresent
-        └── SwingSegment+Color.swift # 区間の色（SwiftUI 依存を Models に持ち込まないための拡張）
+        ├── SwingSegment+Color.swift # 区間の色（SwiftUI 依存を Models に持ち込まないための拡張）
+        └── BodyPart+Color.swift  # 部位の色（同上。色相が部位、濃淡がトップの前後）
 ```
 
 依存方向は Views → Services → Models。`ClipStore` は `@EnvironmentObject` でルートから全 View に配る。
@@ -207,7 +210,8 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
    長回しでは人物が画面を離れて戻る・序盤に誤検出を掴むことがあり、捨てないと二度と追い直せない（14 分の練習場の動画で検出率 0% になった原因）。
    手首は両手首の中点。片方しか見えないフレームは直前の「手首 → 中点」のずれを足して中点相当にし（切り替わりで位置が飛ばないように）、
    直前の点から 0.1 以内で続いていれば信頼度 0.15 まで採用する（他の関節は 0.3 未満を無視）。3 点メディアンで単発の飛びを消す。
-   腰（root）・首（neck）の位置と、見えている関節の外接矩形（ペインの自動フィットに使う `focusRect`。§2）もフレームごとに残す
+   腰（root）・首（neck）と、軌跡に描く点（頭・左右の肩・左右の股関節。§7）、見えている関節の外接矩形
+   （ペインの自動フィットに使う `focusRect`。§2）もフレームごとに残す
 2. **手の系列**（`handSamples`）: 手の高さ h = (手首 y − 腰 y) ÷ 体の大きさ（腰〜首の高さの動画全体の中央値）。腰 = 0、首 = 1。
    速度は体の大きさ/秒で移動平均（窓 5）。手首が 0.2 秒以上見えなかった（欠測）直後の速度は作らない
 3. **スイングの読み取り**（`detect` / `swingCandidate`）: 手が低い（h < 0.3）区間から順に「低い → 高い（h ≥ 0.5）→ 低い → 高い」の形を読む。
@@ -259,7 +263,7 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
 **シミュレータでは Vision のモデル重みが無く動作しない**（`Missing weights path cnn_human_pose.espresso.weights`）ため、
 常にフォールバックになる。検出精度の確認は実機で行う。
 
-## 8. 撮影の仕組み（CaptureController）
+## 6. 撮影の仕組み（CaptureController）
 
 ホームの「撮影」で開く全画面。設計は [design/260912_1951](./design/260912_1951-in-app-slowmo-capture-and-shot-split.md) 案 B と
 [design/260912_2251](./design/260912_2251-capture-screen.md)（画面・音・ショットが出来るまでの時間）。
@@ -300,7 +304,38 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
   ライブ検出は Vision に渡す向きが `.up` になっていた（回転行列の cos(π/2) が厳密な 0 でなく `orientation(from:)` の厳密比較に外れた）ので直した。
   **未確認**：直した後の検出、キーフレーム間隔ごとの大きさ、熱の推移、構えの判定の余白（4%）、合図の音量
 
-## 6. コーディング規約（コメント・命名）
+## 7. 関節の軌跡（JointTrails）
+
+比較画面で、手・頭・両肩・両股関節が通った道を動画に重ねて見せる（[SPEC.md](./SPEC.md) §2.4）。クラブヘッドは追えないが
+（[research/260913_1124](./research/260913_1124-club-head-tracking-survey.md)）、姿勢推定で既に取れている関節なら
+検出率 98〜100%・揺れは体の高さの 1% 前後で軌跡になる（実測は [research/260913_1810](./research/260913_1810-joint-trajectory-feasibility.md)）。
+
+- **作る**（解析時に 1 回）: `SwingAnalysisResult.jointTrails` が `PoseTracker` の結果から、採用スイングの前後 1 秒
+  （他の候補も 20 秒に収まるならそこまで。`JointTrails.sampleRange`）を切り出し、5 点の Savitzky–Golay で平滑化して
+  `VideoConfig.jointTrails` に入れる。1 本あたり 50 KB 程度で `library.json` に収まる。
+  部位は手（両手首の中点）・頭（鼻。後方視点では目・耳で代用）・左右の肩・左右の股関節の 6 つ。
+  肩と股関節を左右に分けているのは、1 本（`neck` / `root`）では回旋が消えるうえ動きも小さいため
+  （実測は [research/260913_2016](./research/260913_2016-joint-choice-for-trails.md)。左右はどれも検出率 100%）。
+  `neck` と `root` はフェーズ検出と体の大きさの基準に使い続けるので `PoseFrame` からは消していない。
+  左右は被写体から見た左右なので、画面のどちら側に出るかは向きで入れ替わる
+- **持つ**: 動画に対する事実なので、フェーズを手で直しても変わらない（どの範囲を描くかは描くときのフェーズで決める）。
+  古い保存データにキーが無くても読める（`VideoConfig.init(from:)`）
+- **後から作る**: 軌跡が無いクリップと、古い部位の組で作った軌跡（`JointTrails.version` が `currentVersion` 未満）は、
+  比較画面が軌跡を出すとき（オンにしたとき・オンのまま開いたとき）に
+  `ClipStore.requestTrails` が両側を積み、解析キューが空いてから 1 本ずつ人物追跡だけをやり直して（`SwingAnalyzer.trackPose`）軌跡を書く。
+  フェーズや位置合わせには触らない（解析し直すと手直しが消えるため）。できるまでペインに「軌跡を作成中…」を出す。
+  失敗したときは空の軌跡を入れて打ち切る（動画が読めないなど繰り返しても直らない失敗が大半で、
+  入れておかないと開くたびに Vision を走らせ、表示も消えない）
+- **描く**（`JointTrailOverlay`）: スイング区間の軌跡を薄く、再生位置までを濃く描き、いまの位置に丸を打つ。
+  点は Catmull–Rom の曲線でつなぐ。0.3 秒より長い欠けと、隣のコマから 0.25 を超える飛びで線を切る（`JointTrails.strokes`）。
+  色は部位ごとに色相を変え、トップより前は淡く、以降は同じ色相の濃い色（`BodyPart.color`）。
+  左右の対は近い色相にして「肩の 2 本」「股関節の 2 本」と読めるようにする（濃淡はトップの前後に使うので、左右は色相で分ける）。
+  座標は正規化のまま持ち、描くときにペインの表示変換を掛けるので、拡大しても線の太さは変わらない。
+  240fps 原本のスイングは解析コマが 600 を超えるので、1 本の線は 80 点まで間引く
+- **切り替え**: ステージ右上のボタン（`UserDefaults` の `showJointTrails`。アプリ全体で 1 つ。既定はオフ）。
+  再生位置を読む View を `VideoPaneView` の `TrailLayer` に閉じ込め、毎 tick でペイン全体が作り直されないようにしている
+
+## 8. コーディング規約（コメント・命名）
 
 - コード内のコメントは**日本語**で記述し、`TODO:` / `FIXME:` / `NOTE:` を用途に応じて使い分ける
 - 複雑なロジックには「なぜそうしたか」を説明するコメントを付ける（行動規範は [AGENTS.md](../AGENTS.md) §5.3）
@@ -308,7 +343,7 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
   ロジックの置き場は役割で分ける（`Models/` 値型と写像、`Services/` 入出力・解析・再生制御）
 - 1 ファイル 1 型を基本とし、ファイル内だけで使う補助 View は `private` にする
 
-## 7. 検証と既知の制約
+## 9. 検証と既知の制約
 
 - ビルド・シミュレータ・実機の手順: [guides/build-test.md](./guides/build-test.md)
 - 通しの自動 E2E（XCUITest ハーネス）: [.claude/skills/e2e-simulator/SKILL.md](../.claude/skills/e2e-simulator/SKILL.md)

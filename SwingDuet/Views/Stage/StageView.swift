@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// ステージ：左のスイング 1 本と、その相手（右のお手本）。両方の解析が済んでいれば比較（`ComparisonView`）、
-/// そうでなければ待ちの状態（解析中・お手本なし・失敗）を出す。ツールバーは ★ だけ（名前・削除・再解析は一覧の「…」から）。
+/// そうでなければ待ちの状態（解析中・お手本なし・失敗）を出す。ツールバーは軌跡のオン・オフと ★ だけ（名前・削除・再解析は一覧の「…」から）。
 /// 左右どちらの「替える」からも「動画を選ぶ」シートを開く（左は「動画」タブ、右は「お手本」タブで始まる）。
 /// 一覧へは左上の「<」で戻る。左端からのスワイプで戻る操作は止めている（シークバーの左端のつまみのドラッグと衝突するため）
 struct StageView: View {
@@ -11,6 +11,8 @@ struct StageView: View {
     @State private var currentID: UUID
     @State private var picking: VideoSide?
     @State private var errorMessage: String?
+    /// 部位の軌跡を動画に重ねるか（アプリ全体で 1 つ。`ComparisonView` が同じキーを読む）
+    @AppStorage(JointTrailOverlay.isEnabledKey) private var showTrails = false
 
     init(swingID: UUID) {
         _currentID = State(initialValue: swingID)
@@ -41,7 +43,8 @@ struct StageView: View {
         .navigationTitle(clip?.displayName ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                trailsButton
                 favoriteButton
             }
         }
@@ -56,6 +59,21 @@ struct StageView: View {
             .environmentObject(store)
         }
         .errorAlert($errorMessage)
+    }
+
+    private var trailsButton: some View {
+        Button {
+            showTrails.toggle()
+        } label: {
+            Image(systemName: showTrails
+                  ? "point.topleft.down.to.point.bottomright.curvepath.fill"
+                  : "point.topleft.down.to.point.bottomright.curvepath")
+                .foregroundStyle(showTrails ? Color.accentColor : Color.secondary)
+        }
+        .accessibilityLabel("軌跡")
+        .accessibilityValue(showTrails ? "オン" : "オフ")
+        .accessibilityHint("手・頭・左右の肩・左右の股関節の軌跡を動画に重ねる")
+        .accessibilityIdentifier("stage.trails")
     }
 
     private var favoriteButton: some View {

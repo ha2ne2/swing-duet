@@ -8,6 +8,13 @@ struct PoseFrame {
     var time: Double
     /// 手首（両手首の中点相当）。検出できなければ nil
     var wrist: CGPoint?
+    /// 頭（鼻。後方視点で顔が見えないときは目・耳で代用）。軌跡の表示に使う
+    var head: CGPoint? = nil
+    /// 肩と股関節（左右。被写体から見た左右）。軌跡の表示に使う
+    var leftShoulder: CGPoint? = nil
+    var rightShoulder: CGPoint? = nil
+    var leftHip: CGPoint? = nil
+    var rightHip: CGPoint? = nil
     /// 腰（root）。手の高さの基準（0）
     var root: CGPoint?
     /// 首（neck）。腰からの距離が体の大きさの単位
@@ -36,7 +43,7 @@ struct PoseTrack {
     }
 }
 
-/// Vision の人体姿勢推定で動画の人物を追跡し、フレームごとの手首・腰・首の位置と関節の外接矩形を得る。
+/// Vision の人体姿勢推定で動画の人物を追跡し、フレームごとの手首・頭・腰・首の位置と関節の外接矩形を得る。
 /// 複数人が写る動画（2 視点の合成など）では、腰位置が前フレームに最も近い人物を追い続ける（初回は最も大きく写る人物）。
 /// 動画ファイルは `track(asset:...)` で読む。撮影中のフレームを 1 枚ずつ渡すときは `FrameTracker` を直接使う
 enum PoseTracker {
@@ -113,6 +120,11 @@ enum PoseTracker {
             PoseFrame(
                 time: time,
                 wrist: wrists.update(with: person),
+                head: person.flatMap { headLocation(in: $0) },
+                leftShoulder: person.flatMap { location(of: .leftShoulder, in: $0) },
+                rightShoulder: person.flatMap { location(of: .rightShoulder, in: $0) },
+                leftHip: person.flatMap { location(of: .leftHip, in: $0) },
+                rightHip: person.flatMap { location(of: .rightHip, in: $0) },
                 root: person.flatMap { location(of: .root, in: $0) },
                 neck: person.flatMap { location(of: .neck, in: $0) },
                 bodyBounds: person.flatMap { jointBounds(of: $0) })
@@ -226,6 +238,16 @@ enum PoseTracker {
         }
     }
 
+    /// 頭の位置。正面なら鼻。後方視点で顔が向こうを向いて鼻が取れないときは目、それも無ければ耳で代用する
+    /// （見えている方の真ん中。代用に切り替わるときの数 % のずれは軌跡の平滑化で吸収する）
+    private static func headLocation(in observation: VNHumanBodyPoseObservation) -> CGPoint? {
+        typealias Joint = VNHumanBodyPoseObservation.JointName
+        for joints in [[Joint.nose], [.leftEye, .rightEye], [.leftEar, .rightEar]] {
+            if let point = CGPoint.center(of: joints.compactMap { location(of: $0, in: observation) }) { return point }
+        }
+        return nil
+    }
+
     /// 見えている関節すべてを囲む矩形（ペインの自動フィット用）。関節が 1 つも見えなければ nil
     private static func jointBounds(of observation: VNHumanBodyPoseObservation) -> CGRect? {
         guard let joints = try? observation.recognizedPoints(.all) else { return nil }
@@ -252,5 +274,18 @@ enum PoseTracker {
             filtered[i].wrist = CGPoint(x: [a.x, b.x, c.x].sorted()[1], y: [a.y, b.y, c.y].sorted()[1])
         }
         return filtered
+    }
+}
+
+extension PoseTrack {
+    /// 範囲内のコマから部位（手・頭・左右の肩・左右の股関節）の軌跡を作る（平滑化まで）。
+    /// 解析時（`SwingAnalysisResult.jointTrails`）と、後から軌跡だけを作るとき（`ClipStore.requestTrails`）で共通
+    func jointTrails(in range: ClosedRange<Double>) -> JointTrails {
+        let samples = frames.filter { range.contains($0.time) }.map {
+            JointTrailSample(time: $0.time, hands: $0.wrist, head: $0.head,
+                             leftShoulder: $0.leftShoulder, rightShoulder: $0.rightShoulder,
+                             leftHip: $0.leftHip, rightHip: $0.rightHip)
+        }
+        return JointTrails(samples: samples).smoothed()
     }
 }

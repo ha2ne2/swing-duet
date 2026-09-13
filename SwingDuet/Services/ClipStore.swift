@@ -31,6 +31,10 @@ final class ClipStore: ObservableObject {
     }
     /// 解析を実行中のクリップ
     @Published private(set) var analyzingID: UUID?
+    /// 軌跡だけを作り直したいクリップ（比較画面が軌跡を出すときに積む。解析と同じ列に並べて 1 本ずつ処理する）
+    private var trailQueue: [UUID] = []
+    /// Vision を走らせている最中か。解析と軌跡の作り直しを 1 本ずつにするための鍵
+    private var isTracking = false
     /// 直前に削除したクリップ（「元に戻す」用。次の削除で入れ替わり、再起動で消える）
     @Published private(set) var lastDeleted: [Clip] = []
     /// 1 球ずつに分けて取り込んだ長い動画の識別子（`Library.splitTakes`）
@@ -355,19 +359,60 @@ final class ClipStore: ObservableObject {
 
     // MARK: - 解析キュー
 
-    /// 解析待ちのクリップを取り込み順に 1 本ずつ解析する（Vision を並列に走らせない）。待ちが無ければ、撮影で仮のフェーズのままのものを解析し直す
+    /// 軌跡（`VideoConfig.jointTrails`）が無い、または古い部位の組で作られた解析済みクリップに、軌跡だけを後から作らせる。
+    /// 比較画面が軌跡を出すときに呼ぶ。フェーズや位置合わせには触らない（解析し直すと手直しが消えるため）
+    func requestTrails(of id: UUID) {
+        guard let clip = clip(id: id), clip.isAnalyzed, clip.video.jointTrails?.isCurrent != true,
+              !trailQueue.contains(id) else { return }
+        trailQueue.append(id)
+        processQueue()
+    }
+
+    /// 解析待ちのクリップを取り込み順に 1 本ずつ解析する（Vision を並列に走らせない）。待ちが無ければ、撮影で仮のフェーズのままのものを
+    /// 解析し直し、それも無ければ軌跡だけを作り直す
     private func processQueue() {
-        guard autoAnalyze, !analysisPaused, analyzingID == nil else { return }
+        guard autoAnalyze, !analysisPaused, !isTracking else { return }
         let waiting = clips.filter { $0.analysis == .pending }
         let candidates = waiting.isEmpty ? clips.filter { $0.needsReanalysis && $0.isAnalyzed } : waiting
-        guard let next = candidates.min(by: { $0.createdAt < $1.createdAt }) else { return }
-        analyzingID = next.id
-        Task { await analyze(next) }
+        if let next = candidates.min(by: { $0.createdAt < $1.createdAt }) {
+            isTracking = true
+            analyzingID = next.id
+            Task { await analyze(next) }
+        } else if let next = trailQueue.first {
+            isTracking = true
+            Task { await buildTrails(of: next) }
+        }
+    }
+
+    /// 人物追跡だけをやり直して軌跡を作り、保存する。
+    /// 失敗したときは空の軌跡を入れる：動画が読めないなど繰り返しても直らない失敗が大半で、
+    /// 入れておかないと画面を開くたびに Vision を走らせ、「作成中」の表示も消えない
+    private func buildTrails(of id: UUID) async {
+        defer {
+            trailQueue.removeAll { $0 == id }
+            isTracking = false
+            processQueue()
+        }
+        guard let clip = clip(id: id) else { return }
+        let trails: JointTrails
+        do {
+            let asset = try await videoAsset(of: clip)
+            let pose = try await SwingAnalyzer.trackPose(asset: asset)
+            trails = pose.jointTrails(in: JointTrails.sampleRange(chosen: clip.video.phases, candidates: clip.video.candidates))
+        } catch {
+            print("軌跡の作成に失敗: \(clip.fileName) \(error.localizedDescription)")
+            trails = JointTrails(samples: [])
+        }
+        // 作っている間に消された・解析し直されたときは書かない
+        guard let idx = clips.firstIndex(where: { $0.id == id }), clips[idx].video.jointTrails?.isCurrent != true else { return }
+        clips[idx].video.jointTrails = trails
+        persist()
     }
 
     private func analyze(_ clip: Clip) async {
         defer {
             analyzingID = nil
+            isTracking = false
             processQueue()
         }
         // コピーは解析より先に音声を落とす（解析が保存する duration を、以後ずっと読む書き換え後のファイルから取るため）。
