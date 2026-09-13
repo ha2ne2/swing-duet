@@ -1,12 +1,16 @@
 import SwiftUI
 
 /// 起動画面：自分のスイングの一覧（★ お気に入りの節と、撮影日ごとの節）。行をタップするとステージ（`StageView`）。
-/// 下端の「＋ スイングを追加」で写真ライブラリから 1 本選ぶ。「選択」でまとめて ★ / 削除。削除は即時で、下端の「元に戻す」で戻せる
+/// 下端の「撮影」で撮影画面（`CaptureView`。打つだけで 1 球ずつ残る）、「ライブラリから」で写真ライブラリから 1 本選ぶ（同じ見た目のカプセル 2 つ）。
+/// 「選択」でまとめて ★ / 削除。削除は即時で、下端の「元に戻す」で戻せる
 struct SwingListView: View {
     @EnvironmentObject private var store: ClipStore
 
     @State private var path: [UUID] = []
     @State private var showingPicker = false
+    @State private var showingCapture = false
+    /// 撮影を止めた結果（下端の帯に数秒出す）
+    @State private var captureSummary: CaptureController.Summary?
     @State private var editMode: EditMode = .inactive
     @State private var selection = Set<UUID>()
     @State private var renaming: Clip?
@@ -26,7 +30,7 @@ struct SwingListView: View {
                     ContentUnavailableView {
                         Label("スイングはまだありません", systemImage: "figure.golf")
                     } description: {
-                        Text("下の＋から、撮ったスイングを追加します。")
+                        Text("下の「撮影」で撮るか、「ライブラリから」追加します。")
                     }
                 } else {
                     list
@@ -59,6 +63,12 @@ struct SwingListView: View {
             .sheet(isPresented: $showingPicker) {
                 VideoPickerSheet(destination: .mine, initialTab: .library) { picked in
                     open(picked)
+                }
+                .environmentObject(store)
+            }
+            .fullScreenCover(isPresented: $showingCapture) {
+                CaptureView(store: store) { summary in
+                    captureSummary = summary
                 }
                 .environmentObject(store)
             }
@@ -103,29 +113,38 @@ struct SwingListView: View {
         .accessibilityIdentifier("swing.\(clip.id.uuidString)")
     }
 
-    /// 下端：通常は「＋ スイングを追加」、選択中はまとめて ★ / 削除。削除の直後は「元に戻す」
+    /// 下端：通常は「撮影」「ライブラリから」（同じ見た目のカプセル 2 つ）、選択中はまとめて ★ / 削除。削除の直後は「元に戻す」、撮影の直後は結果の帯
     private var bottomBar: some View {
         VStack(spacing: 10) {
             if !store.lastDeleted.isEmpty {
                 UndoBanner()
             }
+            if let summary = captureSummary {
+                CaptureSummaryBanner(summary: summary) { captureSummary = nil }
+            }
             if isEditing {
                 selectionBar
             } else {
-                Button {
-                    showingPicker = true
-                } label: {
-                    Label("スイングを追加", systemImage: "plus")
-                        .font(.headline)
-                        .padding(.horizontal, 18)
-                        .frame(height: 46)
-                        .background(Color.accentColor, in: Capsule())
-                        .foregroundStyle(.white)
+                HStack(spacing: 10) {
+                    capsuleButton("撮影", systemImage: "video.fill") { showingCapture = true }
+                        .accessibilityIdentifier("list.capture")
+                    capsuleButton("ライブラリから", systemImage: "plus") { showingPicker = true }
+                        .accessibilityIdentifier("list.addSwing")
                 }
-                .accessibilityIdentifier("list.addSwing")
             }
         }
         .padding(.vertical, 10)
+    }
+
+    private func capsuleButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.headline)
+                .padding(.horizontal, 18)
+                .frame(height: 46)
+                .background(Color.accentColor, in: Capsule())
+                .foregroundStyle(.white)
+        }
     }
 
     private var selectionBar: some View {
@@ -265,6 +284,43 @@ private struct SwingRow: View {
         case .failed:
             Label("解析できませんでした", systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
+        }
+    }
+}
+
+/// 撮影を止めた直後の「42 球を保存しました」。自動で止めたときはその理由、1 球も切り出せなかったときは長回しを残したことを出す。8 秒で消える
+private struct CaptureSummaryBanner: View {
+    let summary: CaptureController.Summary
+    let onDismiss: () -> Void
+
+    private var text: String {
+        var lines: [String] = []
+        if let reason = summary.reason { lines.append(reason) }
+        if summary.savedTake {
+            lines.append("ショットは見つかりませんでした。撮った動画を残したので、解析で 1 球ずつに分けます")
+        } else {
+            lines.append("\(summary.shotCount) 球を保存しました")
+            if summary.keptTake { lines.append("全体の動画も残しました") }
+        }
+        return lines.joined(separator: "。")
+    }
+
+    var body: some View {
+        HStack {
+            Text(text)
+                .font(.subheadline)
+            Spacer()
+            Button("OK", action: onDismiss)
+                .bold()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal, 16)
+        .accessibilityIdentifier("list.captureSummary")
+        .task(id: summary) {
+            try? await Task.sleep(for: .seconds(8))
+            if !Task.isCancelled { onDismiss() }
         }
     }
 }

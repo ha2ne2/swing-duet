@@ -11,6 +11,7 @@ SwingDuet の技術スタック・モジュール構成・主要な仕組み（�
 | 動画再生         | AVFoundation（`AVPlayer` × 2 本、`rate` と `seek` で同期）                                     |
 | フレーム読み出し | AVFoundation `AVAssetReader`（解析用に 30fps 相当へ間引き）                                    |
 | 姿勢推定         | Vision `VNDetectHumanBodyPoseRequest`（左右手首の平均位置を追跡）                             |
+| 撮影             | AVFoundation `AVCaptureSession`（背面 / 前面の広角、1920×1080・240 / 120fps の `AVCaptureVideoDataOutput`）+ `AVAssetWriter`（HEVC・区切りファイル）+ Vision（15fps に間引いたライブ追跡）+ `AVAudioPlayer`（合図の音。§8） |
 | 動画の取り込み   | Photos（PhotoKit）で写真ライブラリの動画を一覧し、選んだ動画は識別子で**参照**する（原本は `PHImageManager.requestAVAsset(version: .original)` で読む。§2）。権限が無いときは PhotosUI `PhotosPicker` + CoreTransferable `FileRepresentation(contentType: .movie)` でコピーし、AVFoundation `AVAssetExportSession`（パススルー）で映像トラックだけにする（§4） |
 | 永続化           | JSON（`Documents/library.json`）。動画は写真ライブラリの参照（コピーは `Documents/Videos/`。OS ピッカー経由と参照にする前に取り込んだもの）。**外部依存なし** |
 | 言語 / 最低 OS   | Swift 5 言語モード / iOS 17                                                                    |
@@ -28,6 +29,7 @@ SwingDuet/
 │   ├── SyncEngine.swift          # SyncBasis / SyncEngine：共通タイムライン ⇔ 各動画時刻の写像（同期の区間別線形伸縮、同期しない等速。§3）
 │   ├── LoopRange.swift           # LoopEdge / LoopRange（ループ範囲の端。フェーズからのコマ数で持ち、丸め・詰めは純粋計算）
 │   ├── PlaybackSettings.swift    # 比較画面の再生の設定（同期のとり方・揃えるフェーズ・速度・ループ範囲。アプリ全体で 1 つ保存）
+│   ├── CaptureSettings.swift     # 撮影の設定（カメラ・フレームレート・合図の音。アプリ全体で 1 つ保存）
 │   ├── Formatting.swift          # 日時・時間の表記と、日付ごとの節への分け方
 │   └── Geometry.swift            # CGPoint / CGRect の小さな補助（距離・外接矩形）
 ├── Services/                     # 入出力・解析・再生制御
@@ -37,11 +39,20 @@ SwingDuet/
 │   ├── ShotSplitter.swift        # 候補の列を 1 球ずつのショット（切り出す範囲）に組む。素振りは除く（純粋計算）
 │   ├── PhotoLibrary.swift        # 写真ライブラリ（PhotoKit）：権限と動画の一覧（変更に追従）、限定アクセスの選び直し、原本の書き出し。ピッカーで選んだ動画の出どころ LibrarySource
 │   ├── VideoImporter.swift       # OS のピッカー（PhotosPicker）から動画を受け取る・撮影日時・映像トラックだけへの書き換え（stripAudioTrack）
-│   ├── ClipStore.swift           # クリップの永続化（JSON + 動画ファイル管理）、旧データの移行、解析キュー、上限、元に戻す
-│   └── PlaybackController.swift  # CADisplayLink マスタークロックで 2 本を SyncEngine の倍率で再生。再生の設定の持ち主（§4）
+│   ├── ClipStore.swift           # クリップの永続化（JSON + 動画ファイル管理）、旧データの移行、解析キュー（撮影中は止める・仮のフェーズの解析し直し）、上限、元に戻す
+│   ├── PlaybackController.swift  # CADisplayLink マスタークロックで 2 本を SyncEngine の倍率で再生。再生の設定の持ち主（§4）
+│   └── Capture/                  # 撮影（§8）
+│       ├── CaptureController.swift # 撮影画面の中身。カメラ・書き込み・ライブ検出・切り出しと保存・合図をつなぐ（撮影のキュー / 追跡のキュー / main）
+│       ├── CaptureSession.swift  # AVCaptureSession の設定（フォーマットの選択・420v のデータ出力・熱と中断の通知）と AVAssetWriter の推奨設定
+│       ├── SegmentWriter.swift   # HEVC の区切りファイルへの書き込み（切り替えでフレームを落とさない）
+│       ├── LiveDetector.swift    # 撮影中の追跡結果から候補・構え・静かさを読む（純粋計算）。区切りを閉じる計画 SegmentPlanner
+│       ├── LiveShotJudge.swift   # 候補から 1 球ずつのショットを決める（後解析と同じ規則を待ちながら適用。純粋計算）
+│       └── CaptureSounds.swift   # 合図の音（4 つの電子音を合成）
 └── Views/                        # 画面ごとのフォルダ
     ├── Home/
-    │   └── SwingListView.swift   # ホーム（起動画面）。スイングの一覧（★ お気に入り / 撮影日ごと）、＋、選択モード、元に戻す
+    │   └── SwingListView.swift   # ホーム（起動画面）。スイングの一覧（★ お気に入り / 撮影日ごと）、「撮影」「ライブラリから」、選択モード、元に戻す、撮影の結果の帯
+    ├── Capture/
+    │   └── CaptureView.swift     # 撮影画面（プレビュー・縁の色・大きな球数・帯・録画ボタン・「…」）とプレビュー層の CameraPreviewView
     ├── Stage/
     │   ├── StageView.swift       # ステージ。左のスイングと相手（右）。両方の解析が済めば ComparisonView、それまでは解析中 / お手本なし / 失敗の表示
     │   ├── ComparisonView.swift  # 比較（ペイン 2 つ + 操作パネル）。左右の編集をクリップに、再生の設定を Library に保存
@@ -248,6 +259,47 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
 **シミュレータでは Vision のモデル重みが無く動作しない**（`Missing weights path cnn_human_pose.espresso.weights`）ため、
 常にフォールバックになる。検出精度の確認は実機で行う。
 
+## 8. 撮影の仕組み（CaptureController）
+
+ホームの「撮影」で開く全画面。設計は [design/260912_1951](./design/260912_1951-in-app-slowmo-capture-and-shot-split.md) 案 B と
+[design/260912_2251](./design/260912_2251-capture-screen.md)（画面・音・ショットが出来るまでの時間）。
+
+- **撮影**（`CaptureSession`）：背面（または前面）の広角で 1920×1080・240fps（前面は 120）の `AVCaptureDevice.Format` を選び、420v の
+  `AVCaptureVideoDataOutput`（遅れたフレームを捨てない）で撮影のキューにフレームを渡す。プレビューは `AVCaptureVideoPreviewLayer` を
+  `RotationCoordinator` で端末の向きに回す。動画の向きは録画を始めた時点の向きで固定し、writer の `transform` と Vision の `orientation` に同じ回転を渡す
+- **書き込み**（`SegmentWriter`、撮影のキュー）：`AVAssetWriter` で HEVC の区切りファイルに書く。設定は `recommendedVideoSettings`（カメラアプリ相当）に
+  `AVVideoExpectedSourceFrameRateKey`・B フレーム無し・キーフレーム間隔 30・`kVTCompressionPropertyKey_RealTime` を重ねる。
+  区切りの切り替え（`rotate`）は次のフレームから新しいファイルに書くだけで、フレームは落とさない。閉じるのは `SegmentPlanner` の規則
+  （ショットのフィニッシュから 2 秒で手が静か / 60 秒で静か / 75 秒）
+- **ライブ検出**（`LiveDetector`、追跡のキュー）：フレームを 15fps に間引き、`PoseTracker.FrameTracker` で追跡し、直近 8 秒の窓に 0.5 秒ごとに
+  `SwingDetector.detect` を掛ける。窓の中で形が安定した候補（フィニッシュから 1 秒）を `LiveShotJudge` に渡し、分割エンジンと同じ規則
+  （6 秒以内は同じ組、組の中で明らかに小さいものは素振り、中央値より明らかに小さいものも素振り）を「まだ来ていない候補」を待ちながら適用する。
+  組の最後のフィニッシュから 6 秒（手が動いていれば延ばす）で決め、2 球以上決まった後は中央値の 6 割以上なら 1 秒で決める。
+  判定は保存を待たせない（先に仮に保存してあり、判定は「写真ライブラリに移す」か「消す」かを決める）。
+  構え（人物が見えたまま腰が 2 秒動かない）は 1 回だけ判定し、関節の外接矩形が画面の端から 4% 以内なら「切れている」
+- **ショット**（main）：候補が登録された時点（フィニッシュの 1 秒後）で合図を鳴らし、範囲（アドレス −1.5 秒〜フィニッシュ +1.5 秒）のインパクトを含む区切りファイルが
+  閉じたら（フィニッシュ +1.6 秒）すぐ `VideoImporter.exportSegment`（パススルー）で切り出し、`ClipStore.keepCapturedShot` でアプリ内のファイルの仮のクリップにする
+  （打った 2〜3 秒後に一覧に出る）。判定（本番か素振りか）は後から来て、本番なら `promoteCapturedShot` で写真ライブラリのアルバム「SwingDuet」に移して参照にし、
+  素振りなら `discardCapturedShot` でクリップとファイルを消す（写真ライブラリには素振りが残らず、消すのに OS の確認も出ない）。
+  フェーズはライブ追跡の切り抜きに `SwingDetector` を掛けた仮のもの（`Clip.needsReanalysis`）で、すぐ開ける。止めた後、解析キューが 30fps で解析し直す
+  （撮影中は `ClipStore.analysisPaused` で止める。仮のフェーズを手で直していれば残す）。用の済んだ区切りファイルは消す。
+  1 球も切り出せなければ全体の動画を長い動画として足し、既存の分割（§5）に任せる。帯のサムネイルをタップするとリプレイ（`AVPlayerLooper`、240fps を 30fps で流す 1/8）
+- **合図**（`CaptureSounds`）：背面カメラでは画面がレンズの裏側で打席から見えないので、打席に届くのは音だけ（見えた / 切れている / 取れた / 止まった の
+  4 つの電子音を合成）。`.playback` でマナーモードでも鳴らし（撮影を自分で始めた場面なのでタイマーと同じ扱い）、`.mixWithOthers` で他の音楽は止めない。
+  切るのは撮影画面の「…」（`CaptureSettings.soundEnabled`）。画面の縁の色と大きな球数は近づいたときのもの
+- **見張り**：熱は `AVCaptureDevice.systemPressureState`（serious で追跡を 10fps に、critical で 120fps に落として区切りを切り替え、shutdown で止める）。
+  電池 10% 未満・空き容量 1 GB 未満（始めるには 2 GB）・5 分の不在・背景・中断（電話）で止めて保存し、ホームの帯に理由を出す。
+  撮影中は `isIdleTimerDisabled` で画面を消さない
+- **調査用**：`CaptureSettings.keepsFullTake`（既定オン）なら区切りファイルを止めるまで消さず、止めたときに `VideoImporter.concatenate`
+  （`AVMutableMovie` でサンプルをコピー。再エンコードなし）で 1 本につないで写真ライブラリのアルバム「SwingDuet」と `Documents/CaptureTakes/<日時>.mov` に残す
+  （1 球も無ければ長い動画のスイングとしても足す。つなげなければ区切りごと `<日時>-<番号>.mov`）。
+  `AVMutableComposition` に 2 本目の区切りを `insertTimeRange` すると -11800 で失敗する（Mac で再現。1 本だけの合成と `exportSegment` は動く）。
+  `CaptureLog` が `Documents/CaptureLogs/<日時>.txt` に、1 秒ごとの人物の有無・手首の検出率・手の高さ・関節の外接矩形と、候補・判定・区切り・熱・止めた理由を書く。
+  どちらも `xcrun devicectl device copy from` で Mac に取り出せる
+- **実機で確かめたこと**（2026-09-13、iPhone 15）：1080p240 のフォーマットが選ばれ、69 秒でコマ落ち 0、区切りの切り替え・切り出し・写真ライブラリへの保存が動いた。
+  ライブ検出は Vision に渡す向きが `.up` になっていた（回転行列の cos(π/2) が厳密な 0 でなく `orientation(from:)` の厳密比較に外れた）ので直した。
+  **未確認**：直した後の検出、キーフレーム間隔ごとの大きさ、熱の推移、構えの判定の余白（4%）、合図の音量
+
 ## 6. コーディング規約（コメント・命名）
 
 - コード内のコメントは**日本語**で記述し、`TODO:` / `FIXME:` / `NOTE:` を用途に応じて使い分ける
@@ -261,7 +313,7 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
 - ビルド・シミュレータ・実機の手順: [guides/build-test.md](./guides/build-test.md)
 - 通しの自動 E2E（XCUITest ハーネス）: [.claude/skills/e2e-simulator/SKILL.md](../.claude/skills/e2e-simulator/SKILL.md)
 - 写真ライブラリの権限を拒否したときの OS ピッカー（PhotosPicker）経由では、スローモーション動画が 30fps のレンダリング版になる（権限があれば原本を参照する。§2）
-- 画面構成（ホーム / 動画を選ぶ / ステージ）の設計: [design/260911_0530](./design/260911_0530-diary-screen-flow.md)
+- 画面構成（ホーム / 動画を選ぶ / ステージ）の設計: [design/260911_0530](./design/260911_0530-diary-screen-flow.md)。撮影画面: [design/260912_2251](./design/260912_2251-capture-screen.md)
 - 実機でお手本だけがカクついた原因（音声トラック）と対策の比較: [research/260907_0254](./research/260907_0254-model-video-stutter-on-device.md)
 - 動画をコピーで持っていた理由と、参照へ変えた判断: [research/260907_0316](./research/260907_0316-copy-vs-reference-video-storage.md) → [design/260912_2011](./design/260912_2011-photo-library-reference-storage.md)
 - 初回検証の記録: [research/260906_1531-simulator-verification.md](./research/260906_1531-simulator-verification.md)

@@ -80,13 +80,15 @@ final class PhotoLibrary: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     }
 
     /// 切り出したショットなどの動画ファイルを写真ライブラリに保存し、アルバム `albumName`（無ければ作る）に入れる。
-    /// 戻り値は参照に使う識別子。`creationDate` を渡すと写真アプリでその日時に並ぶ（撮った動画から切り出したショットは元の撮影時刻）
+    /// 戻り値は参照に使う識別子。`creationDate` を渡すと写真アプリでその日時に並ぶ（撮った動画から切り出したショットは元の撮影時刻）。
+    /// 限定アクセスではアルバムを作れも引けもしない（PhotoKit の制約）ので、アルバムに入れずに保存する（保存した動画はアプリから読める）
     nonisolated static func saveVideo(at url: URL, creationDate: Date?, albumName: String) async throws -> (localID: String, cloudID: String?) {
-        let existingAlbum = PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: {
+        let usesAlbum = PHPhotoLibrary.authorizationStatus(for: .readWrite) == .authorized
+        let existingAlbum = usesAlbum ? PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: {
             let options = PHFetchOptions()
             options.predicate = NSPredicate(format: "title == %@", albumName)
             return options
-        }()).firstObject
+        }()).firstObject : nil
         var localID: String?
         try await PHPhotoLibrary.shared().performChanges {
             let creation = PHAssetCreationRequest.forAsset()
@@ -94,6 +96,7 @@ final class PhotoLibrary: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             creation.creationDate = creationDate
             guard let placeholder = creation.placeholderForCreatedAsset else { return }
             localID = placeholder.localIdentifier
+            guard usesAlbum else { return }
             let album = existingAlbum.flatMap { PHAssetCollectionChangeRequest(for: $0) }
                 ?? PHAssetCollectionChangeRequest.creationRequestForAssetCollection(withTitle: albumName)
             album.addAssets([placeholder] as NSArray)

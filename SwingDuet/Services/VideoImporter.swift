@@ -92,6 +92,23 @@ enum VideoImporter {
         return try await exportPassthrough(asset, fileType: .mov, timeRange: CMTimeRange(start: start, end: end))
     }
 
+    /// 同じ設定で書いた動画ファイルを順につないで 1 本の一時ファイルにする（サンプルをコピーするだけで再エンコードは無い）。
+    /// 撮影の区切りファイルから、録画を始めてから止めるまでの動画を作る。
+    /// NOTE: `AVMutableComposition` に 2 本目を `insertTimeRange` すると -11800（-12780）で失敗する（Mac でも実機でも）ので、
+    ///       ムービーの編集 API `AVMutableMovie` でサンプルごとコピーする
+    static func concatenate(_ urls: [URL]) throws -> URL {
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mov")
+        let movie = AVMutableMovie()
+        movie.defaultMediaDataStorage = AVMediaDataStorage(url: output, options: nil)
+        for url in urls {
+            let source = AVMovie(url: url)
+            try movie.insertTimeRange(CMTimeRange(start: .zero, duration: source.duration), of: source, at: movie.duration, copySampleData: true)
+        }
+        guard movie.duration > .zero else { throw VideoError.noVideoTrack }
+        try movie.writeHeader(to: output, fileType: .mov, options: .addMovieHeaderToDestination)
+        return output
+    }
+
     /// パススルーで一時ファイルへ書き出す（拡張子は fileType に合わせる）
     private static func exportPassthrough(_ asset: AVAsset, fileType: AVFileType, timeRange: CMTimeRange? = nil) async throws -> URL {
         guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough),

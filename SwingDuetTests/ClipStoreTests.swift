@@ -283,6 +283,41 @@ struct ClipStoreTests {
         #expect(makeStore().playback.loop == nil)
     }
 
+    /// 撮影の設定は保存して読み直せる。撮影で切り出したショットは `done` のまま解析し直しの印が付き、印の無い旧データも読める
+    @Test func captureSettingsAndCapturedShotsArePersisted() throws {
+        let store = makeStore()
+        store.capture = { var c = CaptureSettings(); c.camera = .front; c.frameRate = 120; c.soundEnabled = false; return c }()
+        let pose = PoseTrack(frames: [])
+        let provisional = SwingAnalysisResult(duration: 4.4, frameRate: 240, videoAspect: 9.0 / 16.0, pose: pose, candidates: [])
+        let temp = directory.appendingPathComponent("cut.mov")
+        try Data("mov".utf8).write(to: temp)
+        let shot = try store.keepCapturedShot(at: temp, shotAt: Date(), provisional: provisional)
+        #expect(shot.isAnalyzed && shot.needsReanalysis)
+        guard case .file(let fileName) = shot.source else { Issue.record("アプリ内のファイルになっていない"); return }
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Videos/\(fileName)").path))
+        #expect(shot.video.frameRate == 240)
+
+        let reopened = makeStore()
+        #expect(reopened.capture == store.capture)
+        #expect(reopened.capture.effectiveFrameRate == 120)
+        #expect(reopened.clip(id: shot.id)?.needsReanalysis == true)
+
+        // 素振りと決まれば「元に戻す」に残さずクリップとファイルが消える
+        store.discardCapturedShot(shot.id)
+        #expect(store.clip(id: shot.id) == nil && store.lastDeleted.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("Videos/\(fileName)").path))
+
+        try write("""
+        {"version": 2, "clips": [{"id": "\(UUID().uuidString)", "role": "swing", "name": "", "createdAt": "2026-09-12T10:00:00Z",
+          "isFavorite": false, "analysis": {"done": {}},
+          "video": {"fileName": "old.mov", "duration": 3, "frameRate": 30, "phases": {"address": 0.2, "top": 0.8, "impact": 1.0, "finish": 1.5}}}]}
+        """, to: "library.json")
+        let old = makeStore()
+        #expect(old.clips.count == 1)
+        #expect(old.clips[0].needsReanalysis == false)
+        #expect(old.capture == CaptureSettings())
+    }
+
     private func markDone(_ clip: Clip, in store: ClipStore) {
         var done = clip
         done.video = video(clip.fileName)

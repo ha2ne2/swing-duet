@@ -1,0 +1,532 @@
+<title>SwingDuet 撮影画面</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho+B1:wght@600;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --paper: #F3F5F3; --paper-2: #E9EDEA; --ink: #1B2027; --ink-2: #3E4750; --muted: #66707A; --line: #D2D8D4;
+    --accent: #B27A0B; --accent-ink: #7C5406; --pick: #1F5F8B; --pick-soft: #DDEAF5; --warn: #B0560F;
+    --ok: #2F7D4A; --ok-soft: #DDEFE2; --rec: #C8382E;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #131618; --paper-2: #1B2023; --ink: #E9EDEB; --ink-2: #C3CAC6; --muted: #97A1A9; --line: #2C3438;
+      --accent: #F0B93A; --accent-ink: #F6CF6E; --pick: #7FB6E6; --pick-soft: #162B3C; --warn: #F0A25A;
+      --ok: #6FCB8A; --ok-soft: #173224; --rec: #FF6B5E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #131618; --paper-2: #1B2023; --ink: #E9EDEB; --ink-2: #C3CAC6; --muted: #97A1A9; --line: #2C3438;
+    --accent: #F0B93A; --accent-ink: #F6CF6E; --pick: #7FB6E6; --pick-soft: #162B3C; --warn: #F0A25A;
+    --ok: #6FCB8A; --ok-soft: #173224; --rec: #FF6B5E;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Zen Kaku Gothic New", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif; font-size: 15.5px; line-height: 1.85; -webkit-font-smoothing: antialiased; }
+  main { max-width: 1340px; margin: 0 auto; padding: 48px 24px 96px; }
+  .prose { max-width: 66ch; }
+  h1, h2, h3 { font-family: "Shippori Mincho B1", "Hiragino Mincho ProN", "Yu Mincho", serif; font-weight: 700; letter-spacing: 0.01em; text-wrap: balance; line-height: 1.35; }
+  h1 { font-size: 34px; margin: 8px 0 14px; }
+  h2 { font-size: 23px; margin: 0 0 14px; }
+  h3 { font-size: 17px; margin: 26px 0 8px; }
+  p { margin: 0 0 14px; }
+  .eyebrow { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+  section { padding: 40px 0 8px; border-top: 1px solid var(--line); margin-top: 24px; }
+  section > .eyebrow { display: block; margin-bottom: 6px; }
+  .lede { font-size: 18px; line-height: 1.8; color: var(--ink-2); }
+  .lede strong { color: var(--ink); }
+  code { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.92em; background: var(--paper-2); padding: 1px 6px; border-radius: 4px; }
+  ul, ol { padding-left: 1.4em; margin: 0 0 14px; }
+  li { margin: 4px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; line-height: 1.6; margin: 8px 0 20px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--line); }
+  th { font-weight: 700; color: var(--muted); font-size: 13px; letter-spacing: 0.04em; }
+  td:first-child { white-space: nowrap; font-weight: 500; }
+  .tablewrap { overflow-x: auto; }
+  .small { font-size: 13.5px; color: var(--muted); }
+  .tag { display: inline-block; font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); vertical-align: middle; margin-left: 6px; white-space: nowrap; }
+  .tag.pick { color: var(--pick); border-color: var(--pick); background: var(--pick-soft); }
+  .tag.todo { color: var(--warn); border-color: var(--warn); }
+  .rec { color: var(--pick); font-weight: 700; }
+  .neg { color: var(--warn); }
+  .num { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+  /* ---- §2 流れ ---- */
+  .flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; margin: 16px 0 10px; }
+  .flow .node { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: var(--paper-2); min-width: 150px; font-size: 14px; line-height: 1.5; }
+  .flow .node b { display: block; font-family: "Shippori Mincho B1", serif; font-size: 15.5px; }
+  .flow .node.shoot { border-color: var(--accent); background: transparent; }
+  .flow .node .sub { color: var(--muted); font-size: 12.5px; }
+  .flow .arrow { align-self: center; color: var(--muted); font-size: 13px; text-align: center; min-width: 74px; line-height: 1.3; }
+  .flow .arrow::after { content: "→"; display: block; font-size: 20px; color: var(--ink-2); }
+
+  /* ---- §3 iPhone モック（アプリはダーク固定。色は直書き） ---- */
+  .phones { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 22px 20px; align-items: start; margin: 20px 0 8px; }
+  @media (max-width: 1320px) { .phones { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 700px) { .phones { grid-template-columns: 1fr; } }
+  .col .name { font-family: "Shippori Mincho B1", serif; font-size: 17px; font-weight: 700; margin: 0 0 8px; }
+  .col .cap { margin: 12px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--ink-2); max-width: 300px; }
+  .col .cap b { color: var(--ink); }
+  .phone { width: 300px; max-width: 100%; background: #0B0B0C; border-radius: 40px; padding: 9px; box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 12px 30px rgba(0,0,0,0.25);
+    font-family: -apple-system, "SF Pro Text", "Hiragino Sans", "Hiragino Kaku Gothic ProN", system-ui, sans-serif; color: #fff; font-size: 14px; line-height: 1.3; letter-spacing: 0; position: relative; }
+  .screen { background: #000; border-radius: 32px; overflow: hidden; height: 600px; position: relative; }
+  .status { height: 32px; display: flex; justify-content: space-between; align-items: center; padding: 8px 24px 0; font-size: 12px; font-weight: 600; position: relative; z-index: 3; }
+
+  /* カメラ画面：プレビュー（練習場）を全面に敷き、上に枠・数字・帯・録画ボタンを重ねる */
+  .cam { position: absolute; inset: 0; }
+  .cam .view { position: absolute; inset: 0; background:
+      linear-gradient(180deg, #9DB3BF 0%, #C6D1D3 38%, #7E9A6E 40%, #4F7A45 62%, #355A31 63%, #2E4E2B 100%); }
+  .cam .view.dusk { filter: brightness(0.85); }
+  .cam .net { position: absolute; left: 0; right: 0; top: 24%; height: 15%; background: repeating-linear-gradient(90deg, rgba(0,0,0,0.10) 0 1px, transparent 1px 9px), repeating-linear-gradient(0deg, rgba(0,0,0,0.10) 0 1px, transparent 1px 9px); }
+  .cam .mat { position: absolute; left: 34%; right: 24%; top: 80%; height: 5%; background: #2B6B2A; border-radius: 3px; box-shadow: 0 3px 8px rgba(0,0,0,0.3); }
+  .cam .golfer { position: absolute; left: 50%; top: 45%; width: 70px; height: 150px; transform: translateX(-50%); color: #1D2330; }
+  .cam .golfer.small { width: 46px; height: 100px; top: 58%; left: 30%; opacity: 0.6; }
+  .cam .box { position: absolute; left: 50%; top: 43%; width: 96px; height: 200px; transform: translateX(-50%); border: 1.5px solid rgba(48,209,88,0.9); border-radius: 6px; }
+  .cam .box::before, .cam .box::after { content: ""; position: absolute; width: 12px; height: 12px; border: 2.5px solid #30D158; }
+  .cam .box::before { left: -2px; top: -2px; border-right: 0; border-bottom: 0; }
+  .cam .box::after { right: -2px; bottom: -2px; border-left: 0; border-top: 0; }
+  .cam .edge { position: absolute; inset: 0; border: 7px solid #6E6E73; border-radius: 32px; pointer-events: none; z-index: 2; }
+  .cam .edge.ok { border-color: #30D158; }
+  .cam .edge.hit { border-color: #fff; border-width: 12px; box-shadow: 0 0 0 4px rgba(255,255,255,0.35) inset; }
+  .cam .edge.warn { border-color: #FF9F0A; }
+  .cam .top { position: absolute; left: 0; right: 0; top: 34px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; z-index: 3; font-size: 13px; font-weight: 600; }
+  .cam .pill { background: rgba(0,0,0,0.55); border-radius: 999px; padding: 5px 10px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .cam .pill.live::before { content: "●"; color: #FF453A; margin-right: 5px; font-size: 11px; }
+  .cam .pill.fps { font-size: 11px; letter-spacing: 0.04em; }
+  .cam .x { width: 34px; height: 34px; border-radius: 50%; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .cam .count { position: absolute; left: 0; right: 0; top: 84px; text-align: center; z-index: 3; font-weight: 800; font-size: 74px; line-height: 1; letter-spacing: -0.02em; text-shadow: 0 2px 12px rgba(0,0,0,0.55); font-variant-numeric: tabular-nums; }
+  .cam .count small { font-size: 22px; font-weight: 700; margin-left: 4px; }
+  .cam .count.plus { font-size: 92px; }
+  .cam .stat { position: absolute; left: 24px; right: 24px; top: 168px; text-align: center; z-index: 3; font-size: 13px; font-weight: 600; }
+  .cam .stat span { display: inline-block; background: rgba(0,0,0,0.55); border-radius: 10px; padding: 6px 12px; line-height: 1.45; }
+  .cam .stat.lead { top: 96px; font-size: 15px; }
+  .cam .stat.lead span { padding: 10px 14px; }
+  .cam .banner { position: absolute; left: 14px; right: 14px; top: 176px; z-index: 3; background: rgba(255,159,10,0.92); color: #1A1200; border-radius: 12px; padding: 9px 12px; font-size: 12.5px; font-weight: 600; line-height: 1.4; }
+  .cam .strip { position: absolute; left: 14px; right: 18px; bottom: 126px; display: flex; gap: 6px; justify-content: flex-end; z-index: 3; overflow: hidden; }
+  .cam .th { width: 40px; height: 54px; border-radius: 6px; flex: none; background: linear-gradient(180deg, #9DB3BF 0 40%, #4F7A45 40%); position: relative; overflow: hidden; }
+  .cam .th::after { content: ""; position: absolute; left: 50%; top: 30%; width: 6px; height: 22px; margin-left: -3px; background: #1D2330; border-radius: 3px; }
+  .cam .th.ghost { background: rgba(0,0,0,0.45); border: 1.5px dashed rgba(255,255,255,0.7); }
+  .cam .th.ghost::after { display: none; }
+  .cam .th.ghost i { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-style: normal; font-size: 9px; text-align: center; line-height: 1.2; }
+  .cam .th .n { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.55); font-size: 9px; text-align: center; padding: 1px 0; font-variant-numeric: tabular-nums; }
+  .cam .bottom { position: absolute; left: 0; right: 0; bottom: 30px; height: 84px; display: flex; align-items: center; justify-content: center; z-index: 3; }
+  .cam .rec { width: 72px; height: 72px; border-radius: 50%; border: 4px solid #fff; display: flex; align-items: center; justify-content: center; }
+  .cam .rec i { display: block; width: 58px; height: 58px; border-radius: 50%; background: #FF453A; }
+  .cam .rec.on i { width: 30px; height: 30px; border-radius: 6px; }
+  .cam .side { position: absolute; top: 50%; transform: translateY(-50%); font-size: 11px; color: #fff; text-align: center; width: 60px; line-height: 1.3; }
+  .cam .side.l { left: 22px; } .cam .side.r { right: 22px; }
+  .cam .side b { display: block; font-size: 20px; font-weight: 400; }
+  .cam .dark { position: absolute; inset: 0; background: rgba(0,0,0,0.82); z-index: 4; }
+  .cam .replay { position: absolute; left: 14px; right: 14px; top: 78px; bottom: 120px; z-index: 5; border-radius: 14px; overflow: hidden; background:
+      linear-gradient(180deg, #9DB3BF 0%, #C6D1D3 38%, #7E9A6E 40%, #4F7A45 62%, #355A31 63%, #2E4E2B 100%); }
+  .cam .replay .golfer { width: 110px; height: 236px; top: 30%; }
+  .cam .replay .lab { position: absolute; left: 10px; top: 10px; font-size: 12px; font-weight: 700; background: rgba(0,0,0,0.55); padding: 4px 9px; border-radius: 999px; }
+  .cam .replay .bar { position: absolute; left: 12px; right: 12px; bottom: 10px; height: 4px; background: rgba(255,255,255,0.35); border-radius: 2px; }
+  .cam .replay .bar i { display: block; width: 46%; height: 100%; background: #fff; border-radius: 2px; }
+  .cam .acts { position: absolute; left: 14px; right: 14px; bottom: 44px; z-index: 5; display: flex; justify-content: space-between; align-items: center; font-size: 15px; font-weight: 600; }
+  .cam .acts .del { color: #FF453A; }
+  .cam .acts .keep { background: #fff; color: #000; border-radius: 999px; padding: 9px 18px; }
+  .cam .live-note { position: absolute; left: 0; right: 0; top: 46px; text-align: center; z-index: 5; font-size: 11px; color: #C7C7CC; }
+  .cam .live-note::before { content: "●"; color: #FF453A; margin-right: 4px; font-size: 9px; }
+
+  /* ホーム画面のモック */
+  .nav { display: flex; align-items: flex-end; justify-content: space-between; height: 52px; padding: 0 18px 6px; }
+  .nav .title { font-weight: 700; font-size: 30px; letter-spacing: -0.01em; }
+  .nav .act { color: #0A84FF; font-size: 15px; padding-bottom: 6px; }
+  .toast { margin: 6px 14px 4px; background: #2C2C2E; border-radius: 12px; padding: 9px 14px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+  .toast b { color: #fff; }
+  .sec { font-size: 12.5px; color: #8E8E93; padding: 10px 18px 4px; text-transform: none; }
+  .list { margin: 0 12px; border-radius: 12px; overflow: hidden; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; min-height: 58px; position: relative; background: #1C1C1E; }
+  .row + .row::before { content: ""; position: absolute; left: 110px; right: 0; top: 0; height: 1px; background: #38383A; }
+  .row .thumbs { display: flex; gap: 2px; }
+  .row .tm { width: 34px; height: 46px; border-radius: 5px; background: linear-gradient(180deg, #9DB3BF 0 40%, #4F7A45 40%); position: relative; overflow: hidden; }
+  .row .tm::after { content: ""; position: absolute; left: 50%; top: 30%; width: 5px; height: 20px; margin-left: -2.5px; background: #1D2330; border-radius: 3px; }
+  .row .tm.model { background: linear-gradient(180deg, #333A52 0 40%, #1A1E2C 40%); }
+  .row .tm.model::after { background: #B9C0D8; }
+  .row .tm.dim { opacity: 0.4; }
+  .row .tm.empty { background: #2C2C2E; } .row .tm.empty::after { display: none; }
+  .row .text { flex: 1; min-width: 0; }
+  .row .t { font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row .t.mut { color: #8E8E93; }
+  .row .s { font-size: 12px; color: #8E8E93; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  .row .ic { color: #8E8E93; font-size: 17px; width: 30px; text-align: center; }
+  .row .dots { color: #8E8E93; font-size: 18px; width: 26px; text-align: center; letter-spacing: 1px; }
+  .foot { font-size: 11.5px; color: #8E8E93; padding: 8px 18px; }
+  .hbar { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 16px 26px; display: flex; gap: 10px; justify-content: center; background: linear-gradient(180deg, rgba(0,0,0,0) 0%, #000 40%); }
+  .cap-btn { display: inline-flex; align-items: center; gap: 7px; height: 46px; padding: 0 18px; border-radius: 999px; font-size: 15px; font-weight: 600; white-space: nowrap; }
+  .cap-btn.pri { background: #0A84FF; color: #fff; }
+  .cap-btn.sec { background: #2C2C2E; color: #fff; }
+  .cap-btn .glyph { font-size: 15px; line-height: 1; }
+  .hbar.one { flex-direction: column; gap: 4px; align-items: center; }
+  .shutter { width: 60px; height: 60px; border-radius: 50%; border: 4px solid #fff; display: flex; align-items: center; justify-content: center; }
+  .shutter i { display: block; width: 46px; height: 46px; border-radius: 50%; background: #FF453A; }
+  .hbar .lab { font-size: 11px; font-weight: 600; color: #fff; }
+  .nav .act .ic { font-size: 19px; vertical-align: -2px; margin-right: 12px; }
+  .entry .bar .note { position: absolute; right: 12px; top: 8px; font-size: 10px; color: #8E8E93; }
+  .menu-pop { position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); width: 230px; background: #2C2C2E; border-radius: 14px; overflow: hidden; font-size: 15px; z-index: 3; }
+  .menu-pop div { padding: 11px 14px; border-top: 1px solid #3A3A3C; display: flex; justify-content: space-between; }
+  .menu-pop div:first-child { border-top: 0; }
+
+  /* 入口の 3 案（下端の帯だけ） */
+  .entries { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 14px 0 6px; }
+  @media (max-width: 900px) { .entries { grid-template-columns: 1fr; } }
+  .entry { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 12px; background: var(--paper-2); }
+  .entry .name { font-family: "Shippori Mincho B1", serif; font-weight: 700; font-size: 15.5px; margin-bottom: 8px; }
+  .entry .bar { background: #000; border-radius: 12px; padding: 12px 12px 14px; display: flex; gap: 8px; justify-content: center; font-family: -apple-system, "Hiragino Sans", system-ui, sans-serif; color: #fff; position: relative; min-height: 78px; align-items: flex-end; }
+  .entry .bar .tabs { display: flex; width: 100%; justify-content: space-around; font-size: 10px; color: #8E8E93; padding-top: 6px; border-top: 1px solid #38383A; }
+  .entry .bar .tabs span.on { color: #0A84FF; }
+  .entry .bar .tabs b { display: block; font-size: 18px; font-weight: 400; }
+  .entry .cap { font-size: 13px; color: var(--ink-2); margin: 8px 0 0; line-height: 1.55; }
+
+  /* ---- §4 時間の図 ---- */
+  .timeline { margin: 14px 0 8px; overflow-x: auto; }
+  .timeline svg { display: block; width: 100%; min-width: 760px; height: auto; font-family: "Zen Kaku Gothic New", "Hiragino Sans", sans-serif; }
+  .timeline .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--ink-2); margin: 6px 0 12px; }
+  .legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+  /* ---- §5 仕組みの図 ---- */
+  .pipe { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 14px 0 6px; }
+  .pipe .box { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 13px; line-height: 1.45; background: var(--paper-2); position: relative; }
+  .pipe .box b { display: block; font-size: 13.5px; }
+  .pipe .box .k { color: var(--muted); font-family: "IBM Plex Mono", monospace; font-size: 11px; display: block; margin-top: 3px; overflow-wrap: anywhere; }
+  .pipe .box.src { border-color: var(--accent); background: transparent; }
+  .pipe .box.out { border-color: var(--ok); background: var(--ok-soft); }
+  .pipe .lane { grid-column: 1 / -1; font-size: 12px; letter-spacing: 0.08em; color: var(--muted); font-family: "IBM Plex Mono", monospace; margin-top: 6px; }
+
+  /* ---- §8 決めてほしいこと ---- */
+  .decisions { display: grid; gap: 10px; margin: 14px 0; max-width: 860px; }
+  .decision { display: grid; grid-template-columns: 26px 1fr; gap: 12px; padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2); font-size: 14.5px; }
+  .decision .n { font-family: "Shippori Mincho B1", serif; font-size: 18px; font-weight: 700; color: var(--accent-ink); line-height: 1.3; }
+  .decision .q { font-weight: 700; }
+  .decision .r { color: var(--ink-2); margin-top: 2px; }
+  .decision .r b { color: var(--accent-ink); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="fig" viewBox="0 0 18 34"><circle cx="9" cy="5" r="3" fill="currentColor"/><path d="M9 8v11M9 12L3 6M9 12l6-2M9 19l-4 12M9 19l4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="figaddr" viewBox="0 0 18 34"><circle cx="9" cy="5" r="3" fill="currentColor"/><path d="M9 8v11M9 12l-3 8M9 12l3 8M6 20l3 1M9 19l-4 12M9 19l4 12M9 21l5 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="figtop" viewBox="0 0 18 34"><circle cx="9" cy="5" r="3" fill="currentColor"/><path d="M9 8v11M9 11L14 3M14 3l3 1M9 19l-4 12M9 19l4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="figfin" viewBox="0 0 18 34"><circle cx="9" cy="5" r="3" fill="currentColor"/><path d="M9 8v11M9 11L3 4M3 4L1 3M9 19l-4 12M9 19l4 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+<main>
+  <span class="eyebrow">SwingDuet · 設計 · 2026-09-12 · 第 2 稿（入口は 2026-09-13 に決定。§4 は同日に「先に保存、後で判定」へ）</span>
+  <h1>撮影画面：打つだけで 1 球ずつのスローが残る</h1>
+  <p class="lede prose">長い動画を 1 球ずつに分ける仕組み（分割エンジン）は出来た。次は<strong>アプリで 240fps の撮影を始めたら、あとは打つだけ</strong>にする撮影画面。
+  一人で使う。三脚の iPhone は打つ人から 2〜4 m 離れ、背面カメラなら画面はレンズの裏側にあって<strong>打席からは見えない</strong>。撮影中は触れない。
+  だから打席に届く合図は<strong>音</strong>で、画面は録画を押すときと、近づいて止める・見るときのもの。
+  ここでは撮影画面の状態を並べ、ショットが出来るまでの時間と仕組みを図にし、決めてほしいことを 8 つに絞った。
+  仕組みの骨格は <a href="./260912_1951-in-app-slowmo-capture-and-shot-split.md">design/260912_1951</a> の案 B（区切りのあるファイル ＋ ライブ検出）を踏襲する。</p>
+
+  <section>
+    <span class="eyebrow">§0 第 2 稿での変更（自己レビュー）</span>
+    <h2>一人で使う、画面は打席から見えない</h2>
+    <ul class="prose">
+      <li><b>「見えています。録画を押したら…」をやめた。</b>枠に入るのは自分で、録画を押すときは枠の中にいない。準備では「見えている」は起きない。
+        代わりに<b>録画を押して打席で構えたとき</b>に、全身が映っているかを音で知らせる（♪ 見えた / ♪♪ 切れている）。直すのは 1 往復で済む</li>
+      <li><b>背面カメラの画面はレンズの裏側で、打席から見えない。</b>初稿の「縁の色を 2〜4 m から見る」は成り立たない。合図は音が主で、縁の色と大きな球数は近づいたとき（と前面カメラのとき）のもの。
+        音はマナーモードでも鳴らし、アプリの中で切る（§8 の二）</li>
+      <li><b>前面カメラ（120fps）を「やらない」から「選べる」に。</b>打席から画面が見えるのは前面カメラだけ。240fps か、画面が見える 120fps か、選べるようにする（§8 の七）</li>
+      <li><b>入口は B（2 カプセル）に決定（2026-09-13）。</b>「撮影」と「ライブラリから」を、同じ見た目のカプセルで下端に並べる。どちらもスイングを足す入口で、主従を付けない。
+        丸いボタン 1 つ（B′）とタブ（C）との比較は §2.1 に残す</li>
+      <li>人物の周りの薄い枠（位置合わせ用）を消した。準備では誰も写っておらず、打席からは見えない</li>
+    </ul>
+  </section>
+
+  <section>
+    <span class="eyebrow">§1 使う場面</span>
+    <h2>打席の事実が、画面に求めること</h2>
+    <p class="prose">一人。打ちっぱなしの打席。iPhone は三脚で打席の後ろ（後方視点）か横（正面）、打つ人から 2〜4 m。録画を押したら打席に戻り、
+    以後 30〜60 分・50〜100 球、iPhone には触らない。素振り・空振り・球拾いが混ざる。</p>
+    <div class="tablewrap"><table>
+      <tr><th>場面の事実</th><th>画面に求めること</th></tr>
+      <tr><td>枠に入るのは自分。押すときは枠の中にいない</td><td>準備で「見えています」は起きない。<b>録画を押して打席で構えたとき</b>に全身が映っているかを音で知らせる（♪ 見えた / ♪♪ 切れている）。直すのは 1 往復</td></tr>
+      <tr><td>背面カメラの画面はレンズの裏側。打席から見えない</td><td>打席に届く合図は<b>音</b>だけ（見えた / 切れている / 取れた / 止まった の 4 つ）。縁の色と大きな数字は近づいたときに一目で分かるためのもの。前面カメラ（120fps）なら打席から画面が見える（§3 の注）</td></tr>
+      <tr><td>手が塞がっている（グローブ・クラブ）</td><td>撮影中に操作はさせない。近づいてする操作は「止める」「最後の 1 球を見る・消す」だけ</td></tr>
+      <tr><td>屋外・日中</td><td>白と黒のコントラストで作る。半透明の薄い表示は見えない。ダーク基調のアプリでもここは白が主</td></tr>
+      <tr><td>30〜60 分つけっぱなし</td><td>画面は消さない（<code>isIdleTimerDisabled</code>）。熱・電池・容量を見張り、落とすときは縁を橙にし、止めたときは音で知らせる</td></tr>
+      <tr><td>隣の打席がある</td><td>音は短い電子音だけ。音量は本体の音量。「…」で切れる。話す合図（球数の読み上げ）はしない</td></tr>
+      <tr><td>素振り・空振り・球拾い</td><td>素振りは残さない（分割エンジンの規則。§4）。誤検出はその場で消せる</td></tr>
+      <tr><td>打った直後に「今のどうだった」</td><td>最後の 1 球はその場で見られる（リプレイ）。お手本との比較はホームに戻ってから</td></tr>
+    </table></div>
+  </section>
+
+  <section>
+    <span class="eyebrow">§2 画面の流れ</span>
+    <h2>ホーム → 撮影 → 止める → ホームの今日の節</h2>
+    <div class="flow">
+      <div class="node"><b>ホーム</b>下端の「撮影」カプセル<span class="sub">（入口は §2.1）</span></div>
+      <div class="arrow">撮影</div>
+      <div class="node shoot"><b>撮影画面（準備）</b>プレビュー ＋ 白い輪<span class="sub">三脚を置いて録画を押し、打席へ</span></div>
+      <div class="arrow">録画</div>
+      <div class="node shoot"><b>撮影画面（録画中）</b>構えると ♪、ショットごとに ♪ と ＋1<span class="sub">縁は緑、大きな球数、下に帯</span></div>
+      <div class="arrow">止める</div>
+      <div class="node"><b>ホーム</b>今日の節に 1 球ずつ並び、上から解析<span class="sub">「42 球を保存しました」</span></div>
+      <div class="arrow">行</div>
+      <div class="node"><b>ステージ</b>いつものお手本と比較<span class="sub">今と同じ</span></div>
+    </div>
+    <p class="small">撮影画面は <code>fullScreenCover</code>（縦横どちらでも使えるように。ステージと同じ）。止めたら閉じてホームに戻る。撮影中に帯のサムネイルをタップするとリプレイが重なる（§3 の 5）。</p>
+
+    <h3>2.1 入口：ホームの下端をどうするか</h3>
+    <div class="entries" id="entries"></div>
+    <p class="prose"><b>B に決定（2026-09-13）。</b>「撮影」と「ライブラリから」は、どちらも一覧にスイングを足す入口なので<b>同じ見た目</b>のカプセルにし、主従を付けない
+    （今の「＋ スイングを追加」と同じ塗りのカプセルを 2 つ。アイコンだけ違う）。
+    タブ（C）は行き来して戻ってくる<b>場所</b>のためのもので、撮影は始めて終える<b>行為</b>。録画中は切り替えられず、終わればホームに戻る。
+    撮影タブを開いているだけでプレビューが回り、一覧は下端をタブに取られる。撮影が「今日の球を眺める場所」になったら C に移ればよい。
+    丸いボタン 1 つ（B′）はライブラリを副に格下げする形で、今は採らない。</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">§3 撮影画面</span>
+    <h2>7 つの状態</h2>
+    <p class="prose">全面がプレビュー。打席に届くのは音（♪ 見えた / ♪♪ 切れている / ♪ 取れた / ♪ー 止まった）。
+    画面は<b>縁の色</b>（灰 = まだ見えていない、緑 = 見えている、白の点滅 = ショット、橙 = 警告）と<b>大きな球数</b>で、近づいたときに一目で分かる。文字はその補足で、縁の色と同じことを言う。</p>
+    <div class="phones" id="phones"></div>
+    <p class="small">前面カメラ（120fps）：「…」で切り替える。プレビューは鏡像で、打席から縁の色と球数が見える（音はそのまま鳴る）。構えの位置を画面で直せるので、1 往復も要らない。
+    横向き：端末を横にすると縁と数字はそのまま、録画ボタンと帯は右の列に移る（カメラアプリと同じ）。動画の向きは録画を始めた時点の向きで固定し（<code>preferredTransform</code>）、途中で回しても変えない。</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">§4 ショットが出来るまで</span>
+    <h2>打ってから ♪ まで 1 秒、一覧に出るまで 2.5 秒</h2>
+    <p class="prose">分割エンジン（<code>ShotSplitter</code>）の規則は「候補どうしが 6 秒以内なら同じ組、組の中で明らかに小さいものは素振り」で、
+    素振りかどうかは<b>フィニッシュから 6 秒</b>待たないと決まらない。ただし合図と保存は判定を待たない（2026-09-13 に変更）：
+    候補が見つかった時点で ♪ を鳴らし、区切りファイルが閉じたらすぐ切り出してアプリ内のファイルとして一覧に出す。
+    判定は「写真ライブラリに移す」か「消す」かを決めるだけで、素振りは数秒後に黙って消える（写真ライブラリには残らない）。</p>
+    <div class="timeline" id="timeline"></div>
+    <div class="legend"><span><i style="background:#9AA9B5"></i>素振り</span><span><i style="background:#2F7D4A"></i>本番（アドレス〜フィニッシュ）</span><span><i style="background:#B27A0B"></i>切り出す範囲</span><span><i style="background:#1F5F8B"></i>区切りファイル</span><span><i style="border:1.5px dashed #66707A;background:transparent"></i>ライブ検出の窓（直近 8 秒）</span></div>
+    <div class="tablewrap"><table>
+      <tr><th>時刻</th><th>起きること</th><th>打席に届く合図（近づいたときの画面）</th></tr>
+      <tr><td class="num">F + 1 秒</td><td>15fps の追跡から 0.5 秒ごとに <code>SwingDetector.detect</code>。フィニッシュの 1 秒後に形が安定し、候補として登録</td><td><b>♪ 取れた</b>（縁が白く光り「＋1」。帯の右端に「切り出し中」の枠）</td></tr>
+      <tr><td class="num">F + 1.6 秒</td><td>後ろの余白（1.5 秒）が書き終わったので、手が静かなら区切りファイルを閉じ、次のファイルへ（フレームは落とさない）</td><td>無し</td></tr>
+      <tr><td class="num">F + 2.5 秒</td><td>閉じたファイルからアドレス −1.5 秒〜F +1.5 秒をパススルーで切り出し、アプリ内のファイルの仮のクリップにする</td><td>帯にサムネイル、球数が増える</td></tr>
+      <tr><td class="num">F + 6 秒</td><td>組の規則で判定。本番なら写真ライブラリのアルバム「SwingDuet」に移す。素振りならクリップとファイルを消す</td><td>素振りなら帯から消え、球数が減る</td></tr>
+    </table></div>
+    <p class="prose"><b>下限：</b>切り出す範囲がフィニッシュの 1.5 秒後までなので、どんな仕組みでも保存は F + 2.5 秒前後より早くならない。合図は F + 1 秒で固定。
+    2 球以上決まった後は、中央値の 6 割以上の候補は判定も F + 1 秒で出る。素振りにも ♪ が鳴るが、自分で素振りしたと分かっているので害は無い。</p>
+    <p class="prose"><b>切り出したショットのフェーズ：</b>ライブ追跡（15fps）の切り抜きに <code>SwingDetector</code> を掛けて仮のフェーズを付け、クリップは <code>done</code> ですぐ開ける状態にする
+    （長い動画の分割で <code>sliced(to:)</code> がしていることと同じ。分解能は 1/15 秒）。止めた後に既存の解析キューが 30fps で解析し直して置き換える（撮影中は Vision を取り合わないので回さない）。</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">§5 仕組み</span>
+    <h2>撮影から参照のクリップまで</h2>
+    <div class="pipe">
+      <div class="lane">撮影</div>
+      <div class="box src"><b>背面カメラ 1x</b>1920×1080 · 240fps<span class="k">AVCaptureDevice.Format</span></div>
+      <div class="box"><b>フレームの受け取り</b>1 枚ずつ 2 か所へ<span class="k">AVCaptureVideoDataOutput</span></div>
+      <div class="box"><b>書き込み</b>HEVC・区切りファイル<span class="k">AVAssetWriter</span></div>
+      <div class="box"><b>プレビュー</b>縁・数字・帯を重ねる<span class="k">AVCaptureVideoPreviewLayer</span></div>
+      <div class="lane">ライブ検出（既存の部品）</div>
+      <div class="box"><b>間引き</b>240 → 15fps</div>
+      <div class="box"><b>追跡</b>人物の選択・手首・腰・首<span class="k">PoseTracker.FrameTracker</span></div>
+      <div class="box"><b>検出</b>直近 8 秒の窓を 0.5 秒ごと<span class="k">SwingDetector.detect</span></div>
+      <div class="box"><b>判定</b>組の規則・F + 6 秒<span class="k">ShotSplitter の規則</span></div>
+      <div class="lane">ショット</div>
+      <div class="box"><b>切り出し</b>閉じたファイルから範囲を<span class="k">VideoImporter.exportSegment</span></div>
+      <div class="box"><b>保存</b>アルバム「SwingDuet」<span class="k">PhotoLibrary.saveVideo</span></div>
+      <div class="box out"><b>クリップ</b>参照（識別子）＋ 仮のフェーズ<span class="k">ClipStore</span></div>
+      <div class="box"><b>解析し直し</b>止めた後、30fps で<span class="k">既存の解析キュー</span></div>
+    </div>
+    <p class="small">新しく書くのは「撮影」の 4 箱と「判定」「ショット」の流れ。追跡・検出・切り出し・保存は長い動画の分割で作った部品をそのまま使う。外部依存は増えない（AVFoundation・Vision・Photos）。</p>
+
+    <h3>5.1 調べたこと（API と制約）</h3>
+    <div class="tablewrap"><table><tr><th>項目</th><th>分かったこと</th><th>設計への反映</th></tr>
+<tr><td style="white-space:normal">録画と検出の 2 出力</td><td>iOS 16 以降にリンクしたアプリでは <code>AVCaptureMovieFileOutput</code> と <code>AVCaptureVideoDataOutput</code> を同じセッションで同時に使える（SDK ヘッダ）。ただし <code>hardwareCost</code> が 1.0 を超えると始まらず、フレームレートは <code>AVCaptureDevice</code> 側で 1 つ（出力ごとに 15fps にはできない）。iOS の <code>startRecording(to:)</code> は録画中に呼べず、ファイルの切り替えで途切れる</td><td>書き込みは案 B どおり <code>AVAssetWriter</code>（区切りの切り替えが途切れない、エンコード設定を持てる）。15fps への間引きは delegate で自前。実機で 240fps が落ちるなら MovieFileOutput ＋ データ出力に落とす手がある（区切りの切り替えは手が静かなときなので、途切れは害が無い）</td></tr>
+<tr><td style="white-space:normal">1080p240 のフォーマット</td><td>iPhone 15 は背面 1080p 120 / 240fps、前面 1080p 120fps（Apple の仕様）。どの <code>AVCaptureDevice.Format</code> かは実機で <code>formats</code> を列挙して確かめる（<b>未確認</b>）。<code>activeFormat</code> を設定するとプリセットは <code>.inputPriority</code> になる。1080p240 は H.264 不可で HEVC</td><td>段階 1 で実機で列挙する。超広角（0.5x）は 240fps 非対応の前提で背面 1x のみ</td></tr>
+<tr><td style="white-space:normal">データ出力 → AVAssetWriter で 240fps</td><td>画素形式は 420v（BGRA は 2.6 倍のメモリ。TN3121）。<code>alwaysDiscardsLateVideoFrames = false</code>、<code>expectsMediaDataInRealTime = true</code>。<code>recommendedVideoSettings(forVideoCodecType:assetWriterOutputFileType:)</code> がカメラアプリと同じ設定。30fps 超では <code>AVVideoExpectedSourceFrameRateKey</code> を入れないとエンコーダがコマを落とす。<code>kVTCompressionPropertyKey_RealTime</code> は <code>AVVideoCompressionPropertiesKey</code> に入れる（<code>AVVideoEncoderSpecificationKey</code> は macOS 専用）。プレビューの描画が重いと 240fps が出ない</td><td>この設定で始め、段階 1 で実機でコマ落ち（時刻の飛び）を数える</td></tr>
+<tr><td style="white-space:normal">キーフレーム間隔</td><td>設計書の 15 フレームは 240fps では毎秒 16 枚の I フレーム。Apple のエンジニアは 120fps の 20 フレームでも「毎秒 1 枚の 6 倍のデータ量」と指摘。HEVC でも <code>AVVideoMaxKeyFrameIntervalKey</code> は効く模様（ヘッダの注記は H.264。<b>未確認</b>）</td><td>15 / 30 / 60 を実機で測って決める。基準は 1 ショットの大きさと、戻る操作の絵の更新（TODO I）。切り出しの端は編集リストで隠れるので粒度は問題にならない</td></tr>
+<tr><td style="white-space:normal">容量</td><td>カメラアプリの 1080p240 HEVC は約 480 MB/分（≈ 64 Mbps。第三者の記事。Apple の公式値は設定アプリの画面の中だけ）</td><td>区切り 1 本（≤ 60 秒）≈ 480 MB、1 ショット 4.4 秒 ≈ 35 MB、100 球 ≈ 3.5 GB。始める条件「空き 2 GB」はこの値で見直す</td></tr>
+<tr><td style="white-space:normal">写真アプリでの「スロー」扱い</td><td><code>videoHighFrameRate</code> はカメラアプリの Slo-mo だけで、アプリからは付けられない（<code>PHAssetChangeRequest</code> に無い）。iOS 18 の <code>quickTimeMetadataKeyFullFrameRatePlaybackIntent</code> は「実速で再生する」印。サードパーティの 240fps が Slo-mo アルバムに入るかは<b>未確認</b>。100fps 超の保存で <code>performChanges</code> が失敗した報告（2019 年、未回答）</td><td>撮ったショットは写真アプリでは実速で再生される（アプリはフレームレートを読むので影響なし。「動画」タブのスローの印は付かない）。保存は段階 1 で実機で確かめる</td></tr>
+<tr><td style="white-space:normal">熱</td><td><code>AVCaptureDevice.systemPressureState</code>（nominal / fair / serious / critical / shutdown。要因に温度とピーク電力）を KVO し、下げるならフレームレート（ヘッダの推奨。AVCam は serious 以上で 15〜20fps に）。<code>ProcessInfo.thermalState</code> はカメラ固有の要因を含まない。shutdown でセッションが中断される</td><td>serious で追跡を 10fps に、critical で 120fps に落として縁を橙、shutdown は止めて保存（§3 の 6）。設計書 §4.7 の <code>ProcessInfo.thermalState</code> を置き換える</td></tr>
+<tr><td style="white-space:normal">向き</td><td>iOS 17 の <code>AVCaptureDevice.RotationCoordinator</code>（プレビュー用と記録用の角度）。データ出力の接続に角度を設定するとフレームの配信が途切れる（WWDC23）ので、Vision には <code>orientation</code> で渡し、書き込みは writer input の <code>transform</code> に開始時の角度を書く</td><td>動画の向きは開始時に固定（§3）。物理回転はせずメタデータだけ（今の取り込みと同じ扱い）</td></tr>
+<tr><td style="white-space:normal">Vision の速さ</td><td>公式の数値なし。iPhone 13 以降で 1 枚 8〜12 ms（Neural Engine。実装者の計測。A16 は<b>未確認</b>）。並列に投げても速くならない</td><td>15fps なら 1 枚あたり 67 ms のうち 10 ms 前後。1 本の直列キューで、追い付かなければ遅れたフレームを捨てる</td></tr>
+<tr><td style="white-space:normal">中断と背景</td><td>背景ではカメラを使えず、セッションが中断される（電話・アラーム・iPad の複数アプリも）。<code>AVAssetWriter</code> は背景に入る前に <code>finishWriting</code> しないとファイルが壊れる（-11847）</td><td>中断・背景・電話では区切りを閉じ、切り出し待ちを片付けてから止め、ホームに理由を出す。<code>isIdleTimerDisabled</code> は撮影画面にいる間だけ</td></tr>
+<tr><td style="white-space:normal">音</td><td>映像だけの入力でセッションが <code>AVAudioSession</code> を触るかは明記なし（<b>未確認</b>）。音声入力を加えると <code>AudioServicesPlaySystemSound</code> が鳴らなくなる報告（マイクは使わないので該当しない）。日本の録画開始音は法律でなく業界の自主規制で、サードパーティには求められない。App Review 2.5.14 は録画中の明確な表示を求める</td><td>合図は打席に届く唯一の経路なので、<code>automaticallyConfiguresApplicationAudioSession = false</code>、<code>.playback</code> でマナーモードでも鳴らし、切るのはアプリの「…」で（撮影を自分で始めた場面なので、タイマーと同じ扱い）。音量は本体の音量。録画中は赤い ● と経過時間で表示する</td></tr>
+<tr><td style="white-space:normal">権限</td><td><code>NSCameraUsageDescription</code> が要る。写真は <code>readWrite</code> を既に持つので新しいキーは不要。限定アクセスではアルバムを作れない・引けない（公式）。<code>addOnly</code> でもアルバムに入らない報告</td><td>限定アクセスのときはアルバムに入れずに保存する（今の <code>saveVideo</code> はアルバムごと失敗してコピーに落ちるので、アルバム無しの保存を足す）</td></tr>
+</table></div>
+<p class="small">設計書 260912_1951 からの変更：熱の見張りを <code>systemPressureState</code> に、キーフレーム間隔は実測で決める（15 固定をやめる）、限定アクセスではアルバム無しで保存する。書き込みの経路（<code>AVAssetWriter</code>）は変えない。Apple 公式の一次情報を優先し、確かめられなかったものは「未確認」と書いた。</p>
+<details><summary class="small">出典</summary><ul class="small"><li><a href="https://developer.apple.com/documentation/avfoundation/avcapturesession/hardwarecost">AVCaptureSession.hardwareCost</a></li><li><a href="https://developer.apple.com/videos/play/wwdc2022/110429/">WWDC22 Discover advancements in iOS camera capture</a></li><li><a href="https://support.apple.com/en-us/111831">iPhone 15 の仕様</a></li><li><a href="https://developer.apple.com/documentation/technotes/tn3121-selecting-a-pixel-format-for-an-avcapturevideodataoutput">TN3121 画素形式の選び方</a></li><li><a href="https://developer.apple.com/forums/thread/773071">4K120 の AVAssetWriter（Apple エンジニアの回答）</a></li><li><a href="https://developer.apple.com/documentation/avfoundation/avvideoexpectedsourceframeratekey">AVVideoExpectedSourceFrameRateKey</a></li><li><a href="https://developer.apple.com/documentation/photos/phassetmediasubtype/videohighframerate">PHAssetMediaSubtype.videoHighFrameRate</a></li><li><a href="https://developer.apple.com/documentation/avfoundation/avmetadatakey/quicktimemetadatakeyfullframerateplaybackintent">quickTimeMetadataKeyFullFrameRatePlaybackIntent</a></li><li><a href="https://developer.apple.com/documentation/avfoundation/avcapturedevice/systempressurestate-swift.class">AVCaptureDevice.SystemPressureState</a></li><li><a href="https://developer.apple.com/videos/play/wwdc2023/10106/">WWDC23 Support external cameras / RotationCoordinator</a></li><li><a href="https://developer.apple.com/documentation/avfoundation/avcapturesession/interruptionreason">AVCaptureSession.InterruptionReason</a></li><li><a href="https://developer.apple.com/documentation/avfoundation/avcapturefileoutput/startrecording(to:recordingdelegate:)">startRecording(to:recordingDelegate:)</a></li><li><a href="https://developer.apple.com/documentation/photokit/delivering-an-enhanced-privacy-experience-in-your-photos-app">PhotoKit の限定アクセス</a></li></ul></details>
+  </section>
+
+  <section>
+    <span class="eyebrow">§6 やらないこと（今）</span>
+    <h2>撮影画面を軽く保つために</h2>
+    <ul class="prose">
+      <li><b>撮影中の比較</b>（お手本と並べる）。ホームに戻れば見られる。リプレイは 1 本だけ</li>
+      <li><b>自動リプレイ</b>（ショットのたびに 10 秒流す）。2〜4 m からでは小さく、その間プレビューが消える。帯のタップで足りる</li>
+      <li><b>自動開始</b>（構えたら録画）。録画ボタンで十分。構えたときの ♪ で「回っている」ことも伝わる</li>
+      <li><b>話す合図</b>（「12 球目」と読み上げる）。練習場で気が引ける。電子音で足りる</li>
+      <li><b>音声</b>（マイクの権限）。インパクト音の案（TODO D）を採るときに</li>
+      <li><b>セッションの畳み込み</b>。ホームの今日の節に 50〜100 行がそのまま並ぶ。多すぎれば <a href="./260910_0516-zero-base-structures.md">design/260910_0516</a> の D</li>
+      <li>Apple Watch からの遠隔操作、外部カメラ、前後同時</li>
+    </ul>
+  </section>
+
+  <section>
+    <span class="eyebrow">§7 段階</span>
+    <h2>3 段で、1 段目から使える</h2>
+    <ol class="prose">
+      <li><b>骨格</b>：撮影画面（準備・録画・止める）、240fps の書き込み（区切りなしの 1 ファイル）。止めたら長い動画として写真ライブラリに保存し、
+        既存の分割（<code>ClipStore.split</code>）が 1 球ずつにする。ライブ検出なし。撮影の設定（フォーマット・向き・エンコード・保存）を実機で確かめる。
+        5 分までのセッションなら容量も待ち時間も許容できる。実機で確かめること：フォーマットの列挙、コマ落ち、240fps の写真ライブラリへの保存、キーフレーム間隔ごとの大きさ（§5.1）</li>
+      <li><b>ライブ検出と区切り</b>：15fps の追跡、区切りファイル、F + 6 秒の判定、切り出し、帯と「＋1」、4 つの音（見えた / 切れている / 取れた / 止まった）、仮のフェーズ。容量が 1 区切り分に収まり、打った数秒後にショットが出る</li>
+      <li><b>仕上げ</b>：リプレイ、熱・電池・容量の見張りと 120fps への切り替え、自動停止、横向き、前面カメラ、解析し直し</li>
+    </ol>
+    <p class="small">1 段目は「アプリで撮って自動で分かれる」体験そのもので、検出の検証は実機で撮った 240fps の長回しがそのまま使える（<code>docs/data/</code> に置いて CLI でも回せる）。</p>
+  </section>
+
+  <section>
+    <span class="eyebrow">§8 決めてほしいこと</span>
+    <h2>8 つ</h2>
+    <div class="decisions">
+      <div class="decision"><div class="n">一</div><div><div class="q">入口</div><div class="r"><b>決定（2026-09-13）: B。</b>ホームの下端に「撮影」「ライブラリから」を同じ見た目のカプセルで並べる。主従を付けない。C（タブ）は撮影が「場所」になるときのもの（§2.1）。</div></div></div>
+      <div class="decision"><div class="n">二</div><div><div class="q">打席に届く合図</div><div class="r"><b>推奨: 音を主にする。</b>4 つ（♪ 見えた / ♪♪ 切れている / ♪ 取れた / ♪ー 止まった）。マナーモードでも鳴らし、切るのはアプリの「…」。縁の色と大きな球数は近づいたときのもの。</div></div></div>
+      <div class="decision"><div class="n">三</div><div><div class="q">ショットの判定の待ち</div><div class="r"><b>推奨: F + 6 秒で決める。</b>素振りを残さない規則を後解析と揃える。2 球以上決まったら中央値で早める（F + 1 秒）。即決（絶対の閾値）は素振りが混ざる。</div></div></div>
+      <div class="decision"><div class="n">四</div><div><div class="q">止めた後の行き先</div><div class="r"><b>推奨: ホームの今日の節。</b>「42 球を保存しました」を下端に出す。まとめ画面や選別画面は作らない（帯で消せる。ホームでも消せる）。</div></div></div>
+      <div class="decision"><div class="n">五</div><div><div class="q">切り出したショットの解析</div><div class="r"><b>推奨: ライブ追跡から仮のフェーズを付けてすぐ開ける状態にし、止めた後に 30fps で解析し直す。</b>止めた後の解析だけにすると、撮影中はリプレイもサムネイルもインパクトの位置が分からない。</div></div></div>
+      <div class="decision"><div class="n">六</div><div><div class="q">その場の確認</div><div class="r"><b>推奨: 帯のサムネイルをタップでリプレイ（1/8 のループ）。</b>「削除」と「閉じる」だけ。録画は続く。自動リプレイはしない。</div></div></div>
+      <div class="decision"><div class="n">七</div><div><div class="q">向き・カメラ・fps</div><div class="r"><b>推奨: 縦横どちらも。既定は背面 1x の 240fps、前面 120fps を「…」で選べる（段階 3）。</b>前面なら打席から画面が見え、構えの位置も画面で直せる。240fps の細かさか、見える画面か。「…」はカメラ・240 / 120・音の 3 つだけ。</div></div></div>
+      <div class="decision"><div class="n">八</div><div><div class="q">自動停止</div><div class="r"><b>推奨: 人物が 5 分いなければ止めて保存する。</b>球を拾いに行く・休憩で忘れたときの電池と熱のため。止まっていたことはホームの通知で分かる。</div></div></div>
+    </div>
+    <p class="small">同じ内容のリポジトリ側の記録: docs/design/260912_2251-capture-screen.md</p>
+  </section>
+</main>
+
+<script>
+(function () {
+  const el = id => document.getElementById(id);
+
+  // ---- §2.1 入口の 3 案 ----
+  const entries = [
+    { name: 'B 2 カプセル・同じ見た目 <span class="tag pick">決定</span>',
+      bar: `<span class="cap-btn pri"><span class="glyph">◉</span>撮影</span><span class="cap-btn pri">＋ ライブラリから</span>`,
+      cap: 'どちらもスイングを足す入口。今の「＋ スイングを追加」と同じ塗りのカプセルを 2 つ並べ、アイコンだけ違える（撮影は video.fill、ライブラリは plus）。主従を付けない。' },
+    { name: 'B′ 丸い撮影ボタン 1 つ',
+      bar: `<span class="note">右上：▣ ライブラリ ／ 選択</span><span class="shutter"><i></i></span>`,
+      cap: 'カメラアプリのシャッターと同じ形で「押すと撮る」が一目で分かる。<span class="neg">ライブラリからの取り込みを副に格下げする形なので採らない。</span>' },
+    { name: 'C タブ（リスト / 撮影）',
+      bar: `<div class="tabs"><span class="on"><b>▤</b>スイング</span><span><b>●</b>撮影</span></div>`,
+      cap: '標準の形で、撮影が常に 1 タップ。<span class="neg">撮影タブを開いているだけでプレビューが回り、一覧は下端をタブに取られ、録画中はタブを隠す。</span>撮影が「場所」になったら正しくなる。' },
+  ];
+  el('entries').innerHTML = entries.map(e => `<div class="entry"><div class="name">${e.name}</div><div class="bar">${e.bar}</div><p class="cap">${e.cap}</p></div>`).join('');
+
+  // ---- §3 iPhone モック ----
+  const status = `<div class="status"><span>13:41</span><span>●●● ▲ ▮</span></div>`;
+  const golfer = (sym, cls = '') => `<svg class="golfer ${cls}"><use href="#${sym}"/></svg>`;
+  const thumbs = (n, from) => Array.from({ length: n }, (_, i) => `<div class="th"><span class="n">${from + i}</span></div>`).join('');
+  function cam(o) {
+    return `<div class="cam">
+      <div class="view${o.dusk ? ' dusk' : ''}"><div class="net"></div><div class="mat"></div>${o.golfer ?? ''}${o.box ? '<div class="box"></div>' : ''}</div>
+      <div class="edge ${o.edge}"></div>
+      ${status}
+      <div class="top"><span class="x">✕</span>${o.live ? `<span class="pill live">${o.live}</span>` : '<span></span>'}<span><span class="pill fps">${o.fps ?? '240 fps'}</span> <span class="pill">···</span></span></div>
+      ${o.count != null ? `<div class="count${o.plus ? ' plus' : ''}">${o.count}${o.plus ? '' : '<small>球</small>'}</div>` : ''}
+      ${o.stat ? `<div class="stat${o.lead ? ' lead' : ''}"><span>${o.stat}</span></div>` : ''}
+      ${o.banner ? `<div class="banner">${o.banner}</div>` : ''}
+      ${o.strip != null ? `<div class="strip">${o.strip}</div>` : ''}
+      <div class="bottom">${o.sideL ? `<span class="side l">${o.sideL}</span>` : ''}<span class="rec${o.on ? ' on' : ''}"><i></i></span>${o.sideR ? `<span class="side r">${o.sideR}</span>` : ''}</div>
+      ${o.overlay ?? ''}
+    </div>`;
+  }
+  const states = [
+    { name: '1 準備：三脚を置く', screen: cam({ edge: '', stat: '録画を押して打席へ。構えると音で知らせます', lead: true }),
+      cap: '<b>誰も写っていない。</b>打席にマットが入るように三脚を向け、録画を押して打席へ。縁は灰色、録画ボタンは白い輪。「見えています」はここでは起きない。' },
+    { name: '2 録画中：構えたら ♪', screen: cam({ edge: 'ok', golfer: golfer('figaddr'), live: '00:12', on: true, count: 0, stat: '♪ 見えています' }),
+      cap: '<b>打席で構えて 2 秒静止すると判定。</b>全身が映っていれば ♪ と縁が緑。足元や頭が切れていれば ♪♪ と縁が橙（近づけば「足元が切れています」）。歩いて入る途中は判定しない。直すのは 1 往復で済む。' },
+    { name: '3 録画中：待ち', screen: cam({ edge: 'ok', golfer: golfer('figaddr'), live: '12:34', on: true, count: 11, stat: '見ています', strip: thumbs(6, 6) }),
+      cap: '<b>大きな球数（74pt）</b>で近づいたとき一目で分かる（前面カメラなら打席から）。経過時間は上の小さな赤丸。帯には取れた順にサムネイル（右が新しい）。録画ボタンは赤い ■。' },
+    { name: '4 ショットの直後', screen: cam({ edge: 'hit', golfer: golfer('figfin'), live: '12:41', on: true, count: '＋1', plus: true, strip: thumbs(6, 6) + '<div class="th ghost"><i>切り出し中</i></div>' }),
+      cap: '<b>♪ 取れた。</b>打席にはこの音だけが届く。打ってから 8 秒後（2 球目以降は 3 秒後。§4）。画面では縁が白く光り「＋1」、帯の右端の「切り出し中」が数秒でサムネイルに変わって球数が 12 になる。' },
+    { name: '5 帯をタップ：リプレイ', screen: cam({ edge: 'ok', golfer: golfer('figaddr'), live: '13:02', on: true, count: 12, strip: thumbs(7, 6), overlay: `<div class="dark"></div><div class="live-note">録画は続いています</div><div class="replay">${golfer('figtop')}<span class="lab">12 球目 · 13:41 · 1/8</span><div class="bar"><i></i></div></div><div class="acts"><span class="del">削除</span><span class="keep">閉じる</span></div>` }),
+      cap: '<b>そのショットを 1/8 のループで大きく。</b>「削除」で誤検出（空振り・隣の人）をその場で捨てる。比較はしない。録画と検出は続いていて、閉じると 3 に戻る。' },
+    { name: '6 警告：熱で 120fps に', screen: cam({ edge: 'warn', golfer: golfer('figaddr'), live: '38:10', on: true, count: 47, fps: '120 fps', banner: '本体が熱いので 120fps に落としました。冷えれば 240fps に戻ります', strip: thumbs(6, 42), dusk: true }),
+      cap: '<b>縁が橙。</b>撮影は止めない（音も鳴らさない）。空き容量が 2 GB を切ったとき・電池が 10% を切ったとき・5 分誰もいないときは <b>♪ー と鳴らして止め</b>、保存してホームへ戻る（理由はホームの帯に）。' },
+    { name: '7 止めた後：ホーム', screen: `<div class="status"><span>14:02</span><span>●●● ▲ ▮</span></div>
+        <div class="nav"><span class="title">スイング</span><span class="act">選択</span></div>
+        <div class="toast"><span><b>42 球</b>を保存しました</span><span style="color:#8E8E93">13:02–14:01</span></div>
+        <div class="sec">今日</div>
+        <div class="list">
+          <div class="row"><div class="thumbs"><div class="tm dim"></div><div class="tm model"></div></div><div class="text"><div class="t mut">14:01</div><div class="s">◌ 解析中…</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+          <div class="row"><div class="thumbs"><div class="tm dim"></div><div class="tm model"></div></div><div class="text"><div class="t mut">14:00</div><div class="s">待機中</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+          <div class="row"><div class="thumbs"><div class="tm"></div><div class="tm model"></div></div><div class="text"><div class="t">13:59</div><div class="s">3.1 : 1 · vs マキロイ</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+          <div class="row"><div class="thumbs"><div class="tm"></div><div class="tm model"></div></div><div class="text"><div class="t">13:58</div><div class="s">2.9 : 1 · vs マキロイ</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+          <div class="row"><div class="thumbs"><div class="tm"></div><div class="tm model"></div></div><div class="text"><div class="t">13:56</div><div class="s">3.0 : 1 · vs マキロイ</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+          <div class="row"><div class="thumbs"><div class="tm"></div><div class="tm model"></div></div><div class="text"><div class="t">13:55</div><div class="s">3.2 : 1 · vs マキロイ</div></div><span class="ic">☆</span><span class="dots">···</span></div>
+        </div>
+        <div class="foot">★ 以外は 200 本まで残ります（今日の分は数えません）</div>
+        <div class="hbar"><span class="cap-btn pri"><span class="glyph">◉</span>撮影</span><span class="cap-btn pri">＋ ライブラリから</span></div>`,
+      cap: '<b>今日の節に 42 行。</b>仮のフェーズで開ける状態になっていて、上から順に 30fps で解析し直す（行は「解析中…」）。行をタップでいつものお手本と比較。下端は「撮影」「ライブラリから」の同じ見た目のカプセル 2 つ（B）。' },
+  ];
+  el('phones').innerHTML = states.map(s => `<div class="col"><div class="name">${s.name}</div><div class="phone"><div class="screen">${s.screen}</div></div><div class="cap">${s.cap}</div></div>`).join('');
+
+  // ---- §4 時間の図（秒 → px。数値はすべてここから） ----
+  (function () {
+    const W = 1000, PAD = 40, T0 = 0, T1 = 24;   // 表示する秒の範囲
+    const x = t => PAD + (t - T0) / (T1 - T0) * (W - PAD * 2);
+    // 打席の出来事（秒）
+    const practice = [1.0, 3.2];                 // ゆっくりした素振り
+    const swing = { address: 6.0, top: 6.8, impact: 7.1, finish: 7.4 };   // 本番（実速）
+    const F = swing.finish;
+    const cut = [swing.address - 1.5, F + 1.5];  // ShotSplitter.leadIn / leadOut
+    const registered = F + 1.0;                  // 候補として登録（♪）
+    const segClose = F + 1.6;                    // 後ろの余白が書き終わったので区切りファイルを閉じる
+    const kept = segClose + 0.9;                 // 切り出してアプリ内に仮に保存（一覧に出る）
+    const decide = F + 6;                        // 組の規則で判定（groupGap）。本番なら写真ライブラリへ、素振りなら消す
+    const win = [decide - 8, decide];            // 判定時点のライブ検出の窓
+    const rows = { events: 70, files: 130, cut: 165, live: 215, feedback: 272 };
+    const s = [];
+    s.push(`<svg viewBox="0 0 ${W} 312" role="img" aria-label="打ってから＋1が出るまでの時間の図">`);
+    // 軸
+    for (let t = T0; t <= T1; t += 2) {
+      s.push(`<line x1="${x(t)}" y1="40" x2="${x(t)}" y2="296" stroke="var(--line)" stroke-width="1"/>`);
+      s.push(`<text x="${x(t)}" y="30" text-anchor="middle" font-size="11" class="mono" fill="var(--muted)">${t}s</text>`);
+    }
+    const label = (t, y, txt, anchor = 'start', color = 'var(--ink-2)', size = 12) => s.push(`<text x="${x(t)}" y="${y}" text-anchor="${anchor}" font-size="${size}" fill="${color}">${txt}</text>`);
+    const bar = (a, b, y, h, fill, rx = 3) => s.push(`<rect x="${x(a)}" y="${y - h / 2}" width="${x(b) - x(a)}" height="${h}" rx="${rx}" fill="${fill}"/>`);
+    // 出来事
+    label(T0, rows.events - 22, '打席', 'start', 'var(--muted)', 11);
+    bar(practice[0], practice[1], rows.events, 16, '#9AA9B5');
+    label((practice[0] + practice[1]) / 2, rows.events + 4, '素振り', 'middle', '#fff', 11);
+    bar(swing.address, swing.finish, rows.events, 16, '#2F7D4A');
+    label(swing.finish + 0.2, rows.events + 4, `本番 ${(F - swing.address).toFixed(1)} 秒（アドレス→フィニッシュ）`, 'start', 'var(--ink-2)', 11);
+    s.push(`<line x1="${x(swing.impact)}" y1="${rows.events - 12}" x2="${x(swing.impact)}" y2="${rows.events + 12}" stroke="#fff" stroke-width="1.5"/>`);
+    label(swing.finish + 0.2, rows.events + 18, '球を見送る → 次の球を置く', 'start', 'var(--muted)', 11);
+    // 区切りファイル
+    label(T0, rows.files - 16, '区切りファイル', 'start', 'var(--muted)', 11);
+    bar(T0, segClose, rows.files, 12, '#1F5F8B');
+    bar(segClose, T1, rows.files, 12, '#1F5F8B', 3);
+    s.push(`<rect x="${x(segClose) + 1}" y="${rows.files - 6}" width="${x(T1) - x(segClose) - 1}" height="12" rx="3" fill="var(--paper)" opacity="0.55"/>`);
+    s.push(`<line x1="${x(segClose)}" y1="${rows.files - 14}" x2="${x(segClose)}" y2="${rows.files + 14}" stroke="var(--ink)" stroke-width="1.5"/>`);
+    label(segClose + 0.15, rows.files - 10, `F + 1.6 秒：余白が書き終わったので閉じる（${segClose.toFixed(1)}s）`, 'start', 'var(--ink-2)', 11);
+    // 切り出し
+    label(T0, rows.cut - 16, '切り出す範囲', 'start', 'var(--muted)', 11);
+    bar(cut[0], cut[1], rows.cut, 12, '#B27A0B');
+    label(cut[1] + 0.15, rows.cut + 4, `アドレス −1.5 秒 〜 F +1.5 秒 = ${(cut[1] - cut[0]).toFixed(1)} 秒（≈ ${Math.round((cut[1] - cut[0]) * 8)} MB）`, 'start', 'var(--ink-2)', 11);
+    // ライブ検出
+    label(T0, rows.live - 16, 'ライブ検出（15fps・0.5 秒ごとに検出）', 'start', 'var(--muted)', 11);
+    s.push(`<rect x="${x(win[0])}" y="${rows.live - 10}" width="${x(win[1]) - x(win[0])}" height="20" rx="4" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3"/>`);
+    label(win[0] + 0.15, rows.live + 4, '窓 8 秒', 'start', 'var(--ink-2)', 11);
+    s.push(`<circle cx="${x(registered)}" cy="${rows.live}" r="4" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`);
+    label(registered, rows.live + 22, 'F + 1 秒：候補として登録', 'middle', 'var(--ink-2)', 10.5);
+    s.push(`<circle cx="${x(decide)}" cy="${rows.live}" r="5" fill="var(--ink)"/>`);
+    label(decide + 0.25, rows.live + 4, `F + 6 秒：判定（本番 → 写真ライブラリへ / 素振り → 消す）（${decide.toFixed(1)}s）`, 'start', 'var(--ink)', 11);
+    // 見えるもの
+    label(T0, rows.feedback - 16, '打席に届く合図（音）', 'start', 'var(--muted)', 11);
+    s.push(`<circle cx="${x(registered)}" cy="${rows.feedback}" r="8" fill="#fff" stroke="var(--ink)" stroke-width="1.5"/>`);
+    label(registered + 0.3, rows.feedback + 4, `♪ 取れた（F + 1 秒）`, 'start', 'var(--ink)', 12);
+    bar(segClose, kept, rows.feedback, 10, 'var(--line)');
+    label((segClose + kept) / 2, rows.feedback - 8, '切り出し', 'middle', 'var(--muted)', 10.5);
+    s.push(`<circle cx="${x(kept)}" cy="${rows.feedback}" r="6" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`);
+    label(kept, rows.feedback + 22, `一覧に出る（F + ${(kept - F).toFixed(1)} 秒）`, 'middle', 'var(--ink-2)', 10.5);
+    s.push(`<circle cx="${x(decide)}" cy="${rows.feedback}" r="6" fill="none" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="3 2"/>`);
+    label(decide + 0.3, rows.feedback + 4, '素振りなら消える', 'start', 'var(--ink-2)', 10.5);
+    // F の縦線
+    s.push(`<line x1="${x(F)}" y1="40" x2="${x(F)}" y2="296" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2 3"/>`);
+    label(F, 308, 'F', 'middle', 'var(--ink)', 11);
+    s.push('</svg>');
+    el('timeline').innerHTML = s.join('');
+  })();
+
+})();
+</script>

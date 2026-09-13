@@ -55,8 +55,8 @@ enum ShotSplitter {
     }
 }
 
-private extension ShotSplitter {
-    /// 比べる相手の振り上げ・ピーク速度に対して両方 `practiceRatio` 未満なら素振り
+extension ShotSplitter {
+    /// 比べる相手の振り上げ・ピーク速度に対して両方 `practiceRatio` 未満なら素振り。撮影中の判定（`LiveShotJudge`）も同じ規則を使う
     static func isPractice(_ candidate: SwingCandidate, rise: Double, peakSpeed: Double) -> Bool {
         candidate.rise < practiceRatio * rise && candidate.peakSpeed < practiceRatio * peakSpeed
     }

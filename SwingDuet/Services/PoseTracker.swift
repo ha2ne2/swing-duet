@@ -65,11 +65,14 @@ enum PoseTracker {
         return PoseTrack(frames: medianFilteredWrists(frames))
     }
 
-    /// 動画の回転メタデータ（preferredTransform）を Vision に渡す向きに直す
+    /// 動画の回転メタデータ（preferredTransform）を Vision に渡す向きに直す。
+    /// 成分は丸めて比べる（`CGAffineTransform(rotationAngle:)` で作った行列は cos(π/2) が厳密な 0 にならない。
+    /// 厳密比較だと縦撮りを `.up` と読み、人物を横倒しのまま追跡して手の高さが壊れる）
     static func orientation(from t: CGAffineTransform) -> CGImagePropertyOrientation {
-        if t.a == 0 && t.b == 1 && t.c == -1 && t.d == 0 { return .right }
-        if t.a == 0 && t.b == -1 && t.c == 1 && t.d == 0 { return .left }
-        if t.a == -1 && t.b == 0 && t.c == 0 && t.d == -1 { return .down }
+        let (a, b, c, d) = (Int(t.a.rounded()), Int(t.b.rounded()), Int(t.c.rounded()), Int(t.d.rounded()))
+        if a == 0 && b == 1 && c == -1 && d == 0 { return .right }
+        if a == 0 && b == -1 && c == 1 && d == 0 { return .left }
+        if a == -1 && b == 0 && c == 0 && d == -1 { return .down }
         return .up
     }
 
@@ -239,8 +242,8 @@ enum PoseTracker {
         return point.location
     }
 
-    /// 手首の単発の外れ値（誤検出の瞬間的な飛びなど）を抑える 3 点メディアン
-    private static func medianFilteredWrists(_ frames: [PoseFrame]) -> [PoseFrame] {
+    /// 手首の単発の外れ値（誤検出の瞬間的な飛びなど）を抑える 3 点メディアン。撮影中の窓（`LiveDetector`）にも掛ける
+    static func medianFilteredWrists(_ frames: [PoseFrame]) -> [PoseFrame] {
         guard frames.count >= 3 else { return frames }
         var filtered = frames
         let wrists = frames.map(\.wrist)

@@ -21,6 +21,14 @@ final class ClipStore: ObservableObject {
     @Published var playback = PlaybackSettings() {
         didSet { if playback != oldValue { persist() } }
     }
+    /// 撮影の設定（アプリ全体で 1 つ）
+    @Published var capture = CaptureSettings() {
+        didSet { if capture != oldValue { persist() } }
+    }
+    /// 撮影中は解析キューを回さない（Vision を撮影の追跡と取り合わないため）。false に戻すと続きから回る
+    var analysisPaused = false {
+        didSet { if !analysisPaused { processQueue() } }
+    }
     /// 解析を実行中のクリップ
     @Published private(set) var analyzingID: UUID?
     /// 直前に削除したクリップ（「元に戻す」用。次の削除で入れ替わり、再起動で消える）
@@ -67,6 +75,7 @@ final class ClipStore: ObservableObject {
     private func load(_ library: Library) {
         clips = library.clips
         playback = library.playback
+        capture = library.capture
         splitTakes = library.splitTakes
         guard library.version < Library.currentVersion else { return }
         if library.version < 2 {
@@ -176,7 +185,7 @@ final class ClipStore: ObservableObject {
     }
 
     /// 一時ファイルをアプリ管理領域へ移し、保存ファイル名を返す（音声の除去は解析キューが行う）。
-    /// 写真ライブラリの動画は参照で持つので、ここを通るのは権限が無いときの OS ピッカー経由だけ
+    /// 写真ライブラリの動画は参照で持つので、ここを通るのは権限が無いときの OS ピッカー経由と、写真ライブラリに保存できなかった切り出し（`persistVideo`）だけ
     private func importVideo(from tempURL: URL) throws -> String {
         let ext = tempURL.pathExtension.isEmpty ? "mov" : tempURL.pathExtension
         let fileName = UUID().uuidString + "." + ext
@@ -196,6 +205,64 @@ final class ClipStore: ObservableObject {
     }
 
     // MARK: - 追加
+
+    /// 撮影中に切り出した 1 球を、本番か素振りかの判定が出る前にアプリ内のファイルとして足す（打った数秒後に一覧に出す）。
+    /// フェーズはライブ追跡から付けた仮のもの（`provisional`）で、すぐ開ける状態（`done`）にし、`needsReanalysis` を立てて撮影を止めた後に
+    /// 解析キューが 30fps で解析し直す。相手はいつものお手本。判定が出たら `promoteCapturedShot`（本番）か `discardCapturedShot`（素振り）
+    func keepCapturedShot(at url: URL, shotAt: Date, provisional: SwingAnalysisResult) throws -> Clip {
+        let fileName = try importVideo(from: url)
+        var clip = Clip(role: .swing, shotAt: shotAt, video: provisional.videoConfig(fileName: fileName), analysis: .done, needsReanalysis: true)
+        if let partner = usualPartner() {
+            clip.pairing = Pairing(partnerID: partner.id)
+        }
+        clips.append(clip)
+        trimSwings()
+        persist()
+        return clip
+    }
+
+    /// 本番と決まったショットを写真ライブラリ（アルバム）に移して参照にする。移せなければアプリ内のファイルのまま使う
+    func promoteCapturedShot(_ id: UUID) async {
+        guard let clip = clip(id: id), case .file(let fileName) = clip.source else { return }
+        let url = videoURL(for: fileName)
+        // NOTE: 写真ライブラリへの保存の失敗（権限なし・容量不足など）はファイルのまま残すので握りつぶす
+        guard let saved = try? await PhotoLibrary.saveVideo(at: url, creationDate: clip.shotAt, albumName: Self.albumName) else { return }
+        if var promoted = self.clip(id: id) {   // 移している間に消されていなければ参照に切り替える
+            promoted.video.fileName = ""
+            promoted.assetID = saved.localID
+            promoted.cloudID = saved.cloudID
+            update(promoted)
+        }
+        try? fileManager.removeItem(at: url)
+    }
+
+    /// 素振りと決まったショットをクリップごと消す（「元に戻す」には出さない。ファイルもその場で消す）
+    func discardCapturedShot(_ id: UUID) {
+        guard let clip = clip(id: id) else { return }
+        clips.removeAll { $0.id == id }
+        if case .file(let fileName) = clip.source {
+            try? fileManager.removeItem(at: videoURL(for: fileName))
+        }
+        persist()
+    }
+
+    /// 撮影で 1 球も切り出せなかったときに、撮った動画をそのまま長い動画として足す（解析待ち。ショットが 2 つ以上あれば `split` が 1 球ずつにする）
+    @discardableResult
+    func addCapturedTake(source: VideoSource, shotAt: Date) -> Clip {
+        let stored = source.stored
+        return add(role: .swing, fileName: stored.fileName, shotAt: shotAt, assetID: stored.assetID, cloudID: stored.cloudID)
+    }
+
+    /// 切り出した動画ファイルを写真ライブラリ（アルバム `albumName`）に保存して参照にする。保存できなければアプリ内にコピーする。
+    /// どちらも一時ファイルは残らない（コピーは移動、保存は消す）。長い動画の分割と撮影の両方から使う
+    func persistVideo(at url: URL, shotAt: Date?) async throws -> VideoSource {
+        // NOTE: 写真ライブラリへの保存の失敗（権限なし・容量不足など）はコピーに落とすので握りつぶす
+        if let saved = try? await PhotoLibrary.saveVideo(at: url, creationDate: shotAt, albumName: Self.albumName) {
+            try? fileManager.removeItem(at: url)
+            return .library(localID: saved.localID, cloudID: saved.cloudID)
+        }
+        return .file(try importVideo(from: url))
+    }
 
     /// 動画をクリップとして追加し、解析待ちにする。`fileName` が空なら写真ライブラリの参照（`assetID` が本体）。
     /// 同じ写真ライブラリの動画を解析済みで持っていれば、その解析結果を写して解析を省く。
@@ -288,10 +355,12 @@ final class ClipStore: ObservableObject {
 
     // MARK: - 解析キュー
 
-    /// 解析待ちのクリップを取り込み順に 1 本ずつ解析する（Vision を並列に走らせない）
+    /// 解析待ちのクリップを取り込み順に 1 本ずつ解析する（Vision を並列に走らせない）。待ちが無ければ、撮影で仮のフェーズのままのものを解析し直す
     private func processQueue() {
-        guard autoAnalyze, analyzingID == nil,
-              let next = clips.filter({ $0.analysis == .pending }).min(by: { $0.createdAt < $1.createdAt }) else { return }
+        guard autoAnalyze, !analysisPaused, analyzingID == nil else { return }
+        let waiting = clips.filter { $0.analysis == .pending }
+        let candidates = waiting.isEmpty ? clips.filter { $0.needsReanalysis && $0.isAnalyzed } : waiting
+        guard let next = candidates.min(by: { $0.createdAt < $1.createdAt }) else { return }
         analyzingID = next.id
         Task { await analyze(next) }
     }
@@ -310,30 +379,49 @@ final class ClipStore: ObservableObject {
                 print("音声トラックの除去に失敗: \(fileName) \(error.localizedDescription)")
             }
         }
-        let result: Result<VideoConfig, Error>
+        let outcome: Result<SwingAnalysisResult, Error>
         do {
             let asset = try await videoAsset(of: clip)
             let analysis = try await SwingAnalyzer.analyze(asset: asset)
-            // 長い動画（ショットが 2 つ以上のスイング）は 1 球ずつに分ける。解析中に消されていなければ
-            if clip.role == .swing, analysis.shots.count >= 2, clips.contains(where: { $0.id == clip.id }) {
+            // 長い動画（ショットが 2 つ以上のスイング）は 1 球ずつに分ける。解析中に消されていなければ。撮影で切り出した 1 球（解析し直し）は分けない
+            if clip.role == .swing, !clip.needsReanalysis, analysis.shots.count >= 2, clips.contains(where: { $0.id == clip.id }) {
                 await split(clip, result: analysis, asset: asset)
                 return
             }
-            result = .success(analysis.videoConfig(fileName: clip.fileName))
+            outcome = .success(analysis)
         } catch {
-            result = .failure(error)
+            outcome = .failure(error)
         }
         // 解析中に消されていなければ結果を書く
-        if let idx = clips.firstIndex(where: { $0.id == clip.id }) {
-            switch result {
-            case .success(let video):
-                clips[idx].video = video
-                clips[idx].analysis = .done
-            case .failure(let error):
-                clips[idx].analysis = .failed(error.localizedDescription)
-            }
-            persist()
+        guard let idx = clips.firstIndex(where: { $0.id == clip.id }) else { return }
+        switch (clip.needsReanalysis, outcome) {
+        case (false, .success(let analysis)):
+            clips[idx].video = analysis.videoConfig(fileName: clip.fileName)
+            clips[idx].analysis = .done
+        case (false, .failure(let error)):
+            clips[idx].analysis = .failed(error.localizedDescription)
+        case (true, .success(let analysis)):
+            clips[idx].video = Self.reanalyzedVideo(current: clips[idx].video, analysis: analysis)
+            clips[idx].needsReanalysis = false
+        case (true, .failure):
+            clips[idx].needsReanalysis = false   // 仮のフェーズのままでも使える
         }
+        persist()
+    }
+
+    /// 撮影中の仮のフェーズ（15fps のライブ追跡）を 30fps の解析で置き換えた設定。位置合わせと動画の速さの選択は残す。
+    /// 仮のフェーズを手で直していれば（候補のどれとも一致しない）、そのフェーズは残して候補・人物の範囲・長さだけ更新する
+    private static func reanalyzedVideo(current: VideoConfig, analysis: SwingAnalysisResult) -> VideoConfig {
+        var video = analysis.videoConfig(fileName: current.fileName)
+        video.scale = current.scale
+        video.offsetX = current.offsetX
+        video.offsetY = current.offsetY
+        video.slowFactor = current.slowFactor
+        if !current.candidates.contains(current.phases) {
+            video.phases = current.phases
+            video.lowConfidence = current.lowConfidence
+        }
+        return video
     }
 
     // MARK: - 長い動画の分割
@@ -348,14 +436,7 @@ final class ClipStore: ObservableObject {
         for (i, shot) in shots.enumerated() {
             do {
                 let url = try await VideoImporter.exportSegment(of: asset, range: shot.range)
-                let source: VideoSource
-                if let saved = try? await PhotoLibrary.saveVideo(
-                    at: url, creationDate: take.shotAt.map { $0.addingTimeInterval(shot.range.lowerBound) }, albumName: Self.albumName) {
-                    try? fileManager.removeItem(at: url)
-                    source = .library(localID: saved.localID, cloudID: saved.cloudID)
-                } else {
-                    source = .file(try importVideo(from: url))
-                }
+                let source = try await persistVideo(at: url, shotAt: take.shotAt.map { $0.addingTimeInterval(shot.range.lowerBound) })
                 clipsOfShots.append(.shot(from: take, range: shot.range, sliced: result.sliced(to: shot.range), source: source,
                                           id: i == shots.count - 1 ? take.id : UUID()))
             } catch {
@@ -378,7 +459,7 @@ final class ClipStore: ObservableObject {
     // MARK: - 保存
 
     private func persist() {
-        write(Library(clips: clips, playback: playback, splitTakes: splitTakes), to: libraryURL)
+        write(Library(clips: clips, playback: playback, splitTakes: splitTakes, capture: capture), to: libraryURL)
     }
 
     private func read<T: Decodable>(_ type: T.Type, from url: URL) -> T? {

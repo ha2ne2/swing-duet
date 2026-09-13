@@ -165,7 +165,7 @@ research / design / review の Markdown ファイルの命名規則：
 
 #### 外部依存ゼロを維持する（根幹制約）
 
-現在の依存は Apple 標準フレームワークのみ（SwiftUI / AVFoundation / Vision / Photos / PhotosUI / CoreTransferable）。
+現在の依存は Apple 標準フレームワークのみ（SwiftUI / AVFoundation / VideoToolbox / Vision / Photos / PhotosUI / CoreTransferable）。
 SPM パッケージ・CocoaPods は使っていない。
 
 - 標準フレームワークで実現できることは標準フレームワークで実装する
@@ -217,15 +217,15 @@ SPM パッケージ・CocoaPods は使っていない。
 
 ### 4.4 技術スタックと開発の前提
 
-- **技術スタック**: SwiftUI + AVFoundation（再生・フレーム読み出し）+ Vision（`VNDetectHumanBodyPoseRequest` による手首追跡）
-  + Photos（PhotoKit。写真ライブラリの動画の一覧と原本の取り込み）+ PhotosUI（権限が無いときの `PhotosPicker`）。iOS 17 以降 / Swift 5 言語モード。詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+- **技術スタック**: SwiftUI + AVFoundation（再生・フレーム読み出し・撮影 `AVCaptureSession` と `AVAssetWriter`）+ Vision（`VNDetectHumanBodyPoseRequest` による手首追跡。撮影中は 15fps のライブ追跡）
+  + Photos（PhotoKit。写真ライブラリの動画の一覧と原本の取り込み、切り出したショットの保存）+ PhotosUI（権限が無いときの `PhotosPicker`）。iOS 17 以降 / Swift 5 言語モード。詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
 - **ビルド・動作確認手順**: [docs/guides/build-test.md](./docs/guides/build-test.md)。
   シミュレータで通しの自動 E2E を回すときは [.claude/skills/e2e-simulator/SKILL.md](./.claude/skills/e2e-simulator/SKILL.md)
 - **出先の iPhone に入れる（OTA）**: Mac に USB でも同じ LAN でもつながっていない iPhone には
   [.claude/skills/ota-install/SKILL.md](./.claude/skills/ota-install/SKILL.md)。ビルド済みの .app を Mac から一時トンネルで配り、
   iPhone の Safari から入れる。**Mac でサーバーとトンネルが動いている間だけ届く**（止めると URL は無効）
 - **シミュレータの制約**: Vision の姿勢推定はシミュレータでは動作しない（常にフォールバック位相＋ `lowConfidence` になる）。
-  検出精度に関わる変更は実機で確認する
+  カメラも無いので撮影画面は動かない（「シミュレータでは撮影できません」と出る）。検出精度と撮影に関わる変更は実機で確認する
 - **署名**: `DEVELOPMENT_TEAM` は pbxproj に設定済み（自動署名）
 - **テスト**: Swift Testing のターゲット `SwingDuetTests`（検出ロジック・ショットの分け方・同期・動画の速さ・保存・ジョグホイール・ループ範囲の端の単体テスト。実行方法は build-test.md）。
   `PhaseSet` のテストは未整備（[docs/TODO.md](./docs/TODO.md) B）
@@ -331,6 +331,7 @@ SPM パッケージ・CocoaPods は使っていない。
 
 **権限管理**：
 
+- 撮影画面はカメラの権限（`NSCameraUsageDescription`）を使う。拒否されたときは設定への案内を出す。マイクは使わない（音声は撮らない）
 - 「動画」タブは写真ライブラリの読み取り権限（PhotoKit）を使う（動画だけの一覧と、スローモーション動画の原本の取り込みのため）。
   拒否されたときは設定への案内と、権限の要らない `PhotosPicker`（アプリ外プロセスで動く）に落とす。限定アクセスは許可した動画だけを出し
   「さらに選ぶ」で OS の選択画面を開く（設計は [docs/design/260911_0530](./docs/design/260911_0530-diary-screen-flow.md) §2）。
@@ -412,6 +413,10 @@ git rebase main
 git push . HEAD:main
 git push origin main
 ```
+
+`main` へ反映する 1 回につき、`SwingDuet.xcodeproj/project.pbxproj` の `MARKETING_VERSION` の**マイナー（小数点以下）を 1 上げてから**コミットする
+（1.0 → 1.1 → 1.2 → … → 1.9 → 1.10 → 1.11。小数ではなく数字の列なので 1.9 の次は 1.10）。
+アプリとテストの Debug / Release の 4 か所すべてを同じ値に。ビルド番号（`CURRENT_PROJECT_VERSION`）は触らない。
 
 **コミットメッセージ規約**（人間・エージェント共通）：
 

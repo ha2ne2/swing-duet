@@ -12,6 +12,7 @@
 - [ ] H. 小さく写る人物では追跡が別の点に固定され、検出に失敗する（2026-09-11 起票）
 - [ ] I. キーフレーム間隔が長い動画では、戻る操作の絵の更新が復号速度で頭打ちになる（2026-09-12 起票）
 - [ ] J. ゆっくり素振りの底で止まらずに本番へ入ると、素振りと本番が 1 スイングに繋がる（2026-09-12 起票）
+- [ ] K. 撮影画面の実機確認が途中（2026-09-13 起票）
 
 ---
 
@@ -87,6 +88,32 @@
   （後退が前進と同じ 5〜10ms になる。1080p30 で 6〜8Mbps、元に対して 43dB、Mac で実時間の 1/7）。既存の `Documents/Videos/` は起動時にバックグラウンドで移行する。
   決める点（キーフレーム間隔の決め方・常に変換するか・移行の方式・トリム）は research §6。決まったら `docs/design/` に設計書を書いてから実装する。
 - **参照**: [research/260912_0319](./research/260912_0319-scrub-friendly-media-options.md)、[research/260912_0249](./research/260912_0249-seekbar-backward-scrub-stutter.md)
+
+### K. 撮影画面の実機確認が途中（2026-09-13 起票）
+
+- **背景**: 撮影画面（[ARCHITECTURE.md](./ARCHITECTURE.md) §8）はシミュレータにカメラが無いので、ビルドと純粋計算の単体テストしか通していない。
+  実機で確かめる項目：1080p240 の `AVCaptureDevice.Format` が選ばれること、`AVAssetWriter` へのコマ落ち（`SegmentWriter.droppedFrames`）、
+  240fps の写真ライブラリへの保存（`performChanges` が通ること。写真アプリでは実速で再生される）、キーフレーム間隔 15 / 30 / 60 の 1 ショットの大きさと戻る操作、
+  30 分続けたときの熱（`systemPressureState` の推移）と電池、構えの判定の余白（関節の外接矩形が端から 4%）、合図の音の音量、区切りの切り替えでフレームが落ちないこと、
+  前面カメラ（120fps・鏡像）の向き
+- **対象**: `SwingDuet/Services/Capture/*`、`SwingDuet/Views/Capture/CaptureView.swift`
+- **2026-09-13 の状況**: 実機で数球打ったが検出できなかった（詳細は未調査）。調査用に「全体の動画も残す」（既定オン）と `Documents/CaptureLogs/` のログを足した。
+  取り出し方：`xcrun devicectl device copy from --device <ID> --domain-type appDataContainer --domain-identifier com.ha2ne2.SwingDuet --source Documents/CaptureLogs --destination <dir>`
+  （動画は `Documents/CaptureTakes` に区切りごと。`build/analyze-swing --shots` で後解析が見つけるかを先に確かめる）
+- **2026-09-13 の解析**: ログで判明。人物は見えていた（手首 100%）が、Vision に渡す向きが `.up` になっていて人物を横倒しのまま追跡し、手の高さが壊れていた
+  （`CGAffineTransform(rotationAngle:)` の cos(π/2) が厳密な 0 にならず、`PoseTracker.orientation(from:)` の厳密比較に外れた）。
+  向きの判定を丸めに、撮影の回転行列を厳密な整数に直し、写像を `OrientationTests` で固定した。240fps の書き込みはコマ落ち 0、切り出しと保存は動いた。
+  区切りをつなぐ書き出しの失敗は `AVMutableComposition` への 2 本目の `insertTimeRange` が -11800 で落ちるため（Mac で再現）。`AVMutableMovie` のサンプルコピーに変えた（Mac で確認、実機は未）。
+  前回のカット位置（アドレス・トップ・インパクト）の誤りは、向きの不具合で手の高さが壊れた候補から範囲を決めたため（同じ原因）。直した版で撮った全体の動画とログで、
+  `build/analyze-swing --shots` の後解析とライブの `decision` の範囲が一致するかを確かめる
+- **2026-09-13 の実機確認（向きを直した版）**: 検出・切り出し・写真ライブラリへの保存・帯・合図の音は通った。残った 2 つを調査
+  （[research/260913_1204](./research/260913_1204-capture-stop-phantom-shot-and-short-take.md)）。大きな球数が「＋1」の後に前の数を一瞬見せる件は直した（帯のショット数を出す）
+- **やること**（上のレポートの対策。どちらも未実装）:
+  1. 止める直前に打席から戻る場面が 1 球になる。窓の先頭が前のスイングのアドレスを過ぎると、インパクトの窪みをアドレス、
+     カメラに近づいて体が大きく写ったところをフィニッシュと読む。`LiveShotJudge.observe` で前のフィニッシュより前にアドレスがある候補を捨てる（レポート §3.5）
+  2. 「全体の動画」が最後の区切り 1 本だけになる。`pruneSegments` が `.stopping` を「終わった」扱いにし、止める途中の切り出しの `defer` から区切りを消す（レポート §4.4）
+  3. 残りの実機確認：30 分続けたときの熱と電池、キーフレーム間隔（15 / 30 / 60）の比較、前面カメラ（120fps・鏡像）の向き、合図の音の音量
+- **参照**: [design/260912_2251](./design/260912_2251-capture-screen.md) §5.1・§7
 
 ### J. ゆっくり素振りの底で止まらずに本番へ入ると、素振りと本番が 1 スイングに繋がる（2026-09-12 起票）
 

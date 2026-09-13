@@ -38,6 +38,14 @@ enum VideoSource: Equatable {
     case file(String)
     /// 写真ライブラリの動画。`localID` は `PHAsset.localIdentifier`、`cloudID` はバックアップの復元で識別子が変わったときに引き直す `PHCloudIdentifier`
     case library(localID: String, cloudID: String?)
+
+    /// 保存する形に分ける（`VideoConfig.fileName` / `Clip.assetID` / `Clip.cloudID`。参照は `fileName` が空）
+    var stored: (fileName: String, assetID: String?, cloudID: String?) {
+        switch self {
+        case .file(let fileName): return (fileName, nil, nil)
+        case .library(let localID, let cloudID): return ("", localID, cloudID)
+        }
+    }
 }
 
 /// 取り込んだ動画 1 本。スイング（左ペイン）もお手本（右ペイン）も同じ型で、役割で分ける
@@ -64,6 +72,9 @@ struct Clip: Codable, Identifiable, Equatable {
     /// `fileName` が空なら動画は写真ライブラリの参照（`source`）
     var video: VideoConfig
     var analysis: AnalysisState = .done
+    /// 撮影中のライブ追跡（15fps）から付けた仮のフェーズのままで、止めた後に 30fps で解析し直す必要があるか。
+    /// 解析の状態は `done`（すぐ開ける）のまま、解析キューがこの印の付いたものを後から解析し直す（`ClipStore.analyze`）
+    var needsReanalysis: Bool = false
     /// 最後に比べた相手と右ペインの位置合わせ（左ペインに入れたクリップが持つ）
     var pairing: Pairing? = nil
 
@@ -111,19 +122,16 @@ extension Clip {
     /// 撮影日時は元の撮影日時に範囲の先頭を足す（焼き込みスローでは動画秒なので目安）。`id` を渡すと元のクリップの id を引き継ぐ
     /// （ステージが元のクリップを開いたままなら、そのまま最後の球を映す）
     static func shot(from take: Clip, range: ClosedRange<Double>, sliced: SwingAnalysisResult, source: VideoSource, id: UUID = UUID()) -> Clip {
-        let (fileName, assetID, cloudID): (String, String?, String?) = switch source {
-        case .file(let fileName): (fileName, nil, nil)
-        case .library(let localID, let cloudID): ("", localID, cloudID)
-        }
+        let stored = source.stored
         return Clip(id: id, role: .swing, createdAt: take.createdAt, shotAt: take.shotAt.map { $0.addingTimeInterval(range.lowerBound) },
-                    assetID: assetID, cloudID: cloudID, video: sliced.videoConfig(fileName: fileName), analysis: .done, pairing: take.pairing)
+                    assetID: stored.assetID, cloudID: stored.cloudID, video: sliced.videoConfig(fileName: stored.fileName), analysis: .done, pairing: take.pairing)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, name, createdAt, shotAt, assetID, cloudID, isFavorite, isRegistered, video, analysis, pairing
+        case id, role, name, createdAt, shotAt, assetID, cloudID, isFavorite, isRegistered, video, analysis, needsReanalysis, pairing
     }
 
-    /// 後から追加したキー（isRegistered / cloudID）が無い保存データも読めるようにする
+    /// 後から追加したキー（isRegistered / cloudID / needsReanalysis）が無い保存データも読めるようにする
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -137,6 +145,7 @@ extension Clip {
         isRegistered = try c.decodeIfPresent(Bool.self, forKey: .isRegistered) ?? true
         video = try c.decode(VideoConfig.self, forKey: .video)
         analysis = try c.decode(AnalysisState.self, forKey: .analysis)
+        needsReanalysis = try c.decodeIfPresent(Bool.self, forKey: .needsReanalysis) ?? false
         pairing = try c.decodeIfPresent(Pairing.self, forKey: .pairing)
     }
 }
@@ -152,19 +161,22 @@ struct Library: Codable {
     var playback = PlaybackSettings()
     /// 1 球ずつに分けて取り込んだ長い動画（写真ライブラリの識別子）。同じ動画をもう一度選んだときに二重に分けない
     var splitTakes: [String] = []
+    /// 撮影の設定（カメラ・フレームレート・音。アプリ全体で 1 つ）
+    var capture = CaptureSettings()
 }
 
 extension Library {
     private enum CodingKeys: String, CodingKey {
-        case version, clips, playback, splitTakes
+        case version, clips, playback, splitTakes, capture
     }
 
-    /// `version` を書く前のデータ（版 0）と、`playback` / `splitTakes` の無いデータも読めるようにする
+    /// `version` を書く前のデータ（版 0）と、`playback` / `splitTakes` / `capture` の無いデータも読めるようにする
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
         clips = try c.decode([Clip].self, forKey: .clips)
         playback = try c.decodeIfPresent(PlaybackSettings.self, forKey: .playback) ?? PlaybackSettings()
         splitTakes = try c.decodeIfPresent([String].self, forKey: .splitTakes) ?? []
+        capture = try c.decodeIfPresent(CaptureSettings.self, forKey: .capture) ?? CaptureSettings()
     }
 }
