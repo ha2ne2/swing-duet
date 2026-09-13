@@ -4,7 +4,7 @@ import SwiftUI
 /// 初期表示は検出した人物（`config.focusRect`）が収まるように自動で拡大する。ピンチで拡大縮小（ピンチした位置を中心に）、
 /// ドラッグで位置合わせでき、拡大率と位置は自動フィットからの相対値として、指を離した時点で config に確定・保存される。
 /// 部位の軌跡（`config.jointTrails`）は `showTrails` のとき映像と同じ変換で重ねる（`JointTrailOverlay`）。
-/// 軌跡がまだ無い（または古い部位の組の）クリップは `ComparisonView` が作らせるので、その間は「作成中」を出す。
+/// 軌跡がまだ無い（または古い部位の組の）クリップは `ComparisonView` が作らせるので、その間は「替える」の下に「作成中」を出す。
 /// この動画への操作は動画の上に重ねる。右上に「替える」（動画を選び直す）、下端中央に「フェーズ調整」
 struct VideoPaneView: View {
     let controller: PlaybackController
@@ -50,21 +50,26 @@ struct VideoPaneView: View {
         .accessibilityLabel("\(side.label)の動画")
         .accessibilityValue(transformText)
         .accessibilityIdentifier("pane.\(side.rawValue)")
-        .overlay(alignment: .top) {
-            if isBuildingTrails {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
-                    Text("軌跡を作成中…")
-                }
-                .paneChip()
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("pane.\(side.rawValue).buildingTrails")
-            }
-        }
         .overlay(alignment: .topTrailing) {
-            PaneSwapButton(side: side, title: title, onSwap: onSwap)
+            // NOTE: 「作成中」は「替える」の下に積む。ペインは画面の半分の幅しかないので、上端中央に置くと
+            //       ポートレートでは「替える」と必ず重なる。中央に出すと、軌跡ができるまでの数十秒（Vision の
+            //       人物追跡を 1 本ずつ順に走らせる）ずっと被写体を隠してしまう
+            VStack(alignment: .trailing, spacing: 4) {
+                PaneSwapButton(side: side, title: title, onSwap: onSwap)
+                if isBuildingTrails {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                        Text("軌跡を作成中…")
+                    }
+                    .paneChip(touchTarget: false)
+                    .padding(.horizontal, 6)   // 「替える」と右端をそろえる
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("pane.\(side.rawValue).buildingTrails")
+                }
+            }
+            .animation(.easeInOut(duration: 0.2), value: isBuildingTrails)
         }
         .overlay(alignment: .bottom) {
             Button(action: onEditPhases) {
