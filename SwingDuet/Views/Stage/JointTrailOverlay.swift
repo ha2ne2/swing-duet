@@ -1,16 +1,22 @@
 import SwiftUI
 
 /// 再生位置までの軌跡を、動画と同じ変換で重ねる。線の太さは拡大率に依存しない。
-/// 姿勢推定の揺れを強調しないよう測定点の近くを通る B スプラインで結び、先端だけを現在位置に合わせる。
+/// 近似がある区間は区間全体に当てはめた曲線、無い区間は測定点の近くを通る B スプラインで結ぶ。
 struct JointTrailOverlay: View {
     /// 軌跡の表示のオン・オフ（`UserDefaults` のキー。ステージ右上のボタンで切り替え、アプリ全体で 1 つ）
     static let isEnabledKey = "showJointTrails"
     /// 隠している部位の組（`TrailPartGroup.bit` の和。ステージ右上の「…」で切り替え、アプリ全体で 1 つ）
     static let hiddenPartsKey = "hiddenJointTrailParts"
+    /// 近似のオン・オフ（ステージ右上の「…」で切り替え、アプリ全体で 1 つ）。
+    /// NOTE: 手だけに掛けていた頃のキー名のまま。**変えると切っていた人の設定が既定（オン）へ戻る**ので据え置く
+    static let smoothingKey = "smoothHandTrails"
 
     let trails: JointTrails
     /// 描く部位（ステージ右上の「…」で選んだもの）
     let parts: [BodyPart]
+    /// 各部位のスイング区間の近似（`JointTrails.strokes` の並び順。空なら通常の曲線で描く）。
+    /// NOTE: 作るのは重いので、毎コマ描き直されるこの View ではなく `VideoPaneView` が持つ
+    let trailFits: [TrailFit.Key: TrailFit]
     let phases: PhaseSet
     /// いま映しているコマの時刻（その動画の秒）
     let now: Double
@@ -41,24 +47,66 @@ struct JointTrailOverlay: View {
             let swing = phases.address...phases.finish
             for part in parts {
                 let color = (before: part.color(afterTop: false), after: part.color(afterTop: true))
-                let current = swing.contains(now) ? trails.point(of: part, at: now) : nil   // 線の先と丸に使う
-                for stroke in trails.strokes(of: part, in: swing) {
-                    for (points, afterTop) in Self.split(stroke, atTop: phases.top) {
-                        let played = Self.played(points, until: now, tip: current)
-                        guard played.count >= 2 else { continue }
-                        context.stroke(
-                            Self.curve(through: played.map { place($0.point) }),
-                            with: .color(afterTop ? color.after : color.before),
-                            style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round, lineJoin: .round))
-                    }
+                let lines = lines(of: part, in: swing)
+                let tip = swing.contains(now) ? Self.tip(of: lines, at: now) : nil
+                for line in lines {
+                    guard let path = Self.path(for: line, until: now, tip: tip, place: place) else { continue }
+                    context.stroke(
+                        path,
+                        with: .color(line.afterTop ? color.after : color.before),
+                        style: StrokeStyle(lineWidth: Self.lineWidth, lineCap: .round, lineJoin: .round))
                 }
-                if let current {
-                    let dot = CGRect(origin: place(current), size: .zero).insetBy(dx: -Self.dotRadius, dy: -Self.dotRadius)
+                if let tip {
+                    let dot = CGRect(origin: place(tip), size: .zero).insetBy(dx: -Self.dotRadius, dy: -Self.dotRadius)
                     context.fill(Path(ellipseIn: dot), with: .color(now < phases.top ? color.before : color.after))
                     context.stroke(Path(ellipseIn: dot), with: .color(.white.opacity(0.85)), lineWidth: 1)
                 }
             }
         }
+    }
+
+    /// 1 本ぶんの線。近似がある区間はその曲線で、無ければ測定点から描く
+    private typealias Line = (points: [TrailPoint], afterTop: Bool, fit: TrailFit?)
+
+    /// 近似が 1 つも無い＝近似オフ（または作成中）。そのときは分割も丸の位置も含めて従来の描画に戻す
+    private var isSmoothed: Bool { !trailFits.isEmpty }
+
+    /// その部位に描く線の一覧。近似ありならトップとインパクトで 3 つ、無しならトップで 2 つに分ける
+    private func lines(of part: BodyPart, in swing: ClosedRange<Double>) -> [Line] {
+        var result: [Line] = []
+        for (index, stroke) in trails.strokes(of: part, in: swing).enumerated() {
+            if isSmoothed {
+                result += TrailFit.sections(of: stroke, phases: phases).map {
+                    ($0.points, $0.index > 0, trailFits[TrailFit.Key(part: part, stroke: index, section: $0.index)])
+                }
+            } else {
+                result += Self.split(stroke, atTop: phases.top).map { ($0.points, $0.afterTop, nil) }
+            }
+        }
+        return result
+    }
+
+    /// 丸と線の先の位置。近似がある区間はその曲線から、無ければ測定点の線の上から取る。
+    /// 線と同じところから出さないと、近似した線から丸が浮く。
+    /// その部位の線だけを見る（全部位から拾うと、腰の丸が手の曲線の上に乗る）
+    private static func tip(of lines: [Line], at now: Double) -> CGPoint? {
+        lines.lazy.compactMap { $0.fit?.point(at: now) }.first
+            ?? JointTrails.position(on: lines.map(\.points), at: now)
+    }
+
+    /// 1 本の線の形。近似があればその曲線をそのまま結び、無ければ測定点を間引いて近くを通る曲線にする。
+    /// 線にならない（点が 1 つ）ときは nil
+    private static func path(for line: Line, until now: Double, tip: CGPoint?,
+                             place: (CGPoint) -> CGPoint) -> Path? {
+        if let fit = line.fit {
+            let fitted = fit.points(until: now)
+            guard fitted.count >= 2 else { return nil }
+            // 近似は既に滑らかなので、間引きも曲線化も重ねて掛けない
+            return Path { $0.addLines(fitted.map { place($0.point) }) }
+        }
+        let played = played(line.points, until: now, tip: tip)
+        guard played.count >= 2 else { return nil }
+        return curve(through: played.map { place($0.point) })
     }
 
     /// 線をトップで 2 つに分ける（トップより前・トップ以降）。継ぎ目が切れないように、前半はトップ以降の最初の点まで伸ばす

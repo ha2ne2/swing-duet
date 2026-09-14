@@ -117,6 +117,12 @@ struct JointTrails: Codable, Equatable {
     static let maxGap = 0.3
     /// 隣のコマからこれ（正規化距離）より飛んだら誤検出として線を切る。実速 30fps のダウンスイングでも 1 コマの移動は 0.2 未満
     static let maxJump = 0.25
+    /// 欠測をまたいでつなぐときに、1 コマぶん（`maxJump`）の何倍までの移動を許すか
+    static let bridgedJumpFactor = 2.0
+    /// 同じく、またいだ区間の速さが前後で見えていた速さの何倍までなら釣り合っているとみなすか。
+    /// 隠れている間に速くなることはあるが、止まっている誤検出へつなぐのは防ぐ
+    /// （実測では、正しくつながる例が 1.1 倍、貼り付いた誤検出へつながる例が 26.8 倍）
+    static let bridgedSpeedFactor = 3.0
     /// 保存する範囲の、スイングの前後の余白（秒）
     static let margin = 1.0
     /// 保存する範囲の上限（秒）。長回しの動画で他の候補まで含めると JSON が肥大するので、収まるときだけ候補全体を含める
@@ -134,34 +140,85 @@ struct JointTrails: Codable, Equatable {
     /// いまの部位の組で作られたものか（古ければ作り直す）
     var isCurrent: Bool { version >= Self.currentVersion }
 
-    /// 部位の連続した点列。`range` の中の見えていた点を時刻順に並べ、長い欠け（`maxGap`）と飛び（`maxJump`）で切る。1 点だけの線は返さない
+    /// 隣り合う 2 つの観測を 1 本の線としてつないでよいか（`points[index - 1]` と `points[index]`）。
+    ///
+    /// 1 コマぶんの移動（`maxJump`）までは素通し。欠測をまたいだ大きい移動は、
+    /// **またいだ区間の速さが前後で見えていた速さと釣り合っているときだけ**つなぐ。
+    /// 後方視点のフォローでは手が数コマ体に隠れるので、その間もつないで線を伸ばしたい。
+    /// 一方、別の場所に貼り付いた誤検出へつなぐと、止まっている点へ画面を横切る線が伸びてしまう
+    /// （実測は docs/research/260915_0624-hand-trail-occlusion.md）
+    static func connects(_ points: [TrailPoint], at index: Int) -> Bool {
+        let (a, b) = (points[index - 1], points[index])
+        let elapsed = b.time - a.time, moved = a.point.distance(to: b.point)
+        guard elapsed > 0, elapsed <= maxGap else { return false }
+        if moved <= maxJump { return true }
+        guard moved <= maxJump * bridgedJumpFactor else { return false }
+        func speed(endingAt i: Int) -> Double {
+            guard i > 0, i < points.count else { return 0 }
+            return points[i - 1].point.distance(to: points[i].point) / (points[i].time - points[i - 1].time)
+        }
+        let nearby = max(speed(endingAt: index - 1), speed(endingAt: index + 1))
+        return moved / elapsed <= nearby * bridgedSpeedFactor
+    }
+
+    /// 前後のコマがどちらも欠測している、ぽつんと 1 コマだけの観測か。
+    /// 部位は連続して動くので、隣に仲間のいない点は誤検出のことが多い（実測でスイング区間の観測の 0.16%）。
+    /// 後方視点で手が体に隠れる間に 1 コマだけ現れる誤検出が、線を逆向きに伸ばしていた
+    /// （docs/research/260915_0624-hand-trail-occlusion.md）。
+    /// 保存範囲の端は「隣が無い」だけで欠測ではないので、孤立とはみなさない
+    private func isLoneObservation(of part: BodyPart, at index: Int) -> Bool {
+        index > 0 && index < samples.count - 1
+            && samples[index - 1].point(of: part) == nil && samples[index + 1].point(of: part) == nil
+    }
+
+    /// 線に使う観測（範囲内・見えていて・孤立していない点）を時刻順に
+    private func observations(of part: BodyPart, in range: ClosedRange<Double>) -> [TrailPoint] {
+        samples.enumerated().compactMap { index, sample in
+            guard range.contains(sample.time), let point = sample.point(of: part),
+                  !isLoneObservation(of: part, at: index) else { return nil }
+            return TrailPoint(time: sample.time, point: point)
+        }
+    }
+
+    /// 部位の連続した点列。`range` の中の観測を時刻順に並べ、`connects` が繋がらないと判断したところで切る。
+    /// 1 点だけの線は返さない
     func strokes(of part: BodyPart, in range: ClosedRange<Double>) -> [[TrailPoint]] {
+        let seen = observations(of: part, in: range)
         var result: [[TrailPoint]] = []
         var current: [TrailPoint] = []
-        func flush() {
-            if current.count >= 2 { result.append(current) }
-            current = []
-        }
-        for sample in samples where range.contains(sample.time) {
-            guard let point = sample.point(of: part) else { continue }
-            if let last = current.last, sample.time - last.time > Self.maxGap || point.distance(to: last.point) > Self.maxJump {
-                flush()
+        for index in seen.indices {
+            if index > 0, !Self.connects(seen, at: index) {
+                if current.count >= 2 { result.append(current) }
+                current = []
             }
-            current.append(TrailPoint(time: sample.time, point: point))
+            current.append(seen[index])
         }
-        flush()
+        if current.count >= 2 { result.append(current) }
         return result
     }
 
-    /// 時刻に最も近いコマの部位の位置（`pointTolerance` 秒以内に無ければ nil）
-    func point(of part: BodyPart, at time: Double) -> CGPoint? {
-        var best: (distance: Double, point: CGPoint)?
-        for sample in samples {
-            guard let point = sample.point(of: part) else { continue }
-            let distance = abs(sample.time - time)
-            if distance <= Self.pointTolerance, distance < (best?.distance ?? .infinity) { best = (distance, point) }
+    /// 線の上の、その時刻の位置。**コマとコマの間は前後から補間する**。
+    /// 部位が体に隠れている間も線と丸が一定の速さで進むようにするため（止めると、見えた瞬間に一気に伸びる）。
+    /// 時刻を含む線が無ければ、端がいちばん近い線の端（`pointTolerance` 秒以内）を返す。それも無ければ nil
+    /// （線の無いところに丸だけを浮かせない）
+    static func position(on strokes: [[TrailPoint]], at time: Double) -> CGPoint? {
+        var best: (gap: Double, point: CGPoint)?
+        for stroke in strokes {
+            guard let first = stroke.first, let last = stroke.last else { continue }
+            let gap = max(first.time - time, time - last.time, 0)   // 線の外へはみ出した秒数（線の中なら 0）
+            guard gap <= pointTolerance, gap < best?.gap ?? .infinity else { continue }
+            best = (gap, gap > 0 ? (time < first.time ? first.point : last.point) : interpolated(stroke, at: time))
         }
         return best?.point
+    }
+
+    /// 線の中のその時刻の位置（前後のコマから時刻の比で取る）
+    private static func interpolated(_ stroke: [TrailPoint], at time: Double) -> CGPoint {
+        guard let index = stroke.firstIndex(where: { $0.time >= time }), index > 0 else { return stroke[0].point }
+        let (a, b) = (stroke[index - 1], stroke[index])
+        let ratio = (time - a.time) / (b.time - a.time)
+        return CGPoint(x: a.point.x + (b.point.x - a.point.x) * ratio,
+                       y: a.point.y + (b.point.y - a.point.y) * ratio)
     }
 
     /// 部位ごとに平滑化したもの。姿勢推定の 1 コマごとの揺れを落とす。

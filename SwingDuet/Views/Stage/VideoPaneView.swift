@@ -20,6 +20,14 @@ struct VideoPaneView: View {
     @AppStorage(JointTrailOverlay.isEnabledKey) private var showTrails = false
     /// 隠している部位の組（ステージ右上の「…」で切り替える）
     @AppStorage(JointTrailOverlay.hiddenPartsKey) private var hiddenParts = 0
+    /// 軌跡を区間近似で滑らかにするか（ステージ右上の「…」で切り替える）
+    @AppStorage(JointTrailOverlay.smoothingKey) private var smoothTrails = true
+    /// 各部位のスイング区間の近似（`TrailFit`）と、それを作ったときの条件。
+    /// 軌跡・フェーズ・映像の縦横比が変わったときだけ作り直す。**条件と中身は必ず一緒に差し替える**
+    /// （別々に持つと、作り直しの途中で古い近似を新しい軌跡に重ねてしまう）。
+    /// NOTE: 描画の View（`JointTrailOverlay`）ではなくここで持つ。あちらは再生中に毎コマ作り直されるので、
+    ///       作り直しの判定だけで軌跡（最大 600 コマ × 6 部位）の等値比較が毎コマ走ることになる
+    @State private var prepared: PreparedFits?
 
     private static let scaleRange: ClosedRange<Double> = 0.5...4.0
     /// 自動フィットで人物の周りに空ける余白（人物範囲の幅・高さに対する割合）
@@ -37,7 +45,7 @@ struct VideoPaneView: View {
                 if let trails = trailsToDraw, let videoRect = Self.videoRect(config: config, paneSize: geo.size) {
                     TrailLayer(
                         trails: trails, parts: TrailPartGroup.shownParts(hidden: hiddenParts),
-                        phases: config.phases, controller: controller, side: side,
+                        trailFits: trailFits, phases: config.phases, controller: controller, side: side,
                         videoRect: videoRect, scale: shown.scale, offset: shown.offset)
                         .allowsHitTesting(false)
                 }
@@ -45,6 +53,9 @@ struct VideoPaneView: View {
             .clipped()
             .contentShape(Rectangle())
             .gesture(transformGesture(fit: fit, paneSize: geo.size))
+        }
+        .task(id: trailFitKey) {
+            await rebuildTrailFits()
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(side.label)の動画")
@@ -89,6 +100,46 @@ struct VideoPaneView: View {
     private var trailsToDraw: JointTrails? {
         guard showTrails, let trails = config.jointTrails, trails.isCurrent else { return nil }
         return trails
+    }
+
+    /// 近似を作り直す条件。同じ版・点数でも動画を替えれば測定点が違うため、中身まで照合する。
+    /// この View は再生時刻を監視しないので毎コマの比較にはならない
+    private struct TrailFitKey: Equatable {
+        let trails: JointTrails?
+        let phases: PhaseSet
+        let aspect: Double
+    }
+
+    private struct PreparedFits {
+        let key: TrailFitKey
+        let fits: [TrailFit.Key: TrailFit]
+    }
+
+    /// 近似オフのときは `trails` を nil にして、作り直しの条件そのものを変える
+    private var trailFitKey: TrailFitKey {
+        TrailFitKey(trails: smoothTrails ? trailsToDraw : nil,
+                    phases: config.phases, aspect: config.videoAspect)
+    }
+
+    /// いまの条件で作り終えている近似（作成中・近似オフのときは空）
+    private var trailFits: [TrailFit.Key: TrailFit] {
+        guard let prepared, prepared.key == trailFitKey else { return [:] }
+        return prepared.fits
+    }
+
+    /// 近似はメインスレッドを塞がないよう別のところで作る（6 部位・3 区間ぶんで数ミリ秒）
+    private func rebuildTrailFits() async {
+        let key = trailFitKey
+        guard let trails = key.trails, key.aspect > 0 else {
+            prepared = PreparedFits(key: key, fits: [:])
+            return
+        }
+        let (phases, aspect) = (key.phases, key.aspect)
+        let fits = await Task.detached(priority: .userInitiated) {
+            TrailFit.prepare(trails: trails, phases: phases, aspect: aspect)
+        }.value
+        guard !Task.isCancelled else { return }
+        prepared = PreparedFits(key: key, fits: fits)
     }
 
     /// 表示はオンだが軌跡がまだ無い（`ComparisonView` が作らせている最中）
@@ -212,6 +263,7 @@ struct VideoPaneView: View {
 private struct TrailLayer: View {
     let trails: JointTrails
     let parts: [BodyPart]
+    let trailFits: [TrailFit.Key: TrailFit]
     let phases: PhaseSet
     let controller: PlaybackController
     let side: VideoSide
@@ -223,6 +275,7 @@ private struct TrailLayer: View {
         JointTrailOverlay(
             trails: trails,
             parts: parts,
+            trailFits: trailFits,
             phases: phases,
             now: controller.sync.videoTime(at: controller.commonTime, for: side),
             videoRect: videoRect,

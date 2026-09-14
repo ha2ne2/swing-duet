@@ -97,6 +97,57 @@ struct JointTrailsTests {
         #expect(strokes[2].first?.time == 33.0 / 30)
     }
 
+    /// 隠れている間に 1 コマだけ現れる誤検出は、線にも丸にも使わない
+    @Test func aLoneObservationBetweenTwoGapsIsIgnored() {
+        var points: [CGPoint?] = (0..<12).map { i in CGPoint(x: 0.01 * Double(i), y: 0.5) }
+        points[5] = nil
+        points[6] = CGPoint(x: 0.8, y: 0.9)             // 前後が欠測の誤検出
+        points[7] = nil
+        let trails = trails(hands: points)
+        let strokes = trails.strokes(of: .hands, in: 0...10)
+        #expect(strokes.map(\.count) == [9])            // 0〜4 と 8〜11 が 1 本につながる（誤検出の 6 は入らない）
+        #expect(strokes[0].allSatisfy { $0.point.x < 0.5 })
+        #expect(JointTrails.position(on: strokes, at: 6.0 / 30)?.x != 0.8)
+    }
+
+    /// 保存範囲の端は「隣のコマが無い」だけで欠測ではないので、孤立点として落とさない
+    @Test func theFirstAndLastObservationsAreKeptEvenWithAGapNextToThem() {
+        var points: [CGPoint?] = (0..<12).map { i in CGPoint(x: 0.01 * Double(i), y: 0.5) }
+        points[1] = nil
+        points[10] = nil
+        let strokes = trails(hands: points).strokes(of: .hands, in: 0...10)
+        #expect(strokes.map(\.count) == [10])
+        #expect(strokes[0].first?.time == 0 && strokes[0].last?.time == 11.0 / 30)
+    }
+
+    /// 後方視点のフォローでは手が数コマ体に隠れる。その間も動くので、1 コマぶんの距離より離れて出てくる。
+    /// 出てきた先が同じくらいの速さで動いていればつなぐ
+    @Test func aShortOcclusionIsBridgedWhenTheMotionMatches() {
+        /// 1 コマ 0.08（＝ 2.4/秒）で進み、5 コマ隠れてから `moved` だけ離れたところに出てくる
+        func strokes(moved: Double) -> [[TrailPoint]] {
+            var points: [CGPoint?] = (0..<5).map { i in CGPoint(x: 0.02 + 0.08 * Double(i), y: 0.5) }
+            points += Array(repeating: nil, count: 4)
+            points += (0..<3).map { i in CGPoint(x: 0.34 + moved + 0.08 * Double(i), y: 0.5) }
+            return trails(hands: points).strokes(of: .hands, in: 0...10)
+        }
+        #expect(strokes(moved: 0.40).count == 1)   // 隠れている間も同じ速さ → つなぐ（1 コマぶん 0.25 より遠い）
+        #expect(strokes(moved: 0.60).count == 2)   // 上限（0.25 × 2）を超えたら切る
+    }
+
+    /// 隠れている間に別の場所へ貼り付いた誤検出へは、線を伸ばさない。
+    /// 距離と時間だけ見るとつながってしまうので、またいだ区間の速さが前後の速さと釣り合うかで判断する
+    @Test func aJumpToSomethingThatIsNotMovingIsNotBridged() {
+        /// 隠れている間の移動は 0.40 で固定し、その前後 1 コマの動き（`step`）だけを変える
+        func strokes(step: Double) -> [[TrailPoint]] {
+            var points: [CGPoint?] = (0..<5).map { i in CGPoint(x: 0.50 - step * Double(4 - i), y: 0.5) }
+            points += Array(repeating: nil, count: 4)
+            points += (0..<3).map { i in CGPoint(x: 0.10 + step * Double(i), y: 0.5) }
+            return trails(hands: points).strokes(of: .hands, in: 0...10)
+        }
+        #expect(strokes(step: 0.001).count == 2)   // 前後とも止まっている → つながない
+        #expect(strokes(step: 0.080).count == 1)   // 前後とも動いている → つなぐ
+    }
+
     @Test func strokesAreLimitedToTheRange() {
         let points: [CGPoint?] = (0..<30).map { i in CGPoint(x: 0.01 * Double(i), y: 0.5) }
         let strokes = trails(hands: points).strokes(of: .hands, in: 0.2...0.5)
@@ -129,13 +180,38 @@ struct JointTrailsTests {
         #expect(BodyPart.allCases == [.leftHip, .rightHip, .leftShoulder, .rightShoulder, .head, .hands])
     }
 
-    @Test func pointAtTimeIsTheNearestSampleWithinTolerance() {
+    /// 線の上の位置は、コマの間を補間して返す（線が一定の速さで伸びるように）
+    @Test func positionOnAStrokeIsInterpolatedBetweenSamples() {
         // x はコマ番号 ÷ 8（2 進で誤差なく表せる値にして、比較を厳密にする）
         let points: [CGPoint?] = (0..<10).map { i in CGPoint(x: Double(i) / 8, y: 0.5) }
-        let trails = trails(hands: points)
-        #expect(trails.point(of: .hands, at: 0.1 + 0.01)?.x == 3.0 / 8)   // 4 コマ目（0.1 秒）が最も近い
-        #expect(trails.point(of: .hands, at: 2.0) == nil)                  // 0.1 秒以内に無い
-        #expect(trails.point(of: .leftHip, at: 0.1) == nil)                // 無い部位
+        let strokes = trails(hands: points).strokes(of: .hands, in: 0...10)
+        #expect(JointTrails.position(on: strokes, at: 0.1)?.x == 3.0 / 8)   // 4 コマ目（0.1 秒）ちょうど
+        let between = try? #require(JointTrails.position(on: strokes, at: 3.5 / 30)?.x)
+        #expect(abs((between ?? 0) - 3.5 / 8) < 1e-9)                       // 4 コマ目と 5 コマ目の中間
+        #expect(JointTrails.position(on: strokes, at: 2.0) == nil)          // 線から 0.1 秒より離れている
+        #expect(JointTrails.position(on: [], at: 0.1) == nil)               // 線が無い
+    }
+
+    /// 隠れている間も、線の先は一定の速さで進む（欠測のところで止まって、見えた瞬間に飛ばない）
+    @Test func theTipKeepsMovingWhileThePartIsHidden() {
+        var points: [CGPoint?] = (0..<5).map { i in CGPoint(x: 0.1 * Double(i), y: 0.5) }
+        points += Array(repeating: nil, count: 3)                          // 0.1 秒隠れる
+        points += (0..<4).map { i in CGPoint(x: 0.8 + 0.1 * Double(i), y: 0.5) }
+        let strokes = trails(hands: points).strokes(of: .hands, in: 0...10)
+        #expect(strokes.count == 1)                                        // 欠測をまたいで 1 本
+        let steps = (0...6).compactMap { JointTrails.position(on: strokes, at: (4.0 + Double($0) * 0.5) / 30)?.x }
+        #expect(steps.count == 7)
+        let deltas = zip(steps, steps.dropFirst()).map { $1 - $0 }
+        #expect(deltas.allSatisfy { abs($0 - deltas[0]) < 1e-9 })          // 進み方が一定
+    }
+
+    /// 線が切れているところでは、近い方の線の端に置く（無い線の上に丸を浮かせない）
+    @Test func positionFallsBackToTheNearestEndAcrossABreak() {
+        let before = (0..<5).map { TrailPoint(time: Double($0) / 30, point: CGPoint(x: 0.1, y: 0.5)) }
+        let after = (16..<21).map { TrailPoint(time: Double($0) / 30, point: CGPoint(x: 0.9, y: 0.5)) }
+        #expect(JointTrails.position(on: [before, after], at: 5.0 / 30)?.x == 0.1)    // 前の線の端が近い
+        #expect(JointTrails.position(on: [before, after], at: 15.0 / 30)?.x == 0.9)   // 後の線の端が近い
+        #expect(JointTrails.position(on: [before, after], at: 10.0 / 30) == nil)      // どちらからも 0.1 秒より遠い
     }
 
     /// ほとんど動かない部位に掛ける移動平均の窓。コマ数に比例させ、5〜21 の奇数に収める

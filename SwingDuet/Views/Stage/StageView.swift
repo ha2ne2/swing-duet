@@ -16,6 +16,9 @@ struct StageView: View {
     /// 隠している部位の組（`TrailPartGroup.bit` の和）
     @AppStorage(JointTrailOverlay.hiddenPartsKey) private var hiddenParts = 0
 
+    /// 軌跡を区間近似で滑らかにするか
+    @AppStorage(JointTrailOverlay.smoothingKey) private var smoothTrails = true
+
     init(swingID: UUID) {
         _currentID = State(initialValue: swingID)
     }
@@ -87,11 +90,14 @@ struct StageView: View {
             ForEach(TrailPartGroup.allCases) { group in
                 Toggle(group.label, isOn: isShown(group))
             }
+            Divider()
+            Toggle("軌跡を滑らかにする", isOn: $smoothTrails)
+                .accessibilityIdentifier("stage.smoothTrails")
         } label: {
             Image(systemName: "ellipsis.circle")
         }
         .menuOrder(.fixed)
-        .accessibilityLabel("軌跡の部位")
+        .accessibilityLabel("軌跡の設定")
         .accessibilityIdentifier("stage.trailParts")
     }
 
