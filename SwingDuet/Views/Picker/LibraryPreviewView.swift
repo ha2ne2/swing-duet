@@ -10,7 +10,8 @@ struct LibraryPreviewView: View {
     let destination: VideoSide
     let onUse: () -> Void
 
-    @State private var player = AVPlayer()
+    @State private var player: AVPlayer?
+    @State private var loadError: String?
     @State private var duration: Double = 0
     @State private var frameRate: Double = 0
     @State private var time: Double = 0
@@ -22,17 +23,22 @@ struct LibraryPreviewView: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            PlayerLayerView(player: player)
+            ZStack {
+                Color.black
+                if let player {
+                    PlayerLayerView(player: player)
+                } else if let loadError {
+                    ContentUnavailableView("動画を読み込めません", systemImage: "video.slash", description: Text(loadError))
+                } else {
+                    ProgressView("動画を読み込み中…").tint(.white)
+                }
+            }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.black)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .overlay(alignment: .topLeading) {
                     if let meta {
                         Text(meta)
-                            .font(.caption.bold())
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.black.opacity(0.55), in: Capsule())
+                            .videoChip()
                             .padding(10)
                     }
                 }
@@ -46,6 +52,7 @@ struct LibraryPreviewView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .disabled(player == nil)
             .accessibilityIdentifier("preview.use")
         }
         .padding(20)
@@ -67,8 +74,9 @@ struct LibraryPreviewView: View {
     /// 映像の下端の細い進捗バー。ドラッグでシーク（スクラブ中だけ時刻を出す）
     private var progressBar: some View {
         GeometryReader { geo in
+            let scale = TimeScale(duration: duration, width: geo.size.width)
             let width = geo.size.width
-            let fraction = duration > 0 ? min(max(time / duration, 0), 1) : 0
+            let fraction = duration > 0 ? (time / duration).clamped(to: 0...1) : 0
             ZStack(alignment: .bottomLeading) {
                 Color.clear   // タッチ領域
                 Capsule()
@@ -83,10 +91,7 @@ struct LibraryPreviewView: View {
                     .offset(x: width * fraction - (isScrubbing ? 7 : 5), y: isScrubbing ? 5 : 3)
                 if isScrubbing {
                     Text("\(time.clockLabel) / \(duration.clockLabel)")
-                        .font(.caption.monospacedDigit().bold())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.black.opacity(0.55), in: Capsule())
+                        .videoChip(font: .caption.monospacedDigit().bold())
                         .offset(y: -16)
                 }
             }
@@ -97,16 +102,16 @@ struct LibraryPreviewView: View {
                     .onChanged { value in
                         if !isScrubbing {
                             isScrubbing = true
-                            wasPlaying = player.rate > 0
-                            player.pause()
+                            wasPlaying = (player?.rate ?? 0) > 0
+                            player?.pause()
                         }
-                        time = Double(min(max(value.location.x / max(width, 1), 0), 1)) * duration
+                        time = scale.time(atX: value.location.x)
                         seek(to: time, precise: false)
                     }
                     .onEnded { _ in
                         seek(to: time, precise: true)
                         isScrubbing = false
-                        if wasPlaying { player.play() }
+                        if wasPlaying { player?.play() }
                     })
         }
         .frame(height: 28)
@@ -117,45 +122,60 @@ struct LibraryPreviewView: View {
     }
 
     private func seek(to seconds: Double, precise: Bool) {
-        let tolerance = precise ? CMTime.zero : CMTime(seconds: 0.05, preferredTimescale: 600)
-        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: tolerance, toleranceAfter: tolerance)
+        let tolerance = precise ? CMTime.zero : CMTime(seconds: 0.05, preferredTimescale: 6000)
+        player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 6000), toleranceBefore: tolerance, toleranceAfter: tolerance)
     }
 
+    /// 動画を解いて繰り返し再生を始める。原本は音声付きのままなので、映像だけの合成にしてから再生する
+    /// （音声トラックがあるとシークのたびに `currentTime` が止まる。理由は `VideoImporter.stripAudioTrack`）
     private func load() async {
-        let item: AVPlayerItem?
-        switch source {
-        case .asset(let asset):
-            shotAt = asset.creationDate
-            item = await PhotoLibrary.requestOriginalAsset(asset).map { AVPlayerItem(asset: $0) }
-        case .file(let url):
-            shotAt = await VideoImporter.creationDate(of: url)
-            item = AVPlayerItem(url: url)
-        }
-        guard let item else { return }
-        duration = (try? await item.asset.load(.duration).seconds) ?? 0
-        if let track = try? await item.asset.loadTracks(withMediaType: .video).first {
-            frameRate = Double((try? await track.load(.nominalFrameRate)) ?? 0)
-        }
-        player.isMuted = true
-        player.actionAtItemEnd = .none
-        player.replaceCurrentItem(with: item)
-        // 末尾まで行ったら先頭から（繰り返し）
-        endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { _ in
-            player.seek(to: .zero)
+        teardown()
+        loadError = nil
+        do {
+            let asset: AVAsset
+            switch source {
+            case .asset(let source):
+                shotAt = source.creationDate
+                guard let original = await PhotoLibrary.requestOriginalAsset(source) else { throw VideoError.unavailable }
+                asset = original
+            case .file(let url):
+                shotAt = await VideoImporter.creationDate(of: url)
+                asset = AVURLAsset(url: url)
+            }
+            let item = try await VideoImporter.playerItem(for: asset)
+            let duration = try await item.asset.load(.duration).seconds
+            guard duration.isFinite, duration > 0 else { throw VideoError.unreadable }
+            let track = try await item.asset.loadTracks(withMediaType: .video).first
+            let frameRate = Double(try await track?.load(.nominalFrameRate) ?? 0)
+            guard frameRate.isFinite else { throw VideoError.unreadable }
+            // 画面を離れた後に監視や再生を始めると、後片付けを呼ぶ画面が既に無い
+            guard !Task.isCancelled else { return }
+            self.duration = duration
+            self.frameRate = frameRate
+            let player = AVPlayer(playerItem: item)
+            player.isMuted = true
+            player.actionAtItemEnd = .none
+            endObserver = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { _ in
+                player.seek(to: .zero)
+                player.play()
+            }
+            timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1.0 / 30.0, preferredTimescale: 600), queue: .main) { current in
+                if !isScrubbing, current.seconds.isFinite { time = current.seconds }
+            }
+            self.player = player
             player.play()
+        } catch {
+            guard !Task.isCancelled else { return }
+            loadError = error.localizedDescription
         }
-        // 再生位置をシークバーへ（スクラブ中は指の位置を優先する）
-        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1.0 / 30.0, preferredTimescale: 600), queue: .main) { current in
-            if !isScrubbing { time = current.seconds }
-        }
-        player.play()
     }
 
     private func teardown() {
-        player.pause()
-        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        player?.pause()
+        if let timeObserver { player?.removeTimeObserver(timeObserver) }
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         timeObserver = nil
         endObserver = nil
+        player = nil
     }
 }

@@ -10,7 +10,7 @@ final class CaptureLog {
 
     /// ログの置き場（Documents/CaptureLogs）
     private static var directory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("CaptureLogs", isDirectory: true)
+        URL.documents.appendingPathComponent("CaptureLogs", isDirectory: true)
     }
 
     init(stamp: String) {
@@ -26,7 +26,14 @@ final class CaptureLog {
         let elapsed = Date().timeIntervalSince(startedAt)
         queue.async { [self] in
             let data = Data(String(format: "%8.2f  ", elapsed).utf8) + Data(text.utf8) + Data("\n".utf8)
-            handle?.write(data)
+            do {
+                try handle?.write(contentsOf: data)
+            } catch {
+                // 容量不足でも撮影の停止・保存は続ける。書けないログへの追記だけ止める
+                try? handle?.close()
+                handle = nil
+                print("撮影ログを書き込めません: \(error.localizedDescription)")
+            }
         }
     }
 

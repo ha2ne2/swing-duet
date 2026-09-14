@@ -30,7 +30,7 @@ struct StageView: View {
                     ComparisonView(left: clip, right: partner) { side in
                         picking = side
                     }
-                    .id("\(clip.id)-\(partner.id)")   // どちらかが替わったらプレーヤーごと作り直す
+                    .id([clip.videoIdentity, partner.videoIdentity])   // ID を引き継ぐ分割や保存先の変更でも動画を読み直す
                 } else {
                     SetupStageView(left: clip, right: partner) { side in
                         picking = side
@@ -48,7 +48,9 @@ struct StageView: View {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 trailsButton
                 if showTrails { trailPartsMenu }   // 軌跡を出しているときだけ。出していなければ選ぶものが無い
-                favoriteButton
+                if let clip {
+                    FavoriteButton(clip: clip, identifier: "stage.favorite")
+                }
             }
         }
         .sheet(item: $picking) { side in
@@ -98,21 +100,6 @@ struct StageView: View {
         Binding(
             get: { hiddenParts & group.bit == 0 },
             set: { isOn in hiddenParts = isOn ? hiddenParts & ~group.bit : hiddenParts | group.bit })
-    }
-
-    private var favoriteButton: some View {
-        let isFavorite = clip?.isFavorite ?? false
-        return Button {
-            if let clip { store.setFavorite(clip.id, !clip.isFavorite) }
-        } label: {
-            Image(systemName: isFavorite ? "star.fill" : "star")
-                .foregroundStyle(.yellow)
-                .symbolEffect(.bounce, value: isFavorite)
-        }
-        .disabled(clip?.isAnalyzed != true)
-        .accessibilityLabel("★ お気に入り")
-        .accessibilityValue(isFavorite ? "オン" : "オフ")
-        .accessibilityIdentifier("stage.favorite")
     }
 
     /// ピッカーで選んだ動画をその側に入れる。
@@ -212,18 +199,10 @@ private struct SlotPane: View {
         case .done:
             EmptyView()
         case .pending:
-            Color.black.opacity(0.55)
-            VStack(spacing: 10) {
-                ProgressView()
-                    .controlSize(.large)
-                    .tint(.white)
-                Text(store.analyzingID == clip.id ? "解析中…" : "解析待ち")
-                    .font(.caption.bold())
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("slot.\(side.rawValue).analyzing")
+            AnalyzingOverlay(isRunning: store.analyzingID == clip.id, controlSize: .large)
+                .accessibilityIdentifier("slot.\(side.rawValue).analyzing")
         case .failed(let message):
-            Color.black.opacity(0.7)
+            Color.black.opacity(Scrim.medium)
             VStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
                     .font(.title)
@@ -233,9 +212,8 @@ private struct SlotPane: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                Text("一覧の「…」からやり直すか、削除できます")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                Button("解析をやり直す") { store.retryAnalysis(clip.id) }
+                    .frame(minHeight: 44)
             }
             .padding(.horizontal, 14)
             .accessibilityElement(children: .combine)

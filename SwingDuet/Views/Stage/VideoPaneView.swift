@@ -1,14 +1,11 @@
 import SwiftUI
 
-/// 1 本の動画の表示ペイン。
-/// 初期表示は検出した人物（`config.focusRect`）が収まるように自動で拡大する。ピンチで拡大縮小（ピンチした位置を中心に）、
-/// ドラッグで位置合わせでき、拡大率と位置は自動フィットからの相対値として、指を離した時点で config に確定・保存される。
-/// 部位の軌跡（`config.jointTrails`）は `showTrails` のとき映像と同じ変換で重ねる（`JointTrailOverlay`）。
-/// 軌跡がまだ無い（または古い部位の組の）クリップは `ComparisonView` が作らせるので、その間は「替える」の下に「作成中」を出す。
-/// この動画への操作は動画の上に重ねる。右上に「替える」（動画を選び直す）、下端中央に「フェーズ調整」
+/// 自動フィットにユーザーの位置合わせを重ねて表示する動画ペイン。
+/// ジェスチャー中は表示だけを動かし、指を離した時点で位置合わせを保存する。
 struct VideoPaneView: View {
     let controller: PlaybackController
-    @Binding var config: VideoConfig
+    let config: VideoConfig
+    @Binding var transform: PaneTransform
     let side: VideoSide
     /// クリップの表示名と倍率（VoiceOver と UI テストが「替える」の値として読む。画面には出さない）
     let title: String
@@ -31,7 +28,7 @@ struct VideoPaneView: View {
     var body: some View {
         GeometryReader { geo in
             let fit = Self.autoFit(config: config, paneSize: geo.size)
-            let shown = live ?? fit.adjusted(by: config)
+            let shown = live ?? fit.adjusted(by: transform)
             ZStack {
                 Color.black
                 PlayerLayerView(player: controller.player(for: side))
@@ -101,7 +98,7 @@ struct VideoPaneView: View {
 
     /// 自動フィットに対する拡大率と位置（VoiceOver の読み上げと UI テストの検証に使う）
     private var transformText: String {
-        String(format: "x%.2f (%.0f, %.0f)", config.scale, config.offsetX, config.offsetY)
+        String(format: "x%.2f (%.0f, %.0f)", transform.scale, transform.offsetX, transform.offsetY)
     }
 
     // MARK: - 表示変換
@@ -115,10 +112,10 @@ struct VideoPaneView: View {
         static let identity = Transform(scale: 1, offset: .zero)
 
         /// 保存された相対値（自動フィットに対する倍率とずれ）を加えた変換
-        func adjusted(by config: VideoConfig) -> Transform {
+        func adjusted(by transform: PaneTransform) -> Transform {
             Transform(
-                scale: scale * config.scale,
-                offset: CGSize(width: offset.width + config.offsetX, height: offset.height + config.offsetY))
+                scale: scale * transform.scale,
+                offset: CGSize(width: offset.width + transform.offsetX, height: offset.height + transform.offsetY))
         }
 
         /// ピンチによる拡大縮小。ピンチ開始位置 anchor の下にある映像の点が動かないようにオフセットも補正する。
@@ -183,14 +180,14 @@ struct VideoPaneView: View {
         DragGesture()
             .simultaneously(with: MagnifyGesture())
             .updating($live) { value, state, _ in
-                state = Self.transform(for: value, base: fit.adjusted(by: config), paneSize: paneSize)
+                state = Self.transform(for: value, base: fit.adjusted(by: transform), paneSize: paneSize)
             }
             .onEnded { value in
-                let result = Self.transform(for: value, base: fit.adjusted(by: config), paneSize: paneSize)
-                // 自動フィットからの相対値で保存する（ペインの大きさが変わっても人物基準の見え方を保つため）
-                config.scale = result.scale / fit.scale
-                config.offsetX = result.offset.width - fit.offset.width
-                config.offsetY = result.offset.height - fit.offset.height
+                let result = Self.transform(for: value, base: fit.adjusted(by: transform), paneSize: paneSize)
+                // ペインの大きさが変わっても人物を基準に表示するため、自動フィットからの相対値を保存する
+                transform = PaneTransform(scale: result.scale / fit.scale,
+                                          offsetX: result.offset.width - fit.offset.width,
+                                          offsetY: result.offset.height - fit.offset.height)
             }
     }
 

@@ -4,6 +4,8 @@ import SwiftUI
 /// タップでそのまま使う（再解析なし）。カードの「…」で名前の変更・削除（お手本）、★ から外す（お気に入り）。新しいお手本は「動画」タブから
 struct ModelShelfView: View {
     @EnvironmentObject private var store: ClipStore
+    /// 選んだクリップを入れる側
+    let destination: VideoSide
     /// 右ペインにいま入っているクリップ（「いま右に」と示す）
     let currentPartnerID: UUID?
     let onPick: (Clip) -> Void
@@ -16,21 +18,19 @@ struct ModelShelfView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                if store.models.isEmpty && store.favorites.isEmpty {
-                    Text("お手本はまだありません。「動画」タブから選ぶと、名前を付けてここに並びます。スイングに ★ を付けても並びます。")
+                let sections = self.sections
+                if sections.isEmpty {
+                    Text(destination == .model
+                         ? "お手本はまだありません。「動画」タブから選ぶと、名前を付けてここに並びます。スイングに ★ を付けても並びます。"
+                         : "★ お気に入りはまだありません。スイングに ★ を付けると、ここから選べます。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding(.top, 8)
                 }
-                if !store.models.isEmpty {
-                    Text("登録済み")
+                ForEach(sections, id: \.0) { title, clips in
+                    Text(title)
                         .font(.headline)
-                    grid(store.models)
-                }
-                if !store.favorites.isEmpty {
-                    Text("★ お気に入り")
-                        .font(.headline)
-                    grid(store.favorites)
+                    grid(clips)
                 }
             }
             .padding(20)
@@ -48,12 +48,24 @@ struct ModelShelfView: View {
         }
     }
 
+    /// 出す節。左（自分）に入れるときは ★ お気に入り（中身はスイング）だけ、右（お手本）なら登録済みのお手本も出す。
+    /// 置ける条件は `Clip.isMine` / `Clip.canBePartner` の 1 か所に置いてある
+    private var sections: [(String, [Clip])] {
+        let candidates = destination == .mine
+            ? [("★ お気に入り", store.favorites)]   // ★ の中身はスイングなので左にも置ける
+            : [("登録済み", store.models), ("★ お気に入り", store.favorites)]
+        return candidates.filter { !$0.1.isEmpty }
+    }
+
     private func grid(_ clips: [Clip]) -> some View {
         LazyVGrid(columns: Self.columns, spacing: 16) {
             ForEach(clips) { clip in
                 ClipCard(clip: clip, badge: clip.id == currentPartnerID ? "いま右に" : nil) {
                     onPick(clip)
                 } menu: {
+                    if case .failed = clip.analysis {
+                        Button("解析をやり直す", systemImage: "arrow.clockwise") { store.retryAnalysis(clip.id) }
+                    }
                     if clip.role == .model {
                         Button("名前を変更", systemImage: "pencil") { renaming = clip }
                         Button("削除", systemImage: "trash", role: .destructive) { deleting = clip }
@@ -74,6 +86,35 @@ private struct ClipCard<MenuContent: View>: View {
     let onTap: () -> Void
     @ViewBuilder let menu: () -> MenuContent
 
+    /// 解析が終わっていないカードに重ねる印。失敗をそのまま出さないと「解析中…」のまま押せなくなる
+    /// （カードの「…」から再解析できる）
+    @ViewBuilder
+    private var status: some View {
+        switch clip.analysis {
+        case .done:
+            EmptyView()
+        case .pending:
+            AnalyzingOverlay(isRunning: store.analyzingID == clip.id, font: .caption2.bold())
+        case .failed:
+            ZStack {
+                Color.black.opacity(Scrim.medium)
+                VStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle")
+                    Text("解析できませんでした")
+                        .font(.caption2.bold())
+                        .multilineTextAlignment(.center)
+                    Text("このカードの「…」からやり直せます")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.horizontal, 8)
+                .foregroundStyle(.white)
+            }
+            .accessibilityElement(children: .combine)
+        }
+    }
+
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 6) {
@@ -91,18 +132,8 @@ private struct ClipCard<MenuContent: View>: View {
                         }
                     }
                     .overlay {
-                        if !clip.isAnalyzed {
-                            ZStack {
-                                Color.black.opacity(0.55)
-                                VStack(spacing: 6) {
-                                    ProgressView()
-                                        .tint(.white)
-                                    Text("解析中…")
-                                        .font(.caption2.bold())
-                                }
-                            }
+                        status
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
                     }
                 Text(clip.displayName)
                     .font(.subheadline.bold())

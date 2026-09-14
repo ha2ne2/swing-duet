@@ -15,10 +15,7 @@ struct TransportControlsView: View {
                         controller.jump(to: phase)
                     } label: {
                         Text(phase.label)
-                            .font(.caption)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(isAnchor ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.quaternary), in: Capsule())
+                            .capsuleChip(selected: isAnchor)
                     }
                     .buttonStyle(.plain)
                     .accessibilityValue(isAnchor ? "ここで揃えている" : "")
@@ -35,10 +32,10 @@ struct TransportControlsView: View {
         }
     }
 
-    /// 再生速度。タップで PlaybackController.speedPresets を巡回する（x1 → x1/2 → x1/4 → x1/8 → x1）
+    /// 再生速度。タップで `PlaybackController.speedPresets` を巡回する
     private var speedButton: some View {
         // プリセットは x1 以下の 1/2^n なので、小数（x1/8 が x0.13）ではなく分数で出す
-        let denominator = Int((1 / controller.speed).rounded())
+        let denominator = controller.speed > 0 ? Int((1 / controller.speed).rounded()) : 1
         let (speedText, spokenSpeed) = denominator <= 1
             ? ("x1", "等倍")
             : ("x1/\(denominator)", "\(denominator)分の1の速さ")
@@ -79,6 +76,8 @@ struct TransportControlsView: View {
             Image(systemName: isPartialLoop ? "repeat.1" : "repeat")
                 .font(.title3)
                 .foregroundStyle(controller.loop == nil ? Color.secondary : Color.accentColor)
+                .frame(width: 44, height: 44)   // タッチ領域
+                .contentShape(Rectangle())
         }
         // NOTE: 画面下端のボタンからメニューが上に開くと iOS は項目を逆順（先頭がボタン側）に並べる。
         //       スイング全体 → 各区間 → ループしない の宣言順で見せたいので固定する

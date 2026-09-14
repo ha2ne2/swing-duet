@@ -1,12 +1,7 @@
 import SwiftUI
 
-/// 共通タイムラインのシークバー。
-/// バックスイング / ダウンスイング / フォローを色分けし（凡例は出さない）、ドラッグで 2 本を同時にシークする。
-/// 同期しているときはフェーズの位置が両側で同じなので帯は 1 本。同期しないときは側ごとに違うので上（自分）と下（お手本）の 2 本に分け、
-/// 等速で流したときのフェーズのずれをそのまま見せる（スイング区間の外は灰色）。
-/// ループ範囲（`PlaybackController.loop`。既定はスイング全体）は白い枠 `TrimFrame` で囲み、外を暗くする。
-/// 枠の左右の太い縦棒がつまみで、ドラッグすると端が最も近いフェーズから整数コマの位置で動く。「ループしない」では枠もつまみも出ない
-/// （設計は docs/design/260912_0252-loop-trim-handles.md。動かした範囲はループのメニューの行で読める）
+/// 共通時刻のシークとループ範囲の編集。
+/// 同期中は1本、同期しないときは左右別の帯でフェーズを示す。つまみはフェーズからの整数コマに揃える。
 struct SeekBarView: View {
     let controller: PlaybackController
 
@@ -32,13 +27,14 @@ struct SeekBarView: View {
             // つまみは範囲の外側に付くので、目盛りの両端をつまみの幅だけ空ける。範囲がスイング全体でもつまみが横の余白（16pt）を越えず、
             // 上下の操作と端がそろう
             let width = max(geo.size.width - 2 * Self.handleWidth, 0)
-            let lower = x(for: controller.loopRange.lowerBound, width: width)
-            let upper = x(for: controller.loopRange.upperBound, width: width)
+            let scale = TimeScale(duration: sync.commonDuration, width: width)
+            let lower = scale.x(of: controller.loopRange.lowerBound)
+            let upper = scale.x(of: controller.loopRange.upperBound)
             ZStack(alignment: .leading) {
                 ZStack(alignment: .leading) {
                     VStack(spacing: 2) {
                         ForEach(bars) { side in
-                            segmentBar(for: side, width: width)
+                            segmentBar(for: side, scale: scale)
                         }
                     }
                     // ループ範囲の外を沈める（スイング全体 / ループしないでは幅 0）
@@ -50,12 +46,7 @@ struct SeekBarView: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                // 再生ヘッド
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(.white)
-                    .frame(width: 4)
-                    .shadow(radius: 2)
-                    .offset(x: x(for: controller.commonTime, width: width) - 2)
+                Playhead(controller: controller, scale: scale)
 
                 if controller.loop != nil {
                     // 範囲の枠（左右の縦棒がつまみ）と、つまみの中央の印
@@ -77,7 +68,7 @@ struct SeekBarView: View {
                 if let range = controller.loop {
                     ZStack(alignment: .leading) {
                         ForEach(LoopRange.Bound.allCases, id: \.self) { bound in
-                            handleHitArea(bound, edge: range[bound], lower: lower, upper: upper, width: width)
+                            handleHitArea(bound, edge: range[bound], lower: lower, upper: upper, scale: scale)
                         }
                     }
                     .frame(width: width, height: Self.barHeight, alignment: .leading)
@@ -91,15 +82,14 @@ struct SeekBarView: View {
                     .onChanged { value in
                         if !isScrubbing {
                             isScrubbing = true
-                            controller.beginScrub()
+                            controller.beginDrag()
                         }
                         // 指の位置は余白を含む座標なので、目盛りの左端を 0 にする（目盛りの外は scrub が端に収める）
-                        let t = Double((value.location.x - Self.handleWidth) / max(width, 1)) * sync.commonDuration
-                        controller.scrub(to: t)
+                        controller.scrub(to: scale.time(atX: value.location.x - Self.handleWidth, clamping: false))
                     }
                     .onEnded { _ in
                         isScrubbing = false
-                        controller.endScrub()
+                        controller.endDrag()
                     })
         }
         .frame(height: Self.barHeight)
@@ -108,16 +98,16 @@ struct SeekBarView: View {
     // MARK: - 帯
 
     /// その側の区間の色分けと、フェーズ境界（トップ / インパクト）の線
-    private func segmentBar(for side: VideoSide, width: CGFloat) -> some View {
+    private func segmentBar(for side: VideoSide, scale: TimeScale) -> some View {
         ZStack(alignment: .leading) {
             HStack(spacing: 0) {
                 Self.outsideColor
-                    .frame(width: x(for: sync.commonTime(of: .address, for: side), width: width))
+                    .frame(width: scale.x(of: sync.commonTime(of: .address, for: side)))
                 ForEach(SwingSegment.allCases) { segment in
                     let range = sync.commonRange(of: segment, for: side)
                     Rectangle()
                         .fill(segment.color.opacity(0.85))
-                        .frame(width: max(x(for: range.upperBound, width: width) - x(for: range.lowerBound, width: width), 0))
+                        .frame(width: max(scale.x(of: range.upperBound) - scale.x(of: range.lowerBound), 0))
                 }
                 Self.outsideColor
             }
@@ -125,7 +115,7 @@ struct SeekBarView: View {
                 Rectangle()
                     .fill(.white.opacity(0.9))
                     .frame(width: 1.5)
-                    .offset(x: x(for: sync.commonTime(of: phase, for: side), width: width))
+                    .offset(x: scale.x(of: sync.commonTime(of: phase, for: side)))
             }
         }
     }
@@ -138,8 +128,8 @@ struct SeekBarView: View {
     }
 
     /// つまみの当たり（見た目は `TrimFrame` の縦棒）。44pt 四方でバーの上下に 8pt はみ出す
-    private func handleHitArea(_ bound: LoopRange.Bound, edge: LoopEdge, lower: CGFloat, upper: CGFloat, width: CGFloat) -> some View {
-        let time = sync.commonTime(of: edge, as: bound)
+    private func handleHitArea(_ bound: LoopRange.Bound, edge: LoopEdge, lower: CGFloat, upper: CGFloat, scale: TimeScale) -> some View {
+        let time = bound == .start ? controller.loopRange.lowerBound : controller.loopRange.upperBound
         return Color.clear
             .frame(width: 44, height: 44)
             .contentShape(Rectangle())
@@ -150,32 +140,42 @@ struct SeekBarView: View {
                     .onChanged { value in
                         if dragFrom == nil {
                             dragFrom = time
-                            controller.beginTrim()
+                            controller.beginDrag()
                         }
                         guard let dragFrom else { return }
-                        controller.trim(bound, to: dragFrom + Double(value.translation.width / max(width, 1)) * sync.commonDuration)
+                        controller.trim(bound, to: dragFrom + scale.time(movedBy: value.translation.width))
                     }
                     .onEnded { _ in
                         dragFrom = nil
-                        controller.endTrim()
+                        controller.endDrag()
                     })
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(bound == .start ? "ループ開始" : "ループ終了")
             .accessibilityValue(edge.label)
             .accessibilityHint("上下にスワイプで 1 コマ")
             .accessibilityAdjustableAction { direction in
-                controller.beginTrim()
+                controller.beginDrag()
                 controller.trim(bound, to: time + (direction == .increment ? 1.0 : -1.0) * sync.frameStep)
-                controller.endTrim()
+                controller.endDrag()
             }
             .accessibilityIdentifier(bound == .start ? "seekBar.loopStart" : "seekBar.loopEnd")
     }
 
-    // MARK: - 座標
+}
 
-    private func x(for time: Double, width: CGFloat) -> CGFloat {
-        let fraction = min(max(time / sync.commonDuration, 0), 1)
-        return width * CGFloat(fraction)
+/// 再生ヘッド。
+/// NOTE: `commonTime` を読む View をここだけに閉じ込める。バーの本体で読むと、再生中は毎 tick（最大 60Hz）
+///       帯・枠・つまみの当たり（`DragGesture` を含む）まで作り直される。動くのはこの棒の位置だけ
+private struct Playhead: View {
+    let controller: PlaybackController
+    let scale: TimeScale
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 1.5)
+            .fill(.white)
+            .frame(width: 4)
+            .shadow(radius: 2)
+            .offset(x: scale.x(of: controller.commonTime) - 2)
     }
 }
 

@@ -121,7 +121,7 @@ struct LiveDetectorTests {
         #expect(detector.lastFinish != nil)
 
         // 登録した時点の範囲は判定の範囲と同じ余白で、その範囲の追跡は先頭が 0 の 1 本の動画として検出し直せる
-        let range = LiveDetector.range(of: registered[0])
+        guard let range = ShotSplitter.range(of: registered[0]) else { Issue.record("範囲が取れない"); return }
         #expect(abs(range.lowerBound - (registered[0].phases.address - ShotSplitter.leadIn)) < 1e-9)
         let track = detector.track(in: range)
         #expect(track.frames.first.map { $0.time < 0.1 } == true)
@@ -145,7 +145,7 @@ struct LiveDetectorTests {
 
     /// ショットが無くても 60 秒で閉じる（静かなとき）。静かにならなければ 75 秒で閉じる
     @Test func segmentClosesAtSixtySecondsOrSeventyFiveWithoutQuiet() {
-        var planner = SegmentPlanner()
+        let planner = SegmentPlanner()
         #expect(!planner.shouldClose(at: 59, lastFinish: nil, quiet: true))
         #expect(planner.shouldClose(at: 60, lastFinish: nil, quiet: true))
         #expect(!planner.shouldClose(at: 70, lastFinish: nil, quiet: false))

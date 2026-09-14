@@ -27,20 +27,12 @@ enum SyncBasis: String, Codable, CaseIterable, Identifiable {
         case .free: return nil
         }
     }
-
-    init(reference: VideoSide) {
-        self = reference == .mine ? .mine : .model
-    }
 }
 
-/// 2 本の動画を「共通タイムライン」で結ぶ写像。共通タイムラインは**実世界の秒**で、再生速度 x1 が実速になる。とり方は `basis`：
-///
-/// - **自分基準 / お手本基準**：基準側のスイング区間（アドレス〜フィニッシュ）を基準側の速さ（`VideoConfig.effectiveSlowFactor`）で
-///   実秒に戻したものが共通タイムライン。共通タイムライン上のフェーズの位置は基準側で決まり、非基準側は各区間
-///   （バックスイング / ダウンスイング / フォロー）を区間ごとに線形伸縮して、アドレス・トップ・インパクト・フィニッシュが必ず一致する。
-///   非基準側の速さは区間長の比に含まれるので、写像に使うのは基準側の速さだけでよい（両方がスローでも同じ）
-/// - **同期しない**：伸縮せず、両方をそれぞれの速さで実秒に戻して等速で流し、`anchor` のフェーズの瞬間だけ揃える。
-///   共通タイムラインは両方のスイング区間を合わせた範囲（早い方のアドレス〜遅い方のフィニッシュ）で、フェーズの位置は側ごとに違う
+/// 共通時刻（実秒）と各動画の時刻・倍率を対応付ける。
+/// 基準側があるときはそのスイング区間を実秒に戻し、相手をフェーズ間ごとに伸縮する。
+/// 同期しないときは各動画を実速で流し、anchor の瞬間だけを揃える。
+/// 写像の詳細は docs/ARCHITECTURE.md §3。
 struct SyncEngine: Equatable {
     /// 同期に使う 1 本の動画の情報と、その動画の中での実秒への換算
     struct Timing: Equatable {
@@ -67,7 +59,10 @@ struct SyncEngine: Equatable {
     /// 同期しないときに揃えるフェーズ（基準があるときは使わない）。既定はインパクト
     var anchor: SwingPhase = .impact
 
+    /// 幅 0 の区間を避けるための最小の幅（実秒）
     private static let eps = 1e-3
+    /// 再生速度倍率の下限。0 を返すと映像が止まってしまうので、区間長が 0 に近くても僅かに進める
+    private static let minMultiplier = 0.001
 
     func timing(for side: VideoSide) -> Timing {
         side == .mine ? mine : model
@@ -148,8 +143,9 @@ struct SyncEngine: Equatable {
         let segment = segment(at: commonTime, reference: reference)
         let range = commonRange(of: segment, for: reference)
         let common = range.upperBound - range.lowerBound
+        // 潰れた区間（フェーズが重なっている動画）は、比を取ると何百倍にもなって映像が飛ぶ。実速で流す
         guard common > Self.eps else { return 1 }
-        return max(timing.phases.duration(of: segment) / common, 0.001)
+        return max(timing.phases.duration(of: segment) / common, Self.minMultiplier)
     }
 
     // MARK: - 同期しているとき

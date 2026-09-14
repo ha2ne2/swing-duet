@@ -4,13 +4,8 @@ import Combine
 import Photos
 import UIKit
 
-/// 写真ライブラリ（PhotoKit）。動画の一覧（権限を求め、限定アクセスで選び直したときなどの変更に追従する）と、
-/// 参照で持つクリップの動画の引き当て（`fetchVideo` → `requestOriginalAsset`）。
-///
-/// 権限を取る理由は 2 つ。動画だけを撮影日順に並べた自前のピッカーを出すことと、
-/// スローモーション動画の原本（120 / 240fps・実速）を読むこと。権限の要らない `PhotosPicker` は
-/// スローモーション動画を 30fps のレンダリング版（スロー効果の焼き込み）で渡すので、原本はここからしか取れない。
-/// 写真ライブラリの動画はコピーせず参照で持つ（設計は docs/design/260912_2011-photo-library-reference-storage.md）
+/// PhotoKit の権限・動画一覧と、原本の取得・保存を担当する。
+/// PhotosPicker が渡すスロー効果付き動画ではなく、撮影時の高 fps 原本を読むために PhotoKit を使う。
 @MainActor
 final class PhotoLibrary: NSObject, ObservableObject, PHPhotoLibraryChangeObserver {
     /// 読み取りの権限（PhotoKit に読み取り専用のレベルは無く、`readWrite` が読み取りの権限）
@@ -18,13 +13,23 @@ final class PhotoLibrary: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     /// 動画だけを撮影日の新しい順に。権限が無ければ空
     @Published private(set) var assets: [PHAsset] = []
 
+    /// 監視を登録済みか（`load` はタブを開くたびに呼ばれるので、二重に登録しない）
+    private var isObserving = false
+
     /// 権限を求め（未決定なら OS のダイアログが出る）、一覧を取り、以後の変更を追う
     func load() async {
         if status == .notDetermined {
             status = await PHPhotoLibrary.requestAuthorization(for: .readWrite)
         }
         refetch()
+        guard !isObserving else { return }
+        isObserving = true
         PHPhotoLibrary.shared().register(self)
+    }
+
+    /// 一覧を取り直す（設定から戻ったとき。`load` と違って権限は求めない）
+    func refresh() {
+        refetch()
     }
 
     private func refetch() {
@@ -107,12 +112,14 @@ final class PhotoLibrary: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         return (localID, cloudIdentifier(of: asset))
     }
 
-    /// 動画の原本（スローモーションなら高フレームレートの実速。写真アプリのスロー効果は掛けない）。iCloud にしか無ければダウンロードする。
+    /// 動画の原本（スローモーションなら高フレームレートの実速。写真アプリのスロー効果は掛けない）。
     /// `requestPlayerItem` は編集後の状態を返すので、`requestAVAsset(version: .original)` で取る。取れなければ nil
-    nonisolated static func requestOriginalAsset(_ asset: PHAsset) async -> AVAsset? {
+    /// - networkAccess: iCloud にしか無い動画をダウンロードしてよいか。無くても済む用途（サムネイル）では false にする
+    ///   （44pt の絵のために 1 GB の動画を落とさない）
+    nonisolated static func requestOriginalAsset(_ asset: PHAsset, networkAccess: Bool = true) async -> AVAsset? {
         let options = PHVideoRequestOptions()
         options.version = .original
-        options.isNetworkAccessAllowed = true
+        options.isNetworkAccessAllowed = networkAccess
         options.deliveryMode = .automatic
         return await withCheckedContinuation { continuation in
             PHImageManager.default().requestAVAsset(forVideo: asset, options: options) { avAsset, _, _ in

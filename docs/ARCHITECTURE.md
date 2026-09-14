@@ -7,7 +7,7 @@ SwingDuet の技術スタック・モジュール構成・主要な仕組み（�
 
 | カテゴリ         | 技術                                                                                          |
 | ---------------- | --------------------------------------------------------------------------------------------- |
-| UI               | SwiftUI（`AVPlayerLayer` のみ `UIViewRepresentable` でブリッジ: `PlayerLayerView`）           |
+| UI               | SwiftUI（`CALayer` の派生だけ `UIViewRepresentable` でブリッジ: `PlayerLayerView` / `CameraPreviewView`） |
 | 動画再生         | AVFoundation（`AVPlayer` × 2 本、`rate` と `seek` で同期）                                     |
 | フレーム読み出し | AVFoundation `AVAssetReader`（解析用に 30fps 相当へ間引き）                                    |
 | 姿勢推定         | Vision `VNDetectHumanBodyPoseRequest`（左右手首の平均位置を追跡）                             |
@@ -19,106 +19,91 @@ SwingDuet の技術スタック・モジュール構成・主要な仕組み（�
 
 ## 2. モジュール構成
 
-```
+```text
 SwingDuet/
-├── SwingDuetApp.swift            # エントリ。ClipStore を環境に注入、ダーク固定。ルートは SwingListView
-├── Models/                       # 他に依存しない純粋な値型（Foundation だけ。解析 CLI もそのまま使う）
-│   ├── Swing.swift               # SwingPhase / SwingSegment / PhaseSet（4 フェーズと 3 区間）
-│   ├── VideoConfig.swift         # VideoSide / VideoConfig（動画の情報・解析結果・表示変換）
-│   ├── JointTrail.swift          # BodyPart / JointTrailSample / JointTrails（部位の軌跡。平滑化・線の切れ目・いまの点。§7）
-│   ├── Clip.swift                # Clip / ClipRole / AnalysisState / Pairing / Library（保存単位と保存する全体）
-│   ├── SyncEngine.swift          # SyncBasis / SyncEngine：共通タイムライン ⇔ 各動画時刻の写像（同期の区間別線形伸縮、同期しない等速。§3）
-│   ├── LoopRange.swift           # LoopEdge / LoopRange（ループ範囲の端。フェーズからのコマ数で持ち、丸め・詰めは純粋計算）
-│   ├── PlaybackSettings.swift    # 比較画面の再生の設定（同期のとり方・揃えるフェーズ・速度・ループ範囲。アプリ全体で 1 つ保存）
-│   ├── CaptureSettings.swift     # 撮影の設定（カメラ・フレームレート・合図の音。アプリ全体で 1 つ保存）
-│   ├── Formatting.swift          # 日時・時間の表記と、日付ごとの節への分け方
-│   └── Geometry.swift            # CGPoint / CGRect の小さな補助（距離・外接矩形）
-├── Services/                     # 入出力・解析・再生制御
-│   ├── SwingAnalyzer.swift       # 自動解析の入口。PoseTracker → SwingDetector をつなぎ、保存用の VideoConfig にする（§5）。動画を読めないときの VideoError
-│   ├── PoseTracker.swift         # Vision の姿勢推定で人物を追跡（手首・頭・腰・首の位置、関節の外接矩形）。フレーム 1 枚ずつの FrameTracker と動画ファイルの読み出し
-│   ├── SwingDetector.swift       # 手の高さの系列からスイング区間・4 フェーズを検出し候補を採点（純粋計算）
-│   ├── ShotSplitter.swift        # 候補の列を 1 球ずつのショット（切り出す範囲）に組む。素振りは除く（純粋計算）
-│   ├── PhotoLibrary.swift        # 写真ライブラリ（PhotoKit）：権限と動画の一覧（変更に追従）、限定アクセスの選び直し、原本の書き出し。ピッカーで選んだ動画の出どころ LibrarySource
-│   ├── VideoImporter.swift       # OS のピッカー（PhotosPicker）から動画を受け取る・撮影日時・映像トラックだけへの書き換え（stripAudioTrack）
-│   ├── ClipStore.swift           # クリップの永続化（JSON + 動画ファイル管理）、旧データの移行、解析キュー（撮影中は止める・仮のフェーズの解析し直し・軌跡の作り直し）、上限、元に戻す
-│   ├── PlaybackController.swift  # CADisplayLink マスタークロックで 2 本を SyncEngine の倍率で再生。再生の設定の持ち主（§4）
-│   └── Capture/                  # 撮影（§6）
-│       ├── CaptureController.swift # 撮影画面の中身。カメラ・書き込み・ライブ検出・切り出しと保存・合図をつなぐ（撮影のキュー / 追跡のキュー / main）
-│       ├── CaptureSession.swift  # AVCaptureSession の設定（フォーマットの選択・420v のデータ出力・熱と中断の通知）と AVAssetWriter の推奨設定
-│       ├── SegmentWriter.swift   # HEVC の区切りファイルへの書き込み（切り替えでフレームを落とさない）
-│       ├── LiveDetector.swift    # 撮影中の追跡結果から候補・構え・静かさを読む（純粋計算）。区切りを閉じる計画 SegmentPlanner
-│       ├── LiveShotJudge.swift   # 候補から 1 球ずつのショットを決める（後解析と同じ規則を待ちながら適用。純粋計算）
-│       └── CaptureSounds.swift   # 合図の音（4 つの電子音を合成）
-└── Views/                        # 画面ごとのフォルダ
-    ├── Home/
-    │   └── SwingListView.swift   # ホーム（起動画面）。スイングの一覧（★ お気に入り / 撮影日ごと）、「撮影」「ライブラリから」、選択モード、元に戻す、撮影の結果の帯
-    ├── Capture/
-    │   └── CaptureView.swift     # 撮影画面（プレビュー・縁の色・大きな球数・帯・録画ボタン・「…」）とプレビュー層の CameraPreviewView
-    ├── Stage/
-    │   ├── StageView.swift       # ステージ。左のスイングと相手（右）。両方の解析が済めば ComparisonView、それまでは解析中 / お手本なし / 失敗の表示
-    │   ├── ComparisonView.swift  # 比較（ペイン 2 つ + 操作パネル）。左右の編集をクリップに、再生の設定を Library に保存
-    │   ├── VideoPaneView.swift   # 動画ペイン（自動フィット・拡大縮小・位置合わせ。下端中央にフェーズ調整）。軌跡を映像と同じ変換で重ねる
-    │   ├── JointTrailOverlay.swift # 部位の軌跡の描画（曲線・トップ前後の濃淡・再生位置までの塗り分け。§7）
-    │   ├── PaneSwapButton.swift  # ペイン右上の「替える」（比較前の SlotPane と共通）。動画に重ねるカプセル paneChip
-    │   ├── ControlPanelView.swift # 操作パネル（同期のとり方の切替 + シークバー + 再生操作）。比較前のステージにも飾りとして出す
-    │   ├── SeekBarView.swift     # 区間色分けの共通シークバー（同期しないときは上下 2 本）。ループ範囲を枠で囲んで外を暗くし、両端のつまみで端をコマ単位に動かす
-    │   ├── TransportControlsView.swift # フェーズジャンプ / ジョグホイール / 速度 / ループ
-    │   ├── JogWheelView.swift    # 再生ボタンを中心にしたジョグホイール（回してコマ送り、左右タップで ±1、触覚）
-    │   ├── JogRotation.swift     # 回転を目盛りに数え、周回でギア（1 目盛りのコマ数）を上げる純粋計算
-    │   └── PhaseEditView.swift   # フェーズ手動修正（マーカードラッグ・±コマ・スイング候補の切り替え）
-    ├── Picker/
-    │   ├── VideoPickerSheet.swift # 動画を選ぶシート（「動画」「お手本」の 2 タブ。押した側のペインに入る）。お手本に名前を付けるステップ
-    │   ├── LibraryGridView.swift # 「動画」タブ：写真ライブラリの動画のグリッド（権限の 3 状態、限定アクセス、拒否時の OS ピッカー）
-    │   ├── LibraryPreviewView.swift # 選んだ動画のプレビュー（原本を等速で繰り返し再生、下端の進捗バーでシーク）
-    │   ├── ModelShelfView.swift  # 「お手本」タブ：登録済みお手本と ★ お気に入りのカード（「…」で名前の変更・削除・★ から外す）
-    │   └── AssetThumbnail.swift  # 写真ライブラリの動画のサムネイル（PhotoKit）
-    └── Shared/
-        ├── VideoThumbnail.swift  # 動画ファイルの 1 コマを非同期に描くサムネイル
-        ├── PlayerLayerView.swift # AVPlayerLayer ラッパー
-        ├── InteractivePopGestureBlocker.swift # NavigationStack の「戻る」スワイプを、置いた画面（ステージ）にいる間だけ止める
-        ├── Alerts.swift          # 名前を付けるアラート・エラーのアラート。Optional を isPresented に変える Binding.isPresent
-        ├── SwingSegment+Color.swift # 区間の色（SwiftUI 依存を Models に持ち込まないための拡張）
-        └── BodyPart+Color.swift  # 部位の色（同上。色相が部位、濃淡がトップの前後）
+├── SwingDuetApp.swift       # ClipStore を作り、ホームへ渡す
+├── Models/                 # クリップ・解析結果・同期写像などの値型
+│   ├── Clip.swift          # クリップの属性と参照
+│   ├── Library.swift       # 保存する全体と保存形式の移行
+│   ├── VideoSource.swift   # ローカルファイル / 写真ライブラリの参照
+│   ├── VideoConfig.swift   # 動画の情報と解析結果
+│   ├── PaneTransform.swift # 位置合わせの値型
+│   ├── Pairing.swift       # 比較相手と、その比較での位置合わせ
+│   └── …                   # フェーズ・軌跡・解析結果・同期・設定
+├── Services/
+│   ├── Library/            # ClipStore（操作・解析キュー）、LibraryFiles（ファイル操作）
+│   ├── Analysis/           # SwingAnalyzer、PoseTracker、SwingDetector、ShotSplitter
+│   ├── Media/              # PhotoLibrary、VideoImporter
+│   ├── Playback/           # PlaybackController（時計とプレーヤーの制御）
+│   └── Capture/            # 撮影セッション・書き込み・ライブ検出・切り出し
+├── Support/                # 日時表記、ファイルパス、幾何・統計の小さな拡張
+└── Views/
+    ├── Home/               # スイングの一覧
+    ├── Picker/             # 動画の選択・プレビュー・お手本の登録
+    ├── Stage/              # 比較再生・位置合わせ・フェーズ編集
+    ├── Capture/            # 撮影・カメラプレビュー・リプレイ
+    └── Shared/             # 複数画面で使う表示部品
 ```
 
-依存方向は Views → Services → Models。`ClipStore` は `@EnvironmentObject` でルートから全 View に配る。
+ファイルは独立した責務を持つ型を単位とする。小さな補助型は使う型と同居させ、行数だけを理由に extension へ分割しない。
+`Models` は動画フレームやファイルの入出力を行わず、解析 CLI でも共通利用する。解析・分割の計算は `Services/Analysis` が持つ。
+具体的な整理方針は [構造整理の設計](./design/260914_1250-structure-refactor.md) を参照。
+
+画面は Services を呼び、Models の値を表示・編集する。解析結果の導出は `Services/Analysis/SwingAnalysisResult.swift` にまとめる。`ClipStore` は `@EnvironmentObject` でルートから全 View に配る。
 
 ペインの初期表示は、解析時に得た人物の範囲（`VideoConfig.focusRect`。採用スイングの間に見えていた関節の外接矩形）が余白付きで収まる
 拡大率・位置に自動フィットする（縮小はしない。映像の端がペインに入って黒帯が出る手前で止める）。
-拡大率・位置は自動フィットからの相対値として `VideoConfig.scale / offsetX / offsetY`（pt）に保存する（1 と 0 で自動フィットどおり）。
+拡大率・位置は自動フィットからの相対値として `VideoConfig.transform`（`PaneTransform`。移動量は pt）に保存する（1 と 0 で自動フィットどおり）。
 ジェスチャー中は `@GestureState` の一時値で描画し、
-指を離した時点で `config` に確定 → `ComparisonContent.onChange` → `ClipStore.update` で JSON に書く
+指を離した時点で `PaneTransform` の Binding に確定し、`ClipStore.setTransform` / `setPartnerTransform` で JSON に書く
 （ジェスチャーの途中でディスクに書かないため）。ピンチ中はドラッグを無視する（2 本指の 1 本目がドラッグとして拾われ、ピンチ中心がずれるのを防ぐ）。
 
 **クリップ**（`Clip`、`Documents/library.json`）が保存単位。スイング（左ペインの自分の動画）もお手本（右ペイン）も同じ型で `role` で分け、
 動画の情報と解析結果（`VideoConfig`）、名前、撮影日時、★、解析の状態を持つ。スイングは最後に比べた相手と右ペインの位置合わせを
-`pairing` に持つ（相手が違えば位置も違うのでスイング側に置く。お手本自身の `scale / offset` は初期値のまま）。
+`pairing` に持つ（相手が違えば位置も違うのでスイング側に置く。相手自身の `transform` は変更しない）。
 お手本のフェーズは 1 か所（お手本のクリップ）にしか無いので、どのスイングのステージで直しても全部に効く。
 「いつものお手本」は保存せず、`pairedAt` が最新の相手から導く（`ClipStore.usualPartner`）。
 ★ の無い解析済みのスイングは追加のたびに新しい順に 200 本（`ClipStore.swingLimit`）だけ残す（当日のものは数えず、流さない）。
-保存形式には版（`Library.version`）があり、古い版を読んだときは `ClipStore.load` が組み替えて保存し直す（版 2 で `slowFactor` をユーザーの選択だけにした）。
-削除は JSON から外すだけで、直前の分を `lastDeleted` に持って「元に戻す」で戻せる（写真ライブラリの動画は残る）。コピーの動画ファイルは
-JSON のどこからも参照されなくなったものを起動時に `ClipStore.removeUnreferencedVideos` が片付ける（取り込みの途中で終了したときの残りも同様）。
-旧形式（`projects.json` の比較ペアと `models.json` の登録済みお手本）は初回起動時に `ClipStore.migrateLegacy` がクリップへ組み替える。
+保存形式には版（`Library.version`）があり、古い版を読んだときは `Library.migrated()` で組み替えて保存し直す（版 2 で `slowFactor` をユーザーの選択だけにした）。
+`Clip` / `VideoConfig` / `Pairing` / `PaneTransform` / `Library` / `CaptureSettings` / `PlaybackSettings` / `JointTrails` は `init(from:)` を手書きして、後から足したキーが
+無い保存データも読めるようにしている（**プロパティを足したらここにも足す**。書き忘れは `PersistenceTests` の往復で落ちる）。
+設定（`playback`）は続けて変わるので、書き出しは 0.3 秒に 1 回までにまとめる（ループ範囲のつまみは指が 1 コマ動くたびに変わる一方、
+`library.json` は全クリップの軌跡を含んで数 MB になる）。
+一覧からの削除は JSON から外すだけで、直前の分を `lastDeleted` に持って「元に戻す」で戻せる（写真ライブラリの動画は残る）。
+上限を超えた分（`trimSwings`）・素振りと決まった球（`discardCapturedShot`）・棚に並べないお手本の掃除は戻せない。コピーの動画ファイルは
+JSON のどこからも参照されなくなったものを、安全に読み込めた起動時だけ `LibraryFiles.removeUnreferencedVideos` が片付ける。
+読み出し失敗・一部のクリップや相手参照の復号失敗・重複 ID・未知の新しい版では、元の JSON を退避し、書き込み・解析キュー・自動整理を止める。
+JSON が無く動画だけ残る状態も保護する。退避できなかった場合も、ホームで保存停止を常時知らせる。
+写真ライブラリへの移動は `clips` と削除取り消し用の `lastDeleted` の両方を更新する。元ファイルは JSON の保存成功と、共有・取り消し参照が無いことを確認してから消す。
+詳細は [design/260914_1140](./design/260914_1140-lifetime-and-storage-safety.md)。
 
 **取り込みと解析**：「動画」タブ（`LibraryGridView`）は PhotoKit の権限を取り、写真ライブラリの動画を撮影日順に並べる。
 選んだ動画は**コピーせず参照で持つ**（`Clip.source` = `.library`。`assetID` が `PHAsset.localIdentifier`、`cloudID` が復元で識別子が変わったときの引き直し用。
 `video.fileName` は空）。動画を読む窓口は `ClipStore.videoAsset(of:)` の 1 つで、参照は `PhotoLibrary.fetchVideo` → `requestOriginalAsset`
 （原本。iCloud にしか無ければダウンロード）で `AVAsset` にし、写真アプリで消されていれば `VideoError.missingInLibrary` を投げる（ステージに理由を出す）。
-権限が無いときは `PhotosPicker`（30fps のレンダリング版）に落ち、この経路だけ `ClipStore.importVideo` で `Documents/Videos/` へコピーする（`.file`）。
+権限が無いときは `PhotosPicker`（30fps のレンダリング版）に落ち、この経路だけ `LibraryFiles.importVideo` で `Documents/Videos/` へコピーする（`.file`）。
 同じ写真ライブラリの動画（`assetID`）を解析済みで既に持っていれば結果を写す（`ClipStore.obtain`）。解析は `ClipStore` のキューが取り込み順に
 1 本ずつ行い（コピーは `VideoImporter.stripAudioTrack` の後で。`SwingAnalyzer.analyze(asset:)`）、途中で終了しても次回起動時に `pending` のものから再開する。
 コピーから参照へ変えた経緯は [design/260912_2011](./design/260912_2011-photo-library-reference-storage.md)。
 
 **長い動画の分割**（`ClipStore.split`）：スイングの解析でショット（`SwingAnalysisResult.shots`。§5）が 2 つ以上あれば、1 球ずつ
 `VideoImporter.exportSegment`（パススルー）で一時ファイルに切り出し、`PhotoLibrary.saveVideo` で写真ライブラリのアルバム「SwingDuet」に保存して
-参照のクリップにする（保存できなければコピー）。解析結果は `sliced(to:)` で範囲の分を写すので解析し直さない。元のクリップは最後のショットに
-置き換える（id を引き継ぐので開いたままのステージは最後の球を映す）。分けた長い動画の識別子は `Library.splitTakes` に残し、
+参照のクリップにする（保存できなければコピー）。解析結果は `sliced(to:)` で範囲の分を写すので解析し直さない。元のクリップは最後に切り出しに成功したショットに
+置き換える（id と現在の名前・★・相手を引き継ぐので、処理中の編集とステージの参照を保つ）。分けた長い動画の識別子は `Library.splitTakes` に残し、
 もう一度選ばれたら `VideoError.alreadySplit` で断る。
 
 **ステージ**（`StageView`）は左のクリップ 1 本と、`ClipStore.partner(of:)` で解決した相手（最後に比べた相手 → いつものお手本 → 無し）を持ち、
 両方の解析が済めば `ComparisonView`、それまでは解析中・お手本なし（右が ⊕）・失敗の表示。ペイン右上の「替える」（`PaneSwapButton`）から「動画を選ぶ」シートを
 開き（左は「動画」タブ、右は「お手本」タブで始まる）、左に新しい動画を入れると新しいスイング（相手は引き継ぐ）、右に入れると相手が替わる。
+
+比較画面の編集は値の所有者ごとに分ける。`VideoPaneView` は `PaneTransform` だけを Binding で更新し、
+`PhaseEditView` は確定したフェーズと倍率だけを `ClipStore.setPhases` へ渡す。
+右ペインの変換は相手自身の `VideoConfig` ではなく、比較元の `Pairing.transform` に保存する。
+`VideoConfig` 全体を書き戻す経路を持たないため、表示中に追加された軌跡や解析候補を巻き戻さない。
+JSON は版 2 のまま、位置合わせの `scale` / `offsetX` / `offsetY` を従来と同じ階層で読み書きする。
+
+`LibraryFiles` は JSON の読み込み・保存・退避と管理動画の移動・削除を行う。
+`ClipStore` は参照集合と保存結果から削除可否を決め、保存形式の変換は `Library.migrated()` が担当する。
 
 ## 3. 同期の仕組み（SyncEngine）
 
@@ -168,8 +153,8 @@ JSON のどこからも参照されなくなったものを起動時に `ClipSto
 - ループ範囲は `loop`（`LoopRange?`。nil ならループしない）。範囲を出たら先頭へ戻る（ループしないなら停止）。
   範囲の端 `LoopEdge` はフェーズからのコマ数で持つので、フェーズ修正・同期のとり方の切替で共通タイムラインが伸縮しても端がフェーズに付いてくる
   （既定の「スイング全体」`LoopRange.all` はアドレスとフィニッシュ、メニューの「ダウンスイングのみ」は区間の両端を、コマ数 0 で置いた範囲）。
-  シークバーはループする間つねに範囲の両端につまみを出す。つまみのドラッグ（`beginTrim` / `trim` / `endTrim`）は端を最も近いフェーズから
-  整数コマに丸め、反対側と 1 コマ以上離し、時計を端に置いて映像で端のコマを見せる。シークのまとめ方はコマ送りと同じ
+  シークバーはループする間つねに範囲の両端につまみを出す。つまみのドラッグ（`beginDrag` / `trim` / `endDrag`。なぞりと同じ入口）は
+  端を最も近いフェーズから整数コマに丸め、反対側と 1 コマ以上離し、時計を端に置いて映像で端のコマを見せる。シークのまとめ方はコマ送りと同じ
   （設計は [design/260912_0252](./design/260912_0252-loop-trim-handles.md)）。
   開始のつまみは画面の左端に近く右へなぞる指が「戻る」スワイプに取られるので、ステージ（`StageView`）にいる間は `InteractivePopGestureBlocker` が
   `NavigationStack` の戻るスワイプを止める（応答チェーンで `UINavigationController` を見つけ、左端の `interactivePopGestureRecognizer` と
@@ -190,9 +175,12 @@ JSON のどこからも参照されなくなったものを起動時に `ClipSto
   `ObservableObject` だと比較画面の View 全体が 60Hz で再描画され、再生中はループ範囲の Menu の項目が押せなくなる。
   `@Observable` なら `commonTime` を読むシークバーだけが再描画される（`ClipStore` は更新頻度が低いので `ObservableObject` のまま）。
   `ComparisonView` は controller を `task` で 1 度だけ作る薄いラッパーで、本体は `ComparisonContent`
+  動画の読み込みはクリップ ID と出どころを単位にし、画面を離れた後に届いた結果は再生に使わない。
   （`@State` の初期値は View の作り直しごとに評価されるため、init で作ると保存のたびに使い捨ての AVPlayer ができる）
 - 比較前のステージは、動画を持たない `PlaybackController.placeholder` で同じ `ControlPanelView` を操作できない飾りとして出す
   （両ペインがそろった瞬間にパネルの高さが変わらないように。形を真似た別の View だと、パネルを変えたときにずれる）
+
+ループの実効範囲は共通時間軸の中に収める。保存した範囲を短い動画で再利用しても末尾を越えず、時間軸が 1 コマ未満ならその長さを上限とする。
 
 ## 5. フェーズ検出の仕組み（SwingAnalyzer）
 
@@ -276,11 +264,12 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
 - **撮影**（`CaptureSession`）：背面（または前面）の広角で 1920×1080・240fps（前面は 120）の `AVCaptureDevice.Format` を選び、420v の
   `AVCaptureVideoDataOutput`（遅れたフレームを捨てない）で撮影のキューにフレームを渡す。プレビューは `AVCaptureVideoPreviewLayer` を
   `RotationCoordinator` で端末の向きに回す。動画の向きは録画を始めた時点の向きで固定し、writer の `transform` と Vision の `orientation` に同じ回転を渡す
-- **書き込み**（`SegmentWriter`、撮影のキュー）：`AVAssetWriter` で HEVC の区切りファイルに書く。設定は `recommendedVideoSettings`（カメラアプリ相当）に
+- **書き込み**（`CaptureFrameWriter` / `SegmentWriter`、撮影のキュー）：`AVAssetWriter` で HEVC の区切りファイルに書く。設定は `recommendedVideoSettings`（カメラアプリ相当）に
   `AVVideoExpectedSourceFrameRateKey`・B フレーム無し・キーフレーム間隔 30・`kVTCompressionPropertyKey_RealTime` を重ねる。
+  作業領域は `Documents/CaptureTakes/Pending-<UUID>/`。保存が終わった回だけ削除し、保存失敗・途中終了のファイルを次の撮影で消さない。
   区切りの切り替え（`rotate`）は次のフレームから新しいファイルに書くだけで、フレームは落とさない。閉じるのは `SegmentPlanner` の規則
-  （ショットのフィニッシュから 2 秒で手が静か / 60 秒で静か / 75 秒）
-- **ライブ検出**（`LiveDetector`、追跡のキュー）：フレームを 15fps に間引き、`PoseTracker.FrameTracker` で追跡し、直近 8 秒の窓に 0.5 秒ごとに
+  （ショットのフィニッシュから 1.6 秒 = 切り出す範囲の後ろの余白 ＋ 0.1 秒で、手が静かなとき / ショットが無いまま 60 秒で静か / 75 秒）
+- **ライブ検出**（`CapturePoseProcessor` / `LiveDetector`、追跡のキュー）：フレームを 15fps に間引き、`PoseTracker.FrameTracker` で追跡し、直近 8 秒の窓に 0.5 秒ごとに
   `SwingDetector.detect` を掛ける。窓の中で形が安定した候補（フィニッシュから 1 秒）を `LiveShotJudge` に渡し、分割エンジンと同じ規則
   （6 秒以内は同じ組、組の中で明らかに小さいものは素振り、中央値より明らかに小さいものも素振り）を「まだ来ていない候補」を待ちながら適用する。
   組の最後のフィニッシュから 6 秒（手が動いていれば延ばす）で決め、2 球以上決まった後は中央値の 6 割以上なら 1 秒で決める。
@@ -293,6 +282,9 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
   フェーズはライブ追跡の切り抜きに `SwingDetector` を掛けた仮のもの（`Clip.needsReanalysis`）で、すぐ開ける。止めた後、解析キューが 30fps で解析し直す
   （撮影中は `ClipStore.analysisPaused` で止める。仮のフェーズを手で直していれば残す）。用の済んだ区切りファイルは消す。
   1 球も切り出せなければ全体の動画を長い動画として足し、既存の分割（§5）に任せる。帯のサムネイルをタップするとリプレイ（`AVPlayerLooper`、240fps を 30fps で流す 1/8）
+- **停止**：全区切りの書き込みと main への受け渡し、検出結果の反映、切り出し、写真への保存の順に待つ。
+  `ShotPipeline` の帯から消えた項目も、実行中の切り出し・保存は完了まで保持する。切り出し中の入力ファイルも掃除しない。
+  全体の動画の結合はメインアクター外で行い、保存に失敗したら作業領域を残して結果の帯で知らせる。
 - **合図**（`CaptureSounds`）：背面カメラでは画面がレンズの裏側で打席から見えないので、打席に届くのは音だけ（見えた / 切れている / 取れた / 止まった の
   4 つの電子音を合成）。`.playback` でマナーモードでも鳴らし（撮影を自分で始めた場面なのでタイマーと同じ扱い）、`.mixWithOthers` で他の音楽は止めない。
   切るのは撮影画面の「…」（`CaptureSettings.soundEnabled`）。画面の縁の色と大きな球数は近づいたときのもの
@@ -317,7 +309,8 @@ Vision の姿勢推定で追った**体に対する手の高さ**からフェー
 
 - **作る**（解析時に 1 回）: `SwingAnalysisResult.jointTrails` が `PoseTracker` の結果から、採用スイングの前後 1 秒
   （他の候補も 20 秒に収まるならそこまで。`JointTrails.sampleRange`）を切り出し、5 点の Savitzky–Golay で平滑化して
-  `VideoConfig.jointTrails` に入れる。1 本あたり 50 KB 程度で `library.json` に収まる。
+  `VideoConfig.jointTrails` に入れる。1 本あたり数百 KB になり、`library.json` はクリップ 16 本で 7 MB 前後まで育つ
+  （保存のたびに全体を符号化するので、書き出しの重さは [TODO.md](./TODO.md) R）。
   平滑化の強さは部位で分ける：手はスイングの弧そのものなので形を残す 5 点の Savitzky–Golay、
   ほとんど動かない頭・肩・股関節はスイングのコマ数に比例した移動平均（`JointTrails.bodyWindow`）。
   動かない部位ほど線に占めるブレの割合が大きく、形を残す平滑化ではブレも残ってしまうため

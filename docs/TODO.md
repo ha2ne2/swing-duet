@@ -5,7 +5,6 @@
 
 ## ステータス一覧
 
-- [ ] B. `PhaseSet` の純粋ロジックにテストが無い（2026-09-06 起票）
 - [ ] D. 手首が見えない区間に掛かるトップ・インパクトは推定で、0.15〜0.2 秒ずれる（2026-09-06 起票）
 - [ ] F. 2 セッションが同時に E2E を回すと壊れる（2026-09-06 起票）
 - [ ] G. 2026-09-11 の画面構成の変更後、E2E を通しで回していない（2026-09-11 起票）
@@ -18,18 +17,19 @@
 - [ ] O. 両肩と両股関節を結んだ面を軌跡に重ねる（2026-09-14 起票）
 - [ ] P. ホームの一覧をサムネイルの格子にし、お気に入りを付けた順で上に出す（2026-09-14 起票）
 - [ ] Q. 撮影を止めたら最後のスイングを比較画面で開き、前後のショットへ送れるようにする（2026-09-14 起票）
+- [ ] R. `library.json` の書き出しがメインスレッドで重い（2026-09-14 起票）
+- [ ] S. 一覧のサムネイルに保存が無く、行ごとに動画を解き直す（2026-09-14 起票）
+- [ ] T. 撮影まわりが Swift 6 の並行性チェックに通らない（2026-09-14 起票）
+- [ ] U. 「振り切り度」の採点が後解析と撮影中で別の式（2026-09-14 起票）
+- [ ] V. 削除と「元に戻す」の作法が画面ごとに違う（2026-09-14 起票）
+- [ ] W. `VideoConfig` が 4 つの関心事を抱えている（2026-09-14 起票）
+- [ ] X. プレビューの iCloud ダウンロード進捗を表示する（2026-09-14 起票）
+- [ ] Y. フェーズ調整のマーカードラッグが精密シークを連射する（2026-09-14 起票）
+- [ ] Z. 撮影のログと全体の動画が溜まり続ける（2026-09-14 起票）
+- [ ] AA. 同期のとり方の 2 つの値（基準側と揃えるフェーズ）が排他なのに常に両方ある（2026-09-14 起票）
+- [ ] AB. 参照されなくなった動画をその場で消している（ゴミ箱を挟む）（2026-09-14 起票）
 
 ---
-
-### B. `PhaseSet` の純粋ロジックにテストが無い（2026-09-06 起票）
-
-- **背景**: MVP はテスト無しで作られた。[AGENTS.md](../AGENTS.md) §5.1 は「最初からテストを書く」前提。
-  2026-09-10 に Swift Testing のターゲット `SwingDuetTests` を追加し、`SwingDetector` を合成した手の高さの系列で固定した（実行方法は [guides/build-test.md](./guides/build-test.md)）。
-  2026-09-11 に `ClipStore`（旧データの移行・上限・相手の解決・元に戻す・同じ動画の共有）、`SyncEngine`（実秒の共通タイムラインと速度倍率）、
-  `SlowFactor`（動画の速さの推定）、`JogRotation`（ジョグホイールの目盛りとギア）のテストを足した。2026-09-12 に `LoopRange`（ループ範囲の端の丸め・詰め・追従）を足した。
-- **対象**: `SwingDuet/Models/Swing.swift`（`PhaseSet.sanitize` / `assign` / `fallback`）
-- **やること**: 上記の純粋ロジックにテストを足す。`SyncEngine` は区間の写像（`videoTime` / `segment(at:)`）の境界もまだ薄い。
-- **参照**: [ROADMAP.md](./ROADMAP.md) フェーズ 3
 
 ### D. 手首が見えない区間に掛かるトップ・インパクトは推定で、0.15〜0.2 秒ずれる（2026-09-06 起票）
 
@@ -37,7 +37,7 @@
   2026-09-10 の手の高さモデル（[design/260910_0236](./design/260910_0236-hand-height-phase-detection.md)）で、欠測に掛かるときは
   再出現後の最低点をインパクト、消える前に高ければその時点・まだ低ければ 3 : 1 の比をトップに置き、`lowConfidence` を立てるようにした。
   それでも Golfboy はトップが 0.15 秒早く、インパクトが 0.15 秒遅い（欠測の両端）。手動修正に頼っている（`lowConfidence` は画面に出ない）。
-- **対象**: `SwingDuet/Services/SwingDetector.swift`（`swingCandidate` の欠測の分岐）
+- **対象**: `SwingDuet/Services/Analysis/SwingDetector.swift`（`swingCandidate` の欠測の分岐）
 - **やること**: (1) 実速の自撮り動画では衝突音でインパクトを精密化する（取り込み時の音声削除より前に解析する順序が必要。隣の打席の音は映像の推定 ±0.1 秒で絞る）。
   (2) クラブヘッド追跡で欠測区間を埋める（[ROADMAP.md](./ROADMAP.md) フェーズ 4）。(3) 写真ライブラリから原本（240fps）を取り込めるようになった
   （2026-09-11）ので、実機で欠測率がどれだけ減るかを確認する。`build/analyze-swing --series --joints docs/data/*` で検証する。
@@ -80,7 +80,7 @@
   軌跡は 2〜3 本に切れ、フェーズも A=4.37 T=15.48 I=17.75 F=21.32（テンポ 4.9 : 1）と、正しいかどうかは目視でしか確かめていない。
   中継のスーパースローは焼き込みの速さが一定でない可能性があり（切り返しだけ強く落とす編集がある）、その場合は
   1 本に 1 つしか倍率を持たない `VideoConfig.slowFactor` では同期がずれる。実測はしていない。
-- **対象**: `SwingDuet/Services/PoseTracker.swift`、`SwingDuet/Models/VideoConfig.swift`（`SlowFactor`）
+- **対象**: `SwingDuet/Services/Analysis/PoseTracker.swift`、`SwingDuet/Models/VideoConfig.swift`（`SlowFactor`）
 - **やらない理由（今）**: 自分で撮った動画（iPhone のスロー、観客なし）では起きない。中継映像をお手本にするときだけの話。
 - **参照**: [design/260911_0805](./design/260911_0805-slow-factor-on-clips.md) §3.1
 
@@ -90,7 +90,7 @@
   YouTube 由来のお手本（キーフレーム 120〜160 フレームごと）と iPhone の 240fps スロー原本（235 フレームごと）が該当する。
   2026-09-12 にシークバーのシークをジョグと同じ「前のシークが終わってから最新の位置へ 1 回」にまとめ（`PlaybackController.show`）、
   連射による取り消しは無くなったが、後退の絵の更新は復号の速さ（Mac で 10〜28fps）が上限のまま。
-- **対象**: `SwingDuet/Services/VideoImporter.swift`（`stripAudioTrack` の置き換え）、`SwingDuet/Services/ClipStore.swift`（既存ファイルの移行）
+- **対象**: `SwingDuet/Services/Media/VideoImporter.swift`（`stripAudioTrack` の置き換え）、`SwingDuet/Services/Library/ClipStore.swift`（既存ファイルの移行）
 - **やること**: 取り込み時に HEVC・キーフレーム間隔 8〜15 フレーム・B フレーム無し・音声無しへ再エンコードする
   （後退が前進と同じ 5〜10ms になる。1080p30 で 6〜8Mbps、元に対して 43dB、Mac で実時間の 1/7）。既存の `Documents/Videos/` は起動時にバックグラウンドで移行する。
   決める点（キーフレーム間隔の決め方・常に変換するか・移行の方式・トリム）は research §6。決まったら `docs/design/` に設計書を書いてから実装する。
@@ -127,7 +127,7 @@
 - **背景**: 練習場の長回し（`docs/data/IMG_0186.mov`、30fps・正面）で、素振り直後の本番 8 回のうち 2 回（533 秒・641 秒）が素振りの下ろしと繋がったまま
   （フェーズが素振り側に付き、クリップは 12 秒になる）。他の 6 回は「アドレスで止まる」ことを手掛かりに分けられた（[ARCHITECTURE.md](./ARCHITECTURE.md) §5）が、
   この 2 回は素振りの底で止まらずにそのままテークバックへ入っている。
-- **対象**: `SwingDuet/Services/SwingDetector.swift`（`swingCandidate` の見えている形の判定）
+- **対象**: `SwingDuet/Services/Analysis/SwingDetector.swift`（`swingCandidate` の見えている形の判定）
 - **やること**: 止まりが無くても「フォローの中に、低いまま始まる欠測（30fps の本番のブレ）」だけで別のスイングとみなせるか、実データで確かめる。
   30fps 後方視点の本番のフォローのブレと区別できることが条件。240fps で撮ればインパクトは欠測にならないので、撮影画面（design/260912_1951 第 2 段）が
   入れば頻度は下がる。
@@ -156,7 +156,7 @@
 - **背景**: マキロイ正面（`YTDown.com_Shorts_Media_yGSGJ9KOE48...`）で、肩の軌跡が短い間にガクガクと大きく飛ぶ。
   フィニッシュの少し手前など、肩が体に隠れて見えなくなるところがきっかけらしい。Vision の結果が常に正しいとは限らず、
   見失うと別の点を関節として返す。人体の関節は短い間にそんな動き方をしないので、出てきた値をそのまま描いてはいけない。
-- **対象**: `SwingDuet/Services/PoseTracker.swift`（関節の採用と信頼度）、`SwingDuet/Models/JointTrail.swift`（軌跡の組み立て）
+- **対象**: `SwingDuet/Services/Analysis/PoseTracker.swift`（関節の採用と信頼度）、`SwingDuet/Models/JointTrail.swift`（軌跡の組み立て）
 - **やること**: そこに至るまでの軌跡から類推して補正する。
   1. 1 コマで人体があり得ない距離を動いた値は採用せず、直前までの動きから外挿した位置で埋める（速度の連続性を手掛かりにする）。
   2. ただしトップの切り返しのように向きが反転する場面はある。反転そのものを禁じるのではなく、
@@ -178,7 +178,7 @@
 
 - **背景**: 今のホームは 1 行 1 枚のカード（自分とお手本のインパクトのコマ・名前・日時・★）で、一度に数本しか見えず一覧性が悪い。
   スイングは絵で選ぶものなので、サムネイルを大きく・数多く並べたい。
-- **対象**: `SwingDuet/Views/Home/SwingListView.swift`（`list` と `SwingRow`）、`SwingDuet/Services/ClipStore.swift`（`favorites` の並び）、
+- **対象**: `SwingDuet/Views/Home/SwingListView.swift`（`list` と `SwingRow`）、`SwingDuet/Services/Library/ClipStore.swift`（`favorites` の並び）、
   `SwingDuet/Models/Clip.swift`（★ を付けた日時を持たせるなら）
 - **やること**:
   1. 並び：★ お気に入りを一番上に、その中は**★ を付けた順（最後に付けたものが一番上）**。今は撮影日順なので、`Clip` に ★ を付けた日時が要る。
@@ -201,3 +201,129 @@
      送る範囲は「その回に撮ったショット」か「一覧の並び順」かを決める。
 - **決めること**: 送りの UI。ステージは既に操作が多く、ボタンを足すと画面がごちゃつく。
   スワイプ（ページめくり）・上端の小さな送り・撮影直後だけ出る帯など、案を比べて決める。**先にデザインを詰めてから実装する**。
+
+### R. `library.json` の書き出しがメインスレッドで重い（2026-09-14 起票）
+
+- **背景**: `ClipStore.persist()` は全クリップ（軌跡込み）を符号化して書く（現在は `.sortedKeys` のみ）。軌跡が入って保存データが 2 桁大きくなり、
+  クリップ 16 本で 7.4 MB・1 回 62ms（Mac の実測。実機はさらに遅い）。`@MainActor` なのでその間 UI が止まる。
+  ループ範囲のつまみのドラッグ中に毎コマ書いていた件は、設定の保存を 0.3 秒に 1 回までにまとめて凌いだ（`ClipStore.persistThrottled`）が、
+  ピンチの確定・フェーズの保存・撮影中の 1 球ごとの追加は今も 1 回ずつ全体を書いている。
+- **対象**: `SwingDuet/Services/Library/ClipStore.swift`（`persist`）
+- **やること**: 符号化と書き込みをメインアクターの外へ出す（値のスナップショットを取って detach する）。
+  それでも足りなければ、軌跡を別ファイル（クリップごと）に分けて本体を小さくする。
+- **やらない理由（今）**: 手元のクリップ数では体感できていない。撮影を続けて 200 本まで溜めてから測る。
+- **参照**: [review/260914_0616](./review/260914_0616-post-capture-and-trails-refactor.md) §4
+
+### S. 一覧のサムネイルに保存が無く、行ごとに動画を解き直す（2026-09-14 起票）
+
+- **背景**: `ClipThumbnail` は行が見えるたびに `ClipStore.videoAsset(of:)` → `AVAssetImageGenerator` で作り直す。
+  保存（キャッシュ）がどこにも無いので、スクロールで往復するたびに解き直しになる。一覧の右側のサムネイルはほぼ全行が同じお手本なので、
+  同じ絵を行数分だけ作っている。2026-09-14 に、サムネイルの経路だけ iCloud からのダウンロードを止めた（44pt の絵のために本体を落とさない）。
+- **対象**: `SwingDuet/Views/Shared/VideoThumbnail.swift`、`SwingDuet/Services/Library/ClipStore.swift`（`videoAsset`）
+- **やること**: `(clip.id, phase)` を鍵にした小さなメモリキャッシュ（`NSCache`）を置く。`PhotoLibrary.fetchVideo` の
+  `localIdentifierMappings`（Apple が「重いのでまとめて呼べ」と書いている API）がメインスレッドで走る経路も外す。
+- **やらない理由（今）**: 手元の本数ではスクロールが引っかかっていない。P（一覧を格子にする）で 1 画面のサムネイル枚数が増えるので、そのときに一緒に。
+- **同じ層の別件**（一緒に見る）: `PhotoLibrary.refetch` が `PHFetchResult` の遅延評価を捨てて全件を配列にし、
+  写真ライブラリが変わるたび（撮影中は 1 球ごと）にメインアクターでやり直す。動画が数千本ある端末での挙動は未確認。
+  あわせて権限の状態を `PHAuthorizationStatus`（5 ケース）のまま View に持ち込んでいるので、`.restricted` が「拒否」に混ざり
+  「設定を開く」で解決できない案内を出す。`PhotoLibrary` 側に 4 状態の enum を出せば両方まとまる
+
+### T. 撮影まわりが Swift 6 の並行性チェックに通らない（2026-09-14 起票）
+
+- **背景**: `CaptureController` は撮影のキュー・追跡のキュー・main の 3 つでフレームと状態を受け渡すので、
+  `CaptureSession` / `CaptureFrameWriter` / `SegmentWriter` / `CapturePoseProcessor` / `CVPixelBuffer` を `@Sendable` クロージャで捕まえる警告が出る
+  （Swift 5 言語モードなので警告どまり。現在の件数はビルドログで確認する）。キューの所有権はコメントで示しているだけで、型では守られていない。
+- **対象**: `SwingDuet/Services/Capture/CaptureController.swift`、同 `CaptureSession.swift` / `SegmentWriter.swift`
+- **やること**: キューごとの状態を `actor`（または `@unchecked Sendable` を明示した型）に閉じ、渡す値を `Sendable` にする。
+  Swift 6 言語モードへ上げるかは、その後で決める。
+- **やらない理由（今）**: 実機で動いており、キューの分担は設計として書かれている（[design/260912_2251](./design/260912_2251-capture-screen.md) §5.1）。
+  撮影の実機確認（K）が済むまで、この層は触らない。
+
+### U. 「振り切り度」の採点が後解析と撮影中で別の式（2026-09-14 起票）
+
+- **背景**: 「組の中でいちばん振り切った候補」を選ぶ式が 2 つある。`SwingDetector.detect` は
+  `0.5 × 振り上げ/最大 + 0.5 × ピーク速度/最大 + 0.03 × 並び順`、`LiveShotJudge.settle` は `振り上げ/最大 + ピーク速度/最大`（同点なら後の候補）。
+  素振りを捨てる規則（`ShotSplitter.isPractice`）と切り出す範囲（`ShotSplitter.range`）は 1 つに寄せたが、この採点だけ残っている。
+  撮影中と後解析で別の球を「本番」と決めうる。
+- **対象**: `SwingDuet/Services/Analysis/SwingDetector.swift`（`detect` の採点）、`SwingDuet/Services/Capture/LiveShotJudge.swift`（`settle`）
+- **やること**: 採点を `SwingCandidate` 側の 1 つの関数にまとめる。
+- **やらない理由（今）**: 判定が変わりうるので、実機の撮影ログ（`Documents/CaptureLogs`）と `build/analyze-swing --shots` の後解析を
+  突き合わせて、同じ球を選ぶことを確かめてから入れる。
+- **関連**: 手の高さの計算も後解析（動画全体の中央値）と撮影中（そのコマの首〜腰）で別実装。しきい値（`SwingDetector.highHeight`）は
+  1 つに寄せたが、撮影中は先のコマが無いので同じ式にはできない（`LiveDetector.handHeight` の NOTE）。
+
+### V. 削除と「元に戻す」の作法が画面ごとに違う（2026-09-14 起票）
+
+- **背景**: 削除の確認は一覧（確認なし）・お手本の棚（確認あり）・撮影の帯（確認あり）で 3 通り。
+  一方 `ClipStore.delete` はどこから呼んでも `lastDeleted` を埋めるが、「元に戻す」の帯はホームにしか無い。
+  棚や撮影画面から消すと、戻せるのに戻す入口が無く、後でホームを開いたときに文脈の無い帯が出うる。
+- **対象**: `SwingDuet/Services/Library/ClipStore.swift`（`delete` / `lastDeleted`）、`SwingDuet/Views/Home/SwingListView.swift`、
+  `SwingDuet/Views/Picker/ModelShelfView.swift`、`SwingDuet/Views/Capture/CaptureView.swift`
+- **やること**: 「確認して消す」か「すぐ消して戻せる」のどちらかに揃える。後者なら帯を消した画面に出す。
+- **やらない理由（今）**: UI の判断が要る。P（一覧の作り直し）で削除の導線も変わるので、そのときに一緒に決める。
+
+### W. `VideoConfig` が 4 つの関心事を抱えている（2026-09-14 起票）
+
+- **現状**: 位置合わせは `PaneTransform` に分離し、画面の編集は変換とフェーズの更新に分けた。
+  設定全体をコピーして部分的に写すヘルパーは除去済み。
+- **残り**: `VideoConfig` には保存場所 `fileName`、動画の素性、解析結果、手動の倍率が同居している。
+  保存形式を見直す際に、`fileName` を `Clip` の出どころに統合し、動画の素性と解析結果を分けるか検討する。
+- **対象**: `SwingDuet/Models/VideoConfig.swift`、`SwingDuet/Models/Clip.swift`。
+- **制約**: 既存の版 2 との読み書きの互換性を維持する。現在の操作は範囲を限定した API で更新できるため、
+  追加の分割は保存形式を単純化できる範囲で行う。
+
+### X. プレビューの iCloud ダウンロード進捗を表示する（2026-09-14 起票）
+
+- 読み込み中・失敗の表示と、原本が読めるまで決定ボタンを無効にする処理は実装済み。
+- 残りは `PHVideoRequestOptions.progressHandler` を使った数値の進捗表示と、iCloud にだけある原本を使った実機確認。
+- 対象: `LibraryPreviewView` / `PhotoLibrary`。
+
+### Y. フェーズ調整のマーカードラッグが精密シークを連射する（2026-09-14 起票）
+
+- **背景**: 比較画面は「前のシークが終わってから最新の位置へ 1 回」にまとめている（`PlaybackController.show`。
+  理由は [research/260912_0249](./research/260912_0249-seekbar-backward-scrub-stutter.md)）のに、
+  同じ操作を毎フレームするフェーズ調整だけが許容ゼロのシークを直に呼んでいる。240fps 原本（キーフレーム間隔 235 コマ）で効くはず。
+- **対象**: `SwingDuet/Views/Stage/PhaseEditView.swift`
+- **やること**: シークのまとめ方を小さな型に出して両方から使う。
+- **未確認**: 実機でどれだけ引っかかるか。まず触って確かめる。
+
+### Z. 撮影のログと全体の動画が溜まり続ける（2026-09-14 起票）
+
+- **背景**: `Documents/CaptureLogs/` と `Documents/CaptureTakes/` を消す経路が無い。「全体の動画も残す（調査用）」は既定オンで、
+  1 回の録画で数百 MB〜GB。実機では既に 8.5 GB 溜まっていた（2026-09-14 に `devicectl` で確認）。
+- 保存失敗・途中終了の作業動画は `Documents/CaptureTakes/Pending-<UUID>/` に残す。自動削除の対象に加える前に、復旧・取り込みの導線を設ける必要がある。
+- **対象**: `SwingDuet/Services/Capture/CaptureController.swift`（`takesDirectory`）、`SwingDuet/Services/Capture/CaptureLog.swift`
+- **やること**: 起動時に古い分を消す（日数か本数の上限）。撮影の実機確認（K）が済んだら「全体の動画も残す」を既定オフにする。
+- **やらない理由（今）**: K の調査中は残しておきたい。消す規則（何本残すか）を決めてから。
+
+### AA. 同期のとり方の 2 つの値（基準側と揃えるフェーズ）が排他なのに常に両方ある（2026-09-14 起票）
+
+- **背景**: `SyncEngine` は `basis`（自分基準 / お手本基準 / 同期しない）と `anchor`（揃えるフェーズ）を常に両方持つが、
+  `anchor` に意味があるのは「同期しない」のときだけ、`basis.reference` に意味があるのは同期しているときだけ。
+  そのため `if let reference = basis.reference { … } else { … }` の二値分岐が `SyncEngine` の中に 5 か所
+  （`commonDuration` / `commonTime(of:for:)` / `frameStep` / `videoTime` / `rateMultiplier`）、外に 4 か所
+  （`PlaybackController` の 2 か所・`SeekBarView` の帯の本数・`TransportControlsView` の表示）ある。
+- **対象**: `SwingDuet/Models/SyncEngine.swift`、`SwingDuet/Services/Playback/PlaybackController.swift`、
+  `SwingDuet/Views/Stage/SeekBarView.swift`、`SwingDuet/Views/Stage/TransportControlsView.swift`
+- **やること**: 中身を payload 付きの enum にする（`case stretched(reference: VideoSide)` / `case free(anchor: SwingPhase)`）。
+  保存形式（`PlaybackSettings.syncBasis`）と UI の 3 択は `SyncBasis` のままにして、写像を作るときに変換する。
+  「同期しないに入ったら揃えるフェーズを既定に戻す」の条件付き代入（`PlaybackController.syncBasis` の setter）が
+  `.free(anchor: .impact)` を作るだけになる。
+- **やらない理由（今）**: 同じ概念に型が 2 つ（保存用と計算用）並ぶ形になるので、その分かりにくさと釣り合うかを見てから。
+  再生の見え方に関わるので、入れるときは実機で 3 モードを一通り触って確かめる。
+- **参照**: [review/260914_1029](./review/260914_1029-second-pass-capture-and-persistence.md) §6
+
+### AB. 参照されなくなった動画をその場で消している（ゴミ箱を挟む）（2026-09-14 起票）
+
+- **背景**: `LibraryFiles.removeUnreferencedVideos` は起動時に「クリップが参照していないファイル＝孤児」として
+  `Documents/Videos/` のファイルを即座に消す。**導出した集合を根拠にユーザーのデータを消す**形なので、
+  導出の元（`clips`）が想定どおりでない状況が 1 つでもあると全部消える。実際にそうなっていたのが
+  [review/260914_1103](./review/260914_1103-incident-video-deletion.md) のインシデントで、
+  読み込みに失敗した回を弾いて塞いだが、設計そのものは変えていない。
+- **対象**: `SwingDuet/Services/Library/ClipStore.swift`（`removeUnreferencedVideos`）
+- **やること**: 孤児をその場で消さず `Documents/Videos/Trash/` へ移し、一定期間（たとえば 7 日）過ぎたものだけを消す。
+  容量が逼迫しているときは即時に消してよい。「消した」ではなく「移した」ならログと突き合わせて戻せる。
+- **残る経路**: 起動時の読み込み異常と、写真ライブラリへの移動・破棄に伴う保存失敗は保護する。
+  一方、クリップ追加後の JSON 書き込み失敗は全操作を通じたトランザクションになっていない。
+  古い JSON が次回正常に読み込まれると、新しいローカル動画が孤児扱いになる余地があるため、
+  ゴミ箱への退避と併せて書き込み失敗の通知・再試行を整える。撮影した球は写真ライブラリへ移るまでアプリ内にしか無い点に注意する。

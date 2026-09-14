@@ -4,15 +4,10 @@ import Observation
 import QuartzCore
 import UIKit
 
-/// 2 本の動画を 1 つの共通タイムラインで駆動する再生コントローラ。
-///
-/// CADisplayLink をマスタークロックとして共通時刻（実秒）を進め、各動画は `SyncEngine` がその時刻に決める速度倍率で再生する
-/// （同期しているときは区間ごと、同期しないときは常にその側の速さ）。倍率は焼き込みスローの戻しを含むので、`speed` 1.0 でどちらの動画も実速で流れる。
-/// 倍率が変わる tick でレートを更新し、ドリフトが閾値を超えたらシークで補正する（シーク中の側は補正しない）。
-///
-/// NOTE: `ObservableObject` ではなく `@Observable` にしている。`commonTime` は再生中に毎 tick（最大 60Hz）変わるので、
-/// `ObservableObject` だと比較画面の View がすべて毎 tick 再描画され、再生中はループ範囲の Menu の項目が押せなくなる。
-/// `@Observable` なら `commonTime` を読む View（シークバー）だけが再描画される。
+/// CADisplayLink の共通時刻（実秒）から、2 本の動画の再生速度とシークを制御する。
+/// 時刻と倍率の計算は SyncEngine が担当する。
+/// NOTE: 毎フレーム変わる commonTime の観測をシークバーに限定するため、@Observable を使う。
+/// 比較画面全体を再描画すると、再生中に開いたメニューの操作が妨げられる。
 @MainActor
 @Observable
 final class PlaybackController: NSObject {
@@ -28,7 +23,8 @@ final class PlaybackController: NSObject {
     /// 動画を持たない不活性なコントローラ。比較前のステージで、比較画面と同じ操作パネルを飾りとして出すのに使う
     /// （形を真似た別の View を持つと、操作パネルを変えたときに高さがずれる）
     static let placeholder: PlaybackController = {
-        let timing = SyncEngine.Timing(phases: .fallback(duration: 1), slowFactor: 1, frameDuration: 1.0 / 30.0, duration: 1)
+        let timing = SyncEngine.Timing(
+            phases: .fallback(duration: 1), slowFactor: 1, frameDuration: VideoConfig.fallbackFrameDuration, duration: 1)
         return PlaybackController(mine: timing, model: timing, settings: PlaybackSettings())
     }()
 
@@ -202,14 +198,9 @@ final class PlaybackController: NSObject {
         show(clampedToLoop(commonTime + sync.frameStep * Double(frames)))
     }
 
-    /// 時計を time に置いてプレーヤーをシークする（ジョグホイール・シークバー・つまみのドラッグ用）。`precise` は許容ゼロ。
-    ///
-    /// 時計（`commonTime`）はすぐ動かすが、プレーヤーのシークは前のシークが終わってから最新の位置へ 1 回だけ行う（精度は最後の要求のもの）。
-    /// ジョグを速く回す・シークバーを速くなぞると、移動がシークより速く来る。後ろへのシークは手前のキーフレームから復号し直すので
-    /// 1 回に数十 ms かかり（YouTube 由来のお手本や 240fps の原本はキーフレーム間隔が 120〜235 フレーム）、構わず重ねると
-    /// `AVPlayer` は後のシークで前のシークを取り消して復号をやり直し続け、動かしている間ずっと画面が更新されなくなる
-    /// （docs/research/260912_0249-seekbar-backward-scrub-stutter.md）。時計は先に動いているので取りこぼしはなく、
-    /// 待たせた分は追いつくときに最新の位置へ飛ぶ
+    /// 時計はすぐ更新し、シーク中の要求は最後の時刻・精度へまとめる。
+    /// 後方シークはキーフレームから復号し直すため、連射すると前の復号が中断され続ける。
+    /// 詳細は docs/research/260912_0249-seekbar-backward-scrub-stutter.md。
     private func show(_ time: Double, precise: Bool = true) {
         commonTime = time
         if isSeeking {
@@ -221,24 +212,15 @@ final class PlaybackController: NSObject {
 
     // MARK: - ループ範囲のつまみ
 
-    func beginTrim() {
-        wasPlayingBeforeDrag = isPlaying
-        stop()
-    }
-
     /// ループ範囲の端を time へ動かす（`LoopRange.move`：最も近いフェーズから整数コマ、反対側と 1 コマ以上離す）。
     /// 時計をその端に置いて両方の映像で端のコマを見せる。範囲が無い（ループしない）ときは何もしない
     func trim(_ bound: LoopRange.Bound, to time: Double) {
         guard var range = loop else { return }
         range.move(bound, to: time, in: sync)
         // 先に時計を端へ置く（`loop` の didSet が範囲外と見て先頭へ動かさないように）
-        show(sync.commonTime(of: range[bound], as: bound))
+        let resolved = sync.commonRange(of: range)
+        show(bound == .start ? resolved.lowerBound : resolved.upperBound)
         loop = range
-    }
-
-    /// 再生中に始めたなら範囲の先頭から再開する。止まっていたなら時計は端に残す（ジョグホイールで端の前後を確かめられる）
-    func endTrim() {
-        if wasPlayingBeforeDrag { play() }
     }
 
     /// フェーズ修正・動画の速さの選び直しを反映する（同期のとり方と揃えるフェーズはそのまま）
@@ -255,9 +237,10 @@ final class PlaybackController: NSObject {
         move(to: loopRange.contains(time) ? time : loopRange.lowerBound)
     }
 
-    // MARK: - スクラブ
+    // MARK: - シークバーのドラッグ
 
-    func beginScrub() {
+    /// なぞり（`scrub`）とループ範囲のつまみ（`trim`）の始め：時計を止め、離したときに再開するかを覚える
+    func beginDrag() {
         wasPlayingBeforeDrag = isPlaying
         stop()
     }
@@ -266,7 +249,10 @@ final class PlaybackController: NSObject {
         show(min(max(time, 0), sync.commonDuration), precise: false)
     }
 
-    func endScrub() {
+    /// ドラッグを離したとき。再生中に始めたなら再開し（つまみは範囲の先頭から）、止まっていたなら
+    /// いまの時計の位置のコマを正確に出す（なぞりの間は粗いシークで追従している。つまみでは時計が端に残り、
+    /// その端のコマが両方の映像に出る）
+    func endDrag() {
         if wasPlayingBeforeDrag {
             play()
         } else {

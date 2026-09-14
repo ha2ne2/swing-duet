@@ -195,7 +195,7 @@ SPM パッケージ・CocoaPods は使っていない。
 
 | パス                        | 内容                                                       |
 | --------------------------- | ---------------------------------------------------------- |
-| `SwingDuet/`                | アプリ本体（Models / Services / Views。Views は画面ごとに Home / Stage / Picker / Shared） |
+| `SwingDuet/`                | アプリ本体（Models / Services / Support / Views。Services は Analysis / Library / Media / Playback / Capture、Views は Home / Stage / Picker / Capture / Shared） |
 | `SwingDuet.xcodeproj/`      | Xcode プロジェクト（手書き管理）                           |
 | `docs/`                     | ドキュメント（セクション 2.1）                             |
 | `.claude/`                  | Claude Code 用のコマンド（`commands/`）とスキル（`skills/`） |
@@ -228,7 +228,7 @@ SPM パッケージ・CocoaPods は使っていない。
   カメラも無いので撮影画面は動かない（「シミュレータでは撮影できません」と出る）。検出精度と撮影に関わる変更は実機で確認する
 - **署名**: `DEVELOPMENT_TEAM` は pbxproj に設定済み（自動署名）
 - **テスト**: Swift Testing のターゲット `SwingDuetTests`（検出ロジック・ショットの分け方・同期・動画の速さ・保存・ジョグホイール・ループ範囲の端の単体テスト。実行方法は build-test.md）。
-  `PhaseSet` のテストは未整備（[docs/TODO.md](./docs/TODO.md) B）
+  `PhaseSet` の短い動画の境界もテストする。保存と撮影のファイル保護・作業領域は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) §2・§6 を参照
 - コメント規約（セクション 5.3、日本語コメント）は Swift コードにも適用する
 
 ---

@@ -2,8 +2,8 @@
 
 - 日付：2026-09-11
 - 種別：設計 → 実装（2026-09-11。§2 どおり。テストは `SyncEngineTests` / `SwingDetectorTests` / `ClipStoreTests`）
-- 対象：`Models/VideoConfig.swift`・`Models/SyncEngine.swift`・`Services/SwingDetector.swift`・`Services/SwingAnalyzer.swift`・
-  `Services/PlaybackController.swift`・`Views/Stage/PhaseEditView.swift`・`Views/Stage/ComparisonView.swift`・`Views/Stage/VideoPaneView.swift`
+- 対象：`Models/VideoConfig.swift`・`Models/SyncEngine.swift`・`Services/Analysis/SwingDetector.swift`・`Services/Analysis/SwingAnalyzer.swift`・
+  `Services/Playback/PlaybackController.swift`・`Views/Stage/PhaseEditView.swift`・`Views/Stage/ComparisonView.swift`・`Views/Stage/VideoPaneView.swift`
 - 前提：[research/260910_0220](../research/260910_0220-slowmo-detection-failure.md) §6 の原則（検出は速さに依存しない、速さは再生パラメータ、
   情報源は確実な順）。[TODO.md](../TODO.md) E。旧実装は stash `e5e1487`（比較ペア構成のもの。流用できる部分は §5）
 

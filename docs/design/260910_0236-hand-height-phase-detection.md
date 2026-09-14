@@ -121,9 +121,9 @@ root が欠けたフレームは直前の root を使う（腰はスイング中
 
 | ファイル | 変更 |
 | --- | --- |
-| `Services/PoseTracker.swift` | root / neck を `PoseTrack` に追加、手首点の連続性とヒステリシス |
-| `Services/SwingDetector.swift` | 作り直し。`speedSeries` → 体の大きさ単位の h / v 系列（`handSamples`）、`motionSegments` → 手が低い区間（`lowRegions`）から順に形を読む `swingCandidate`（§4.2）。`SwingCandidate` の `backswingSpan` / `followSpan` / `downswingGap` は `rise`（h_max − h_address）と `estimated`（推定で置いたフェーズの集合）に置き換え |
-| `Services/SwingAnalyzer.swift` | `lowConfidence` の定義を `estimated` ベースに |
+| `Services/Analysis/PoseTracker.swift` | root / neck を `PoseTrack` に追加、手首点の連続性とヒステリシス |
+| `Services/Analysis/SwingDetector.swift` | 作り直し。`speedSeries` → 体の大きさ単位の h / v 系列（`handSamples`）、`motionSegments` → 手が低い区間（`lowRegions`）から順に形を読む `swingCandidate`（§4.2）。`SwingCandidate` の `backswingSpan` / `followSpan` / `downswingGap` は `rise`（h_max − h_address）と `estimated`（推定で置いたフェーズの集合）に置き換え |
+| `Services/Analysis/SwingAnalyzer.swift` | `lowConfidence` の定義を `estimated` ベースに |
 | `scripts/analyze-swing/main.swift` | `--series` に h / v と腰・首の信頼度を出す。左右別の手首を出す `--joints` を追加（今回の調査で必要だった） |
 | `Models/SwingModels.swift`（`VideoConfig` / `PhaseSet`） | **変更なし**。保存形式は影響を受けない |
 | `docs/ARCHITECTURE.md` §5、`docs/TODO.md` D | 実装と同時に更新。D（欠測でトップ・インパクトが粗い）は本設計の推定ルールで扱いが変わるので書き直す |

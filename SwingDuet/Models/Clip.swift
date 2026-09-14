@@ -15,39 +15,6 @@ enum AnalysisState: Codable, Equatable {
     case failed(String)
 }
 
-/// スイングが最後に比べた相手と、そのときの右ペインの位置合わせ（相手が違えば位置も違うのでスイング側が持つ）
-struct Pairing: Codable, Equatable {
-    var partnerID: UUID
-    var scale: Double = 1.0
-    var offsetX: Double = 0
-    var offsetY: Double = 0
-    /// 相手を決めた日時。「いつものお手本」（最後に比べた相手）を決めるのに使う
-    var pairedAt: Date = Date()
-}
-
-extension Pairing {
-    /// 右ペインの位置合わせを `config` から写す
-    init(partnerID: UUID, transformOf config: VideoConfig, pairedAt: Date) {
-        self.init(partnerID: partnerID, scale: config.scale, offsetX: config.offsetX, offsetY: config.offsetY, pairedAt: pairedAt)
-    }
-}
-
-/// クリップの動画の出どころ（設計は docs/design/260912_2011-photo-library-reference-storage.md）
-enum VideoSource: Equatable {
-    /// アプリ内のコピー（Documents/Videos/<fileName>）。権限が無いときの OS ピッカー経由と、参照にする前に取り込んだもの
-    case file(String)
-    /// 写真ライブラリの動画。`localID` は `PHAsset.localIdentifier`、`cloudID` はバックアップの復元で識別子が変わったときに引き直す `PHCloudIdentifier`
-    case library(localID: String, cloudID: String?)
-
-    /// 保存する形に分ける（`VideoConfig.fileName` / `Clip.assetID` / `Clip.cloudID`。参照は `fileName` が空）
-    var stored: (fileName: String, assetID: String?, cloudID: String?) {
-        switch self {
-        case .file(let fileName): return (fileName, nil, nil)
-        case .library(let localID, let cloudID): return ("", localID, cloudID)
-        }
-    }
-}
-
 /// 取り込んだ動画 1 本。スイング（左ペイン）もお手本（右ペイン）も同じ型で、役割で分ける
 struct Clip: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
@@ -77,6 +44,15 @@ struct Clip: Codable, Identifiable, Equatable {
     var needsReanalysis: Bool = false
     /// 最後に比べた相手と右ペインの位置合わせ（左ペインに入れたクリップが持つ）
     var pairing: Pairing? = nil
+    /// 相手への参照を復号できなかった。保存せず、起動時の自動整理を止めるためだけに使う
+    var hasUnreadablePairing = false
+
+    /// 同じクリップでも動画の出どころが替われば、プレーヤーとサムネイルを読み直す
+    struct VideoIdentity: Hashable {
+        let id: UUID
+        let source: VideoSource
+    }
+    var videoIdentity: VideoIdentity { VideoIdentity(id: id, source: source) }
 
     var fileName: String { video.fileName }
 
@@ -100,28 +76,35 @@ struct Clip: Codable, Identifiable, Equatable {
 
     var isAnalyzed: Bool { analysis == .done }
 
+    /// 左（自分）に置けるか。スイングの一覧に出るもの。
+    /// お手本を左に入れると、一覧に出ない・★ が効かない行になってしまうので入れさせない
+    var isMine: Bool { role == .swing }
+
+    /// 右（お手本）に置ける種類か。登録済みのお手本と、★ お気に入りのスイング。
+    /// **解析はまだでもよい**（右ペインは「解析中」を出して、済んだら自動で比較に入る）
+    var canBePartner: Bool { role == .model || isFavorite }
+
+    /// いますぐ右に置いて比べられるか。棚に並べる相手といつものお手本の選定はこちらを見る
+    var isReadyAsPartner: Bool { canBePartner && isAnalyzed }
+
     /// サムネイルに出すコマの時刻。解析が済んでいなければ先頭
     func thumbnailTime(of phase: SwingPhase) -> Double {
         isAnalyzed ? video.phases.time(of: phase) : 0
     }
 
-    /// 右ペインに出す相手の設定：相手の解析結果に、このクリップとの位置合わせ（`pairing`）を重ねたもの。
-    /// 相手が `pairing` と違えば自動フィットどおり（位置は相手ごとに違う）
-    func pairedConfig(of partner: Clip) -> VideoConfig {
-        var config = partner.video
-        let transform = pairing?.partnerID == partner.id ? pairing : nil
-        config.scale = transform?.scale ?? 1
-        config.offsetX = transform?.offsetX ?? 0
-        config.offsetY = transform?.offsetY ?? 0
-        return config
+    /// このスイングとの比較で使う相手の位置合わせ。相手を替えた直後は自動フィットに戻る
+    func partnerTransform(for partnerID: UUID) -> PaneTransform {
+        guard let pairing, pairing.partnerID == partnerID else { return .identity }
+        return pairing.transform
     }
+
 }
 
 extension Clip {
     /// 長い動画 `take` から切り出した 1 球のクリップ。解析結果は切り出した範囲の分（`sliced`）、相手は元と同じ。
     /// 撮影日時は元の撮影日時に範囲の先頭を足す（焼き込みスローでは動画秒なので目安）。`id` を渡すと元のクリップの id を引き継ぐ
     /// （ステージが元のクリップを開いたままなら、そのまま最後の球を映す）
-    static func shot(from take: Clip, range: ClosedRange<Double>, sliced: SwingAnalysisResult, source: VideoSource, id: UUID = UUID()) -> Clip {
+    static func shot(from take: Clip, range: ClosedRange<Double>, sliced: SwingAnalysisResult, source: VideoSource, id: UUID) -> Clip {
         let stored = source.stored
         return Clip(id: id, role: .swing, createdAt: take.createdAt, shotAt: take.shotAt.map { $0.addingTimeInterval(range.lowerBound) },
                     assetID: stored.assetID, cloudID: stored.cloudID, video: sliced.videoConfig(fileName: stored.fileName), analysis: .done, pairing: take.pairing)
@@ -146,37 +129,12 @@ extension Clip {
         video = try c.decode(VideoConfig.self, forKey: .video)
         analysis = try c.decode(AnalysisState.self, forKey: .analysis)
         needsReanalysis = try c.decodeIfPresent(Bool.self, forKey: .needsReanalysis) ?? false
-        pairing = try c.decodeIfPresent(Pairing.self, forKey: .pairing)
-    }
-}
-
-/// 保存する全体（Documents/library.json）
-struct Library: Codable {
-    /// 保存形式の版。読み込んだものがこれより古ければ `ClipStore` が組み替える（2: 動画の速さをユーザーの選択だけ保存する）
-    static let currentVersion = 2
-
-    var version: Int = Library.currentVersion
-    var clips: [Clip] = []
-    /// 比較画面の再生の設定（アプリ全体で 1 つ）
-    var playback = PlaybackSettings()
-    /// 1 球ずつに分けて取り込んだ長い動画（写真ライブラリの識別子）。同じ動画をもう一度選んだときに二重に分けない
-    var splitTakes: [String] = []
-    /// 撮影の設定（カメラ・フレームレート・音。アプリ全体で 1 つ）
-    var capture = CaptureSettings()
-}
-
-extension Library {
-    private enum CodingKeys: String, CodingKey {
-        case version, clips, playback, splitTakes, capture
-    }
-
-    /// `version` を書く前のデータ（版 0）と、`playback` / `splitTakes` / `capture` の無いデータも読めるようにする
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        version = try c.decodeIfPresent(Int.self, forKey: .version) ?? 0
-        clips = try c.decode([Clip].self, forKey: .clips)
-        playback = try c.decodeIfPresent(PlaybackSettings.self, forKey: .playback) ?? PlaybackSettings()
-        splitTakes = try c.decodeIfPresent([String].self, forKey: .splitTakes) ?? []
-        capture = try c.decodeIfPresent(CaptureSettings.self, forKey: .capture) ?? CaptureSettings()
+        // 相手の情報が読めなくても、クリップ（＝動画への参照）は失わない。相手はいつものお手本に落ちる
+        do {
+            pairing = try c.decodeIfPresent(Pairing.self, forKey: .pairing)
+        } catch {
+            pairing = nil
+            hasUnreadablePairing = true
+        }
     }
 }

@@ -63,8 +63,8 @@ ls "$(xcrun simctl get_app_container booted com.ha2ne2.SwingDuet data)/Documents
 Vision はシミュレータでは動かないが Mac では動くので、アプリと同じ `SwingAnalyzer` を CLI にして実サンプルで検出結果を見られる:
 
 ```bash
-swiftc -O -o build/analyze-swing SwingDuet/Services/{SwingAnalyzer,PoseTracker,SwingDetector,ShotSplitter}.swift \
-  SwingDuet/Models/*.swift scripts/analyze-swing/main.swift
+swiftc -O -o build/analyze-swing SwingDuet/Services/Analysis/*.swift \
+  SwingDuet/Models/*.swift SwingDuet/Support/*.swift scripts/analyze-swing/main.swift
 build/analyze-swing docs/data/*.mp4            # 候補ごとの A/T/I/F・採点・採用（★）・推定したフェーズ・人物範囲
 build/analyze-swing --shots docs/data/x.mov    # 長い動画を 1 球ずつに分ける範囲と、切り出した範囲での検出結果（ShotSplitter）
 build/analyze-swing --series docs/data/x.mp4   # 手の高さ（腰 0・首 1）と速度の系列も出す（閾値を調整するとき）
@@ -75,8 +75,12 @@ build/analyze-swing --joints docs/data/x.mp4   # 左右の手首・腰・首の�
 
 ## 単体テスト
 
-Swift Testing（`SwingDuetTests/`）。検出ロジック（`SwingDetector`）、同期（`SyncEngine`）、動画の速さの推定（`SlowFactor`）、
-保存（`ClipStore`：旧データの移行・上限・相手の解決）、ジョグホイールの回転（`JogRotation`）、ループ範囲の端（`LoopRange`）、長い動画のショットへの分け方（`ShotSplitter`）を固定している。アプリをホストにするのでシミュレータで走る:
+Swift Testing（`SwingDuetTests/`）。純粋計算と保存を固定している：
+フェーズの範囲（`PhaseSet`）、検出（`SwingDetector`）、長い動画の分け方（`ShotSplitter`）、撮影中の判定と区切り（`LiveDetector` / `LiveShotJudge` / `SegmentWriter.Segment` / `SegmentStore`）、
+1 球の切り出しの流れ（`ShotPipeline`）、同期（`SyncEngine`）、ループ範囲の端（`LoopRange`）、追跡の下ごしらえ（`PoseTrack`）、
+軌跡（`JointTrails` / `JointTrailOverlay`）、保存データの往復（`Persistence`）、保存の規則（`ClipStore`：上限・相手の解決・壊れたデータ）、
+動画の速さ（`SlowFactor` / `PlaybackSpeed`）、向き（`Orientation`）、ジョグホイール（`JogRotation`）、時間軸と幅（`TimeScale`）。
+アプリをホストに持つテストバンドルとしてシミュレータで実行する。保存テストは一時ディレクトリと差し替えた保存処理を使い、実際の PhotoKit 保存を呼ばない:
 
 ```bash
 xcodebuild test -project SwingDuet.xcodeproj -scheme SwingDuetTests \

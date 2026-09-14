@@ -10,11 +10,10 @@ struct CaptureView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.verticalSizeClass) private var verticalSizeClass
-    @Environment(\.openURL) private var openURL
     @StateObject private var controller: CaptureController
-    @State private var deleting: CaptureController.ShotItem?
+    @State private var deleting: ShotPipeline.Item?
     /// 帯でタップしてリプレイ中のショット
-    @State private var replaying: CaptureController.ShotItem?
+    @State private var replaying: ShotPipeline.Item?
 
     /// 止めたときの結果（ホームの帯に出す）
     let onFinish: (CaptureController.Summary) -> Void
@@ -24,8 +23,8 @@ struct CaptureView: View {
         self.onFinish = onFinish
     }
 
-    private var isRecording: Bool { controller.phase == .recording }
-    private var isBusy: Bool { controller.phase == .recording || controller.phase == .stopping }
+    private var isRecording: Bool { controller.state == .recording }
+    private var isBusy: Bool { controller.state == .recording || controller.state == .stopping }
 
     var body: some View {
         ZStack {
@@ -81,36 +80,34 @@ struct CaptureView: View {
 
     // MARK: - 配置
 
-    private var portraitLayout: some View {
+    /// 縦でも横でも同じ並び（上のバー・球数・状態・帯）。違うのは録画ボタンの置き場所と、上下の余白だけ
+    private func infoColumn(countTop: CGFloat, stripBottom: CGFloat) -> some View {
         VStack(spacing: 0) {
             topBar
                 .padding(.horizontal, 16)
                 .padding(.top, 6)
             countArea
-                .padding(.top, 18)
+                .padding(.top, countTop)
             statusView
             bannerView
             Spacer()
             strip
-                .padding(.bottom, 14)
+                .padding(.bottom, stripBottom)
+        }
+    }
+
+    private var portraitLayout: some View {
+        VStack(spacing: 0) {
+            infoColumn(countTop: 18, stripBottom: 14)
             recordButton
                 .padding(.bottom, 26)
         }
     }
 
+    /// 横向きは録画ボタンを右の列に出す（打席から見て手が届く側）
     private var landscapeLayout: some View {
         HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                topBar
-                    .padding(.horizontal, 16)
-                    .padding(.top, 6)
-                countArea
-                statusView
-                bannerView
-                Spacer()
-                strip
-                    .padding(.bottom, 12)
-            }
+            infoColumn(countTop: 0, stripBottom: 12)
             VStack {
                 Spacer()
                 recordButton
@@ -140,11 +137,9 @@ struct CaptureView: View {
         HStack(spacing: 10) {
             Button(action: close) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 16, weight: .bold))
-                    .frame(width: 40, height: 40)
-                    .background(.black.opacity(0.55), in: Circle())
+                    .barButton()
             }
-            .disabled(controller.phase == .stopping)
+            .disabled(controller.state == .stopping)
             .accessibilityLabel("閉じる")
             .accessibilityIdentifier("capture.close")
             if isBusy {
@@ -153,14 +148,14 @@ struct CaptureView: View {
                     Text(controller.elapsed.clockLabel)
                         .monospacedDigit()
                 }
-                .pill()
+                .videoChip(font: .footnote.weight(.semibold))
                 .accessibilityLabel("録画中 \(controller.elapsed.clockLabel)")
             }
             Spacer()
             if controller.frameRate > 0 {
                 Text("\(controller.frameRate) fps")
                     .font(.caption.weight(.semibold))
-                    .pill()
+                    .videoChip(font: .footnote.weight(.semibold))
             }
             settingsMenu
         }
@@ -187,9 +182,7 @@ struct CaptureView: View {
                 .disabled(isBusy)
         } label: {
             Image(systemName: store.capture.soundEnabled ? "ellipsis" : "speaker.slash")
-                .font(.system(size: 16, weight: .bold))
-                .frame(width: 40, height: 40)
-                .background(.black.opacity(0.55), in: Circle())
+                .barButton()
         }
         .accessibilityLabel("撮影の設定")
         .accessibilityIdentifier("capture.settings")
@@ -234,7 +227,7 @@ struct CaptureView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 14)
                     .padding(.vertical, isBusy ? 7 : 11)
-                    .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 12))
+                    .background(.black.opacity(Scrim.light), in: RoundedRectangle(cornerRadius: 12))
                     .padding(.horizontal, 24)
                     .accessibilityIdentifier("capture.status")
             }
@@ -262,7 +255,7 @@ struct CaptureView: View {
     private var strip: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                LazyHStack(spacing: 6) {
                     ForEach(Array(controller.shots.enumerated()), id: \.element.id) { index, item in
                         thumbnail(item, number: index + 1)
                             .id(item.id)
@@ -278,7 +271,7 @@ struct CaptureView: View {
         .accessibilityIdentifier("capture.strip")
     }
 
-    private func thumbnail(_ item: CaptureController.ShotItem, number: Int) -> some View {
+    private func thumbnail(_ item: ShotPipeline.Item, number: Int) -> some View {
         ZStack(alignment: .bottom) {
             if let clipID = item.clipID, let clip = store.clip(id: clipID) {
                 ClipThumbnail(clip: clip, phase: .impact, aspect: 40 / 54)
@@ -296,7 +289,7 @@ struct CaptureView: View {
                 .monospacedDigit()
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 1)
-                .background(.black.opacity(0.55))
+                .background(.black.opacity(Scrim.light))
         }
         .frame(width: 40, height: 54)
         .clipShape(RoundedRectangle(cornerRadius: 6))
@@ -321,7 +314,7 @@ struct CaptureView: View {
                 Circle()
                     .strokeBorder(.white, lineWidth: 4)
                     .frame(width: 72, height: 72)
-                if controller.phase == .stopping {
+                if controller.state == .stopping {
                     ProgressView()
                         .tint(.white)
                 } else if isRecording {
@@ -336,8 +329,8 @@ struct CaptureView: View {
             }
         }
         .buttonStyle(.plain)
-        .disabled(controller.phase != .ready && controller.phase != .recording)
-        .opacity(controller.phase == .preparing || controller.setupError != nil ? 0.4 : 1)
+        .disabled(controller.state != .ready && controller.state != .recording)
+        .opacity(controller.state == .preparing || controller.setupError != nil ? 0.4 : 1)
         .accessibilityLabel(isRecording ? "止める" : "録画")
         .accessibilityIdentifier("capture.record")
     }
@@ -349,8 +342,8 @@ struct CaptureView: View {
             Text(message)
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
-            if controller.isPermissionDenied, let url = URL(string: UIApplication.openSettingsURLString) {
-                Button("設定を開く") { openURL(url) }
+            if controller.isPermissionDenied {
+                OpenSettingsButton()
                     .buttonStyle(.borderedProminent)
             }
             Button("閉じる") { dismiss() }
@@ -358,13 +351,13 @@ struct CaptureView: View {
         .foregroundStyle(.white)
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.black.opacity(0.85))
+        .background(.black.opacity(Scrim.heavy))
         .ignoresSafeArea()
     }
 
     /// ✕：録画中なら止めてから閉じる（止めた結果が入ったら閉じる）
     private func close() {
-        switch controller.phase {
+        switch controller.state {
         case .recording:
             Task { await controller.stop() }
         case .stopping:
@@ -375,121 +368,11 @@ struct CaptureView: View {
     }
 }
 
-/// 帯でタップしたショットのリプレイ。動画の実フレームレートを 30fps で流すので 240fps なら 1/8 のスロー。ループで繰り返す。
-/// 「削除」と「閉じる」だけ（比較はしない）。録画と検出は続いている
-private struct ReplayOverlay: View {
-    @EnvironmentObject private var store: ClipStore
-    let clip: Clip
-    let number: Int
-    let isRecording: Bool
-    let onDelete: () -> Void
-    let onClose: () -> Void
-
-    @State private var player: AVQueuePlayer?
-    @State private var looper: AVPlayerLooper?
-
-    /// 240fps を 30fps で流す倍率（1/8）。実速の動画はそのまま
-    private var slowLabel: String {
-        clip.video.frameRate >= 60 ? "1/\(Int((clip.video.frameRate / 30).rounded()))" : "実速"
-    }
-
-    var body: some View {
-        ZStack {
-            Color.black.opacity(0.85)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onClose)
-            VStack(spacing: 10) {
-                if isRecording {
-                    Label("録画は続いています", systemImage: "record.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 8)
-                }
-                ZStack {
-                    Color.black
-                    if let player {
-                        PlayerLayerView(player: player)
-                    } else {
-                        ProgressView().tint(.white)
-                    }
-                    VStack {
-                        HStack {
-                            Text("\(number) 球目 · \(clip.sortDate.timeLabel) · \(slowLabel)")
-                                .font(.caption.weight(.bold))
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 4)
-                                .background(.black.opacity(0.55), in: Capsule())
-                            Spacer()
-                        }
-                        .padding(10)
-                        Spacer()
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .padding(.horizontal, 14)
-                HStack {
-                    Button("削除", role: .destructive, action: onDelete)
-                        .font(.body.weight(.semibold))
-                        .frame(minWidth: 44, minHeight: 44)
-                    Spacer()
-                    Button(action: onClose) {
-                        Text("閉じる")
-                            .font(.body.weight(.semibold))
-                            .padding(.horizontal, 18)
-                            .frame(height: 44)
-                            .background(.white, in: Capsule())
-                            .foregroundStyle(.black)
-                    }
-                }
-                .padding(.horizontal, 22)
-                .padding(.bottom, 30)
-            }
-            .foregroundStyle(.white)
-        }
-        .task(id: clip.id) {
-            // 参照の動画は写真ライブラリから解く。解けなければ黒のまま（閉じられる）
-            guard let asset = try? await store.videoAsset(of: clip), let item = try? await VideoImporter.playerItem(for: asset) else { return }
-            let queue = AVQueuePlayer()
-            looper = AVPlayerLooper(player: queue, templateItem: item)
-            queue.rate = Float(min(1, 30 / max(clip.video.frameRate, 30)))
-            player = queue
-        }
-        .onDisappear { player?.pause() }
-        .accessibilityIdentifier("capture.replay")
-    }
-}
-
 private extension View {
-    /// 上のバーの小さなカプセル
-    func pill() -> some View {
-        font(.footnote.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.black.opacity(0.55), in: Capsule())
+    /// 上のバーの丸いボタン（閉じる・設定）
+    func barButton() -> some View {
+        font(.system(size: 16, weight: .bold))
+            .frame(width: 40, height: 40)
+            .background(.black.opacity(Scrim.light), in: Circle())
     }
-}
-
-/// `AVCaptureVideoPreviewLayer` をそのまま表示する。層は端末の向きに合わせて `CaptureController` が回す
-struct CameraPreviewView: UIViewRepresentable {
-    let session: AVCaptureSession
-    /// 層ができたときに渡す（回転の調整に使う）
-    let onLayer: (AVCaptureVideoPreviewLayer) -> Void
-
-    func makeUIView(context: Context) -> PreviewContainerView {
-        let view = PreviewContainerView()
-        view.previewLayer.session = session
-        view.previewLayer.videoGravity = .resizeAspect
-        view.backgroundColor = .black
-        view.isUserInteractionEnabled = false
-        onLayer(view.previewLayer)
-        return view
-    }
-
-    func updateUIView(_ uiView: PreviewContainerView, context: Context) {}
-}
-
-final class PreviewContainerView: UIView {
-    override static var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
-    /// NOTE: `layerClass` で AVCaptureVideoPreviewLayer を指定しているので、この強制キャストは必ず成功する
-    var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
 }

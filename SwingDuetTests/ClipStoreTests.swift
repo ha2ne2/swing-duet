@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import SwingDuet
 
-/// `ClipStore` の純粋な部分（旧データの移行、流す上限、相手の解決、削除と元に戻す、同じ動画の共有）を一時ディレクトリで固定する。
+/// `ClipStore` の純粋な部分（保存形式の版上げ、流す上限、相手の解決、削除と元に戻す、同じ動画の共有）を一時ディレクトリで固定する。
 /// 解析キューは回さない（`autoAnalyze: false`）ので、動画ファイルは要らない
 @MainActor
 struct ClipStoreTests {
@@ -23,66 +23,273 @@ struct ClipStoreTests {
                     phases: PhaseSet(address: 0.2, top: 0.8, impact: impact, finish: 1.5))
     }
 
-    private func write(_ json: String, to name: String) throws {
-        try json.data(using: .utf8)?.write(to: directory.appendingPathComponent(name))
+    private func write(_ text: String, to name: String) throws {
+        try text.data(using: .utf8)?.write(to: directory.appendingPathComponent(name))
     }
 
-    // MARK: - 旧データの移行
+    @Test func paneEditsChangeOnlyTheirOwnedValues() throws {
+        let store = makeStore()
+        let swing = store.add(role: .swing, fileName: "s.mov", shotAt: nil, assetID: nil)
+        let partner = store.add(role: .model, fileName: "p.mov", shotAt: nil, assetID: nil)
+        let original = video("p.mov")
+        store.mutate(partner.id) {
+            $0.video = original
+            $0.video.candidates = [original.phases]
+            $0.video.jointTrails = JointTrails(samples: [])
+            $0.video.transform = PaneTransform(scale: 3)
+        }
+        store.setPartner(of: swing.id, to: partner.id)
+        let pairedAt = store.clip(id: swing.id)?.pairing?.pairedAt
+        let mine = PaneTransform(scale: 2, offsetX: 8)
+        let paired = PaneTransform(scale: 1.5, offsetY: -12)
+        store.setTransform(mine, of: swing.id)
+        store.setPartnerTransform(paired, of: swing.id, partnerID: partner.id)
+        var phases = original.phases
+        phases.impact += 0.1
+        store.setPhases(phases, slowFactor: 8, of: partner.id)
 
-    @Test func legacyProjectsAndModelsBecomeClipsWithPairings() throws {
-        let modelID = UUID()
-        let olderID = UUID()
-        let newerID = UUID()
-        try write("""
-        [{"id":"\(modelID.uuidString)","name":"マキロイ","createdAt":"2026-09-01T00:00:00Z",
-          "config":{"fileName":"m.mov","duration":3,"frameRate":30,"phases":{"address":0.2,"top":0.8,"impact":1.0,"finish":1.5}}}]
-        """, to: "models.json")
-        // 新しい順に保存されている：newer（紐付き無し・別の動画）、older（modelID で紐付き・位置合わせあり）
-        try write("""
-        [{"id":"\(newerID.uuidString)","name":"比較 9/10 02:20","createdAt":"2026-09-10T02:20:00Z","reference":"mine",
-          "mine":{"fileName":"s2.mov","duration":3,"frameRate":30,"phases":{"address":0.2,"top":0.8,"impact":1.0,"finish":1.5}},
-          "model":{"fileName":"x.mov","duration":3,"frameRate":30,"phases":{"address":0.2,"top":0.8,"impact":1.0,"finish":1.5}}},
-         {"id":"\(olderID.uuidString)","name":"比較 9/8 18:40","createdAt":"2026-09-08T18:40:00Z","reference":"model","modelID":"\(modelID.uuidString)",
-          "mine":{"fileName":"s1.mov","duration":3,"frameRate":30,"phases":{"address":0.2,"top":0.8,"impact":1.0,"finish":1.5}},
-          "model":{"fileName":"m.mov","duration":3,"frameRate":30,"scale":1.5,"offsetX":12,"offsetY":-30,"phases":{"address":0.2,"top":0.8,"impact":1.0,"finish":1.5}}}]
-        """, to: "projects.json")
+        let saved = try #require(store.clip(id: partner.id))
+        #expect(saved.video.phases == phases && saved.video.slowFactor == 8)
+        #expect(saved.video.transform == PaneTransform(scale: 3))
+        #expect(saved.video.candidates == [original.phases])
+        #expect(saved.video.jointTrails == JointTrails(samples: []))
+        #expect(store.clip(id: swing.id)?.video.transform == mine)
+        #expect(store.clip(id: swing.id)?.partnerTransform(for: partner.id) == paired)
+        #expect(store.clip(id: swing.id)?.pairing?.pairedAt == pairedAt)
+        #expect(store.clip(id: swing.id)?.partnerTransform(for: UUID()) == .identity)
+        let restored = makeStore()
+        #expect(restored.clip(id: partner.id)?.video == saved.video)
+        #expect(restored.clip(id: swing.id)?.pairing?.transform == paired)
+    }
+
+    // MARK: - 壊れた保存データ
+
+    /// library.json を読めないときに動画を消さない。
+    /// 参照が 1 つも無い状態で `Documents/Videos` を片付けると、取り込んだ動画も撮った球も全部消える
+    @Test func unreadableLibraryKeepsTheVideosAndIsBackedUp() throws {
+        try write("{ これは JSON ではない", to: "library.json")
+        let videos = directory.appendingPathComponent("Videos", isDirectory: true)
+        try FileManager.default.createDirectory(at: videos, withIntermediateDirectories: true)
+        try write("dummy", to: "Videos/a.mov")
 
         let store = makeStore()
 
-        #expect(store.models.count == 2)                       // 登録済み + 紐付きの無かった右ペインから作ったお手本
-        #expect(store.swings.count == 2)
-        let older = try #require(store.clip(id: olderID))
-        #expect(older.role == .swing)
-        #expect(older.name.isEmpty)                            // 自動命名は引き継がない（日時で表示する）
-        #expect(older.pairing?.partnerID == modelID)
-        #expect(older.pairing?.scale == 1.5)
-        #expect(older.pairing?.offsetX == 12)
-        let newer = try #require(store.clip(id: newerID))
-        let created = try #require(store.clip(id: newer.pairing?.partnerID))
-        #expect(created.role == .model)
-        #expect(created.fileName == "x.mov")
-        #expect(created.video.scale == 1)                      // お手本自身の位置合わせは初期値に戻す
-        #expect(store.playback.syncBasis == .mine)             // 最新の比較の基準
-        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("library.json").path))
-        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("projects.json").path))
-        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("models.json").path))
+        #expect(store.clips.isEmpty)
+        #expect(FileManager.default.fileExists(atPath: videos.appendingPathComponent("a.mov").path))
+        let backup = try #require(store.damagedLibraryBackup)
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent(backup).path))
     }
 
-    @Test func legacyProjectWithoutLinkReusesModelOfSameFile() throws {
-        let modelID = UUID()
+    /// クリップ 1 本が壊れていても、他のクリップは読める（読み飛ばしたときも動画は消さない）
+    @Test func oneBrokenClipDoesNotTakeTheOthersDown() throws {
+        let goodID = UUID()
         try write("""
-        [{"id":"\(modelID.uuidString)","name":"マキロイ","createdAt":"2026-09-01T00:00:00Z",
-          "config":{"fileName":"m.mov","duration":3,"frameRate":30,"phases":{"address":0.2,"top":0.8,"impact":1.0,"finish":1.5}}}]
-        """, to: "models.json")
-        try write("""
-        [{"id":"\(UUID().uuidString)","name":"比較","createdAt":"2026-09-08T18:40:00Z",
-          "mine":{"fileName":"s1.mov","duration":3,"frameRate":30,"phases":{"address":0.2,"top":0.8,"impact":1.0,"finish":1.5}},
-          "model":{"fileName":"m.mov","duration":3,"frameRate":30,"phases":{"address":0.2,"top":0.8,"impact":1.0,"finish":1.5}}}]
-        """, to: "projects.json")
+        {"version":2,"clips":[
+          {"id":"\(goodID.uuidString)","role":"swing","name":"","createdAt":"2026-09-10T00:00:00Z","isFavorite":false,
+           "analysis":{"done":{}},
+           "video":{"fileName":"a.mov","duration":3,"frameRate":30,"phases":{"address":0.2,"top":0.8,"impact":1.0,"finish":1.5}}},
+          {"id":"not-a-uuid","role":"swing"}
+        ]}
+        """, to: "library.json")
+        let videos = directory.appendingPathComponent("Videos", isDirectory: true)
+        try FileManager.default.createDirectory(at: videos, withIntermediateDirectories: true)
+        try write("dummy", to: "Videos/b.mov")
 
         let store = makeStore()
-        #expect(store.models.count == 1)
-        #expect(store.swings.first?.pairing?.partnerID == modelID)
+
+        #expect(store.clips.count == 1)
+        #expect(store.clip(id: goodID) != nil)
+        #expect(store.damagedLibraryBackup != nil)
+        // 読み飛ばしたクリップが参照していたかもしれないので、動画は片付けない
+        #expect(FileManager.default.fileExists(atPath: videos.appendingPathComponent("b.mov").path))
+    }
+
+    /// 読み込みの途中でディスクに書かない。
+    /// 設定（playback）を入れた時点で保存が走ると、まだ復元していない「分割済みの印」を空のまま書いてしまう
+    @Test func loadingDoesNotOverwriteTheFileWithHalfRestoredState() throws {
+        // 既定と違う再生の設定（＝読み込み中に didSet が鳴る）と、分割済みの印を持った保存データ
+        try write("""
+        {"version":2,"clips":[],"splitTakes":["asset/9"],
+         "playback":{"syncBasis":"mine","anchor":"top","speed":1}}
+        """, to: "library.json")
+
+        #expect(makeStore().isAlreadySplit("asset/9"))
+        #expect(makeStore().isAlreadySplit("asset/9"))   // 1 度開いた後もディスクに残っている
+
+        let json = try String(contentsOf: directory.appendingPathComponent("library.json"), encoding: .utf8)
+        #expect(json.contains("asset"))
+    }
+
+    /// 壊れた保存データは上書きしない（退避したファイルから拾い直せるように）。
+    /// 上書きすると次の起動は「読めた」ことになり、そこで後片付けが走って動画が消える
+    @Test func aDamagedLibraryIsNotOverwritten() throws {
+        let broken = "{ これは JSON ではない"
+        try write(broken, to: "library.json")
+        let store = makeStore()
+
+        store.add(role: .swing, fileName: "a.mov", shotAt: nil, assetID: nil)
+
+        let onDisk = try String(contentsOf: directory.appendingPathComponent("library.json"), encoding: .utf8)
+        #expect(onDisk == broken)
+        #expect(store.clips.count == 1)   // 画面では使える（保存されないだけ）
+    }
+
+    @Test func aReadFailureIsNotTreatedAsFirstLaunch() throws {
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("library.json"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("Videos"), withIntermediateDirectories: true)
+        try write("only copy", to: "Videos/only.mov")
+        let store = makeStore()
+        #expect(store.isReadOnly)
+        #expect(try String(contentsOf: directory.appendingPathComponent("Videos/only.mov"), encoding: .utf8) == "only copy")
+    }
+
+    @Test func missingMetadataWithExistingVideosStaysProtectedAcrossLaunches() throws {
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("Videos"), withIntermediateDirectories: true)
+        try write("only copy", to: "Videos/only.mov")
+        let store = makeStore()
+        #expect(store.isReadOnly)
+        #expect(store.damagedLibraryBackup == nil)
+        store.add(role: .swing, fileName: "new.mov", shotAt: nil, assetID: nil)
+        #expect(makeStore().isReadOnly)
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Videos/only.mov").path))
+    }
+
+    @Test func aFutureLibraryIsNeverDowngradedOrCleaned() throws {
+        let future = "{\"version\":999,\"clips\":[],\"futureReferences\":[\"only.mov\"]}"
+        try write(future, to: "library.json")
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("Videos"), withIntermediateDirectories: true)
+        try write("only copy", to: "Videos/only.mov")
+        let store = makeStore()
+        store.capture.soundEnabled = false
+        #expect(store.isReadOnly)
+        #expect(try String(contentsOf: directory.appendingPathComponent("library.json"), encoding: .utf8) == future)
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Videos/only.mov").path))
+    }
+
+    @Test func invalidPairingPreventsDeletionOfItsUnregisteredPartner() throws {
+        let store = makeStore()
+        let model = store.add(role: .model, fileName: "model.mov", shotAt: nil, assetID: nil, registered: false)
+        store.add(role: .swing, fileName: "swing.mov", shotAt: nil, assetID: nil, partnerID: model.id)
+        let url = directory.appendingPathComponent("library.json")
+        let data = try Data(contentsOf: url)
+        var json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        var clips = try #require(json["clips"] as? [[String: Any]])
+        clips[1]["pairing"] = ["partnerID": "invalid"]
+        json["clips"] = clips
+        try JSONSerialization.data(withJSONObject: json).write(to: url)
+        let reopened = makeStore()
+        #expect(reopened.isReadOnly)
+        #expect(reopened.clip(id: model.id) != nil)
+    }
+
+    @Test func duplicateIDsProtectAllVideoReferences() throws {
+        let store = makeStore()
+        let clip = store.add(role: .swing, fileName: "first.mov", shotAt: nil, assetID: nil)
+        var duplicate = clip
+        duplicate.video.fileName = "second.mov"
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(Library(clips: [clip, duplicate])).write(to: directory.appendingPathComponent("library.json"))
+        #expect(makeStore().isReadOnly)
+    }
+
+    @Test func discardedShotDoesNotDeleteASharedOrUndoableVideo() throws {
+        let store = makeStore()
+        let shot = store.add(role: .swing, fileName: "shared.mov", shotAt: nil, assetID: nil)
+        let twin = store.add(role: .model, fileName: "shared.mov", shotAt: nil, assetID: nil)
+        try write("only copy", to: "Videos/shared.mov")
+        store.delete([twin.id])
+        store.discardCapturedShot(shot.id)
+        store.restoreDeleted()
+        #expect(store.clip(id: twin.id) != nil)
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Videos/shared.mov").path))
+    }
+
+    @Test func failedPersistenceKeepsTheDiscardedShotsFile() throws {
+        let store = makeStore()
+        let shot = store.add(role: .swing, fileName: "only.mov", shotAt: nil, assetID: nil)
+        try write("only copy", to: "Videos/only.mov")
+        // 容量・権限に依存せず、保存先をディレクトリで塞いで書き込み失敗を再現する
+        try FileManager.default.removeItem(at: directory.appendingPathComponent("library.json"))
+        try FileManager.default.createDirectory(at: directory.appendingPathComponent("library.json"), withIntermediateDirectories: true)
+        store.discardCapturedShot(shot.id)
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("Videos/only.mov").path))
+    }
+
+    @Test func promotionUpdatesTheUndoReferenceAfterDeletionDuringSave() async throws {
+        var currentStore: ClipStore?
+        var shotID: UUID?
+        let store = ClipStore(documentsURL: directory, autoAnalyze: false) { _, _ in
+            let id = try #require(shotID)
+            currentStore?.delete([id])
+            return ("saved-local", "saved-cloud")
+        }
+        currentStore = store
+        let shot = store.add(role: .swing, fileName: "only.mov", shotAt: nil, assetID: nil)
+        shotID = shot.id
+        try write("only copy", to: "Videos/only.mov")
+        await store.promoteCapturedShot(shot.id)
+        store.restoreDeleted()
+        #expect(store.clip(id: shot.id)?.source == .library(localID: "saved-local", cloudID: "saved-cloud"))
+        #expect(makeStore().clip(id: shot.id)?.source == store.clip(id: shot.id)?.source)
+        currentStore = nil
+    }
+
+    @Test func lastSuccessfulSplitKeepsIdentityAndCurrentEdits() throws {
+        let store = makeStore()
+        let take = store.add(role: .swing, fileName: "take.mov", shotAt: nil, assetID: "take")
+        let model = store.add(role: .model, fileName: "model.mov", shotAt: nil, assetID: nil)
+        let shot = Clip(role: .swing, video: video("cut.mov"))
+        store.rename(take.id, to: "練習")
+        store.setFavorite(take.id, true)
+        store.setPartner(of: take.id, to: model.id)
+        store.completeSplit(takeID: take.id, shots: [shot])
+        let result = try #require(store.clip(id: take.id))
+        #expect(result.fileName == "cut.mov")
+        #expect(result.name == "練習" && result.isFavorite)
+        #expect(result.pairing?.partnerID == model.id)
+        #expect(store.isAlreadySplit("take"))
+    }
+
+    // MARK: - 相手（お手本）
+
+    /// 「動画」タブから選んだばかりのお手本は解析中。それでも右ペインに入れられる（済んだら比較に入る）
+    @Test func anUnanalyzedModelCanStillBeChosenAsThePartner() {
+        let store = makeStore()
+        let swing = store.add(role: .swing, fileName: "s.mov", shotAt: nil, assetID: nil)
+        let model = store.add(role: .model, fileName: "m.mov", shotAt: nil, assetID: nil)
+        #expect(model.analysis == .pending)
+
+        store.setPartner(of: swing.id, to: model.id)
+
+        #expect(store.clip(id: swing.id)?.pairing?.partnerID == model.id)
+    }
+
+    /// いま右にいる相手をもう一度選んでも、右ペインの位置合わせは残す
+    @Test func choosingTheSamePartnerAgainKeepsThePaneAlignment() {
+        let store = makeStore()
+        let swing = store.add(role: .swing, fileName: "s.mov", shotAt: nil, assetID: nil)
+        let model = store.add(role: .model, fileName: "m.mov", shotAt: nil, assetID: nil)
+        store.setPartner(of: swing.id, to: model.id)
+        store.mutate(swing.id) { $0.pairing?.transform.scale = 1.5 }
+
+        store.setPartner(of: swing.id, to: model.id)
+
+        #expect(store.clip(id: swing.id)?.pairing?.transform.scale == 1.5)
+    }
+
+    /// スイングを相手にできるのは ★ お気に入りだけ（一覧に出ない行を作らない）
+    @Test func aPlainSwingCannotBeUsedAsThePartner() {
+        let store = makeStore()
+        let swing = store.add(role: .swing, fileName: "s.mov", shotAt: nil, assetID: nil)
+        let other = store.add(role: .swing, fileName: "o.mov", shotAt: nil, assetID: nil)
+
+        store.setPartner(of: swing.id, to: other.id)
+        #expect(store.clip(id: swing.id)?.pairing?.partnerID != other.id)
+
+        store.setFavorite(other.id, true)
+        store.setPartner(of: swing.id, to: other.id)
+        #expect(store.clip(id: swing.id)?.pairing?.partnerID == other.id)
     }
 
     // MARK: - 保存形式の版上げ
@@ -205,14 +412,14 @@ struct ClipStoreTests {
         let first = store.add(role: .model, name: "A", fileName: "a.mov", shotAt: nil, assetID: "asset-1")
         var analyzed = first
         analyzed.video = video("a.mov", impact: 1.23)
-        analyzed.video.scale = 2
+        analyzed.video.transform.scale = 2
         analyzed.analysis = .done
         store.update(analyzed)
 
         let twin = store.add(role: .swing, fileName: "a.mov", shotAt: nil, assetID: "asset-1")
         #expect(twin.isAnalyzed)
         #expect(twin.video.phases.impact == 1.23)
-        #expect(twin.video.scale == 1)
+        #expect(twin.video.transform.scale == 1)
         #expect(store.existingClip(assetID: "asset-1")?.id == first.id)
     }
 
@@ -260,7 +467,7 @@ struct ClipStoreTests {
 
     // MARK: - 削除と元に戻す
 
-    @Test func deletedClipsCanBeRestoredAndTheLibraryIsPersisted() {
+    @Test func deletedClipsCanBeRestoredAndTheLibraryIsPersisted() async throws {
         let store = makeStore()
         let a = store.add(role: .swing, fileName: "a.mov", shotAt: nil, assetID: nil)
         let b = store.add(role: .swing, fileName: "b.mov", shotAt: nil, assetID: nil)
@@ -279,7 +486,9 @@ struct ClipStoreTests {
         #expect(reopened.clips.count == 2)
         #expect(reopened.playback == store.playback)
 
+        // 設定の保存は続けて変わる分をまとめる（`persistInterval`）ので、直後の変更は少し待ってから書かれる
         store.playback.loop = nil   // ループしない（JSON ではキーごと省かれる）
+        try await Task.sleep(for: .milliseconds(400))
         #expect(makeStore().playback.loop == nil)
     }
 

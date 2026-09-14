@@ -8,12 +8,9 @@ struct Shot: Equatable {
     var swing: SwingCandidate
 }
 
-/// スイング候補の列から、1 球ずつのショット（切り出す範囲）を組む。素振りは含めない。
-///
-/// 練習場では「素振り → 本番 → 球を見送る → 次の球を置く」が繰り返される。候補どうしの間が短ければ同じ組（素振りと本番）とみなし、
-/// 組の中で最も振り切ったものに比べて明らかに小さい候補を素振りとして捨てる（自動ティーアップでは本番が 5〜6 秒おきに続くので、
-/// 同じ組でも振り切りが同程度なら両方とも本番）。組に候補が 1 つしか無いとき、それが素振りか本番かは形だけでは決められないので、
-/// 他の組の本番と比べて明らかに小さければ素振りとみなして捨てる（設計は docs/design/260912_1951-in-app-slowmo-capture-and-shot-split.md §4.3）
+/// 候補を時間の近い組に分け、振り上げと速度が小さい素振りを除いて切り出し範囲を決める。
+/// 同じ組でも振り切りが同程度なら複数球を残す。単独候補は他の組と比較する。
+/// 根拠は docs/design/260912_1951-in-app-slowmo-capture-and-shot-split.md §4.3。
 enum ShotSplitter {
     /// 候補のフィニッシュから次の候補のアドレスまでがこれ以内なら同じ組（秒）。素振りと本番の間は 2〜4 秒
     static let groupGap = 6.0
@@ -43,13 +40,10 @@ enum ShotSplitter {
             kept.removeAll { isPractice($0, rise: rise, peakSpeed: peak) }
         }
 
-        // 範囲は余白付き。動画の中に収め、前のショットと重ねない
         var shots: [Shot] = []
         for swing in kept {
-            let lower = max(swing.phases.address - leadIn, shots.last?.range.upperBound ?? 0, 0)
-            let upper = min(swing.phases.finish + leadOut, duration)
-            guard upper > lower else { continue }
-            shots.append(Shot(range: lower...upper, swing: swing))
+            guard let range = range(of: swing, after: shots.last?.range.upperBound ?? 0, duration: duration) else { continue }
+            shots.append(Shot(range: range, swing: swing))
         }
         return shots
     }
@@ -59,5 +53,16 @@ extension ShotSplitter {
     /// 比べる相手の振り上げ・ピーク速度に対して両方 `practiceRatio` 未満なら素振り。撮影中の判定（`LiveShotJudge`）も同じ規則を使う
     static func isPractice(_ candidate: SwingCandidate, rise: Double, peakSpeed: Double) -> Bool {
         candidate.rise < practiceRatio * rise && candidate.peakSpeed < practiceRatio * peakSpeed
+    }
+
+    /// 候補を切り出す範囲：アドレスの前とフィニッシュの後に余白（`leadIn` / `leadOut`）を足し、動画の頭から出ないようにする。
+    /// 撮影中（`LiveShotJudge`・`LiveDetector`）も同じ規則で切り出すので、余白の取り方はここだけに置く。
+    /// - after: 前のショットの終わり（範囲を重ねない）
+    /// - duration: 動画の長さ（末尾を越えない）。撮影中はまだ長さが決まっていないので nil
+    /// - Returns: 余白を詰めた結果 1 コマも残らなければ nil
+    static func range(of candidate: SwingCandidate, after previousEnd: Double = 0, duration: Double? = nil) -> ClosedRange<Double>? {
+        let lower = max(candidate.phases.address - leadIn, previousEnd, 0)
+        let upper = duration.map { min(candidate.phases.finish + leadOut, $0) } ?? (candidate.phases.finish + leadOut)
+        return upper > lower ? lower...upper : nil
     }
 }

@@ -116,11 +116,25 @@ struct SwingListView: View {
     /// 下端：通常は「撮影」「ライブラリから」（同じ見た目のカプセル 2 つ）、選択中はまとめて ★ / 削除。削除の直後は「元に戻す」、撮影の直後は結果の帯
     private var bottomBar: some View {
         VStack(spacing: 10) {
+            if store.isReadOnly {
+                Text("保存データを安全に読めないため、変更は保存されません。動画は残しています。" +
+                     (store.damagedLibraryBackup.map { "\n退避: \($0)" } ?? "\n退避にも失敗しました。元の保存データは変更していません。"))
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal)
+                    .accessibilityIdentifier("list.storageProtection")
+            }
             if !store.lastDeleted.isEmpty {
-                UndoBanner()
+                BottomBanner(text: "\(store.lastDeleted.count) 本を削除しました", actionTitle: "元に戻す",
+                             dismissAfter: .seconds(6), id: store.lastDeleted.map(\.id),
+                             action: { store.restoreDeleted() }, onTimeout: { store.clearDeleted() })
             }
             if let summary = captureSummary {
-                CaptureSummaryBanner(summary: summary) { captureSummary = nil }
+                BottomBanner(text: Self.summaryText(summary), actionTitle: "OK",
+                             dismissAfter: .seconds(8), id: summary) {
+                    captureSummary = nil
+                }
+                .accessibilityIdentifier("list.captureSummary")
             }
             if isEditing {
                 selectionBar
@@ -164,6 +178,19 @@ struct SwingListView: View {
         .disabled(selected.isEmpty)
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity)
+    }
+
+    /// 撮影を止めた直後の帯の文面。自動で止めたときはその理由、1 球も切り出せなかったときは長回しを残したことを出す
+    private static func summaryText(_ summary: CaptureController.Summary) -> String {
+        var lines: [String] = []
+        if let reason = summary.reason { lines.append(reason) }
+        if summary.savedTake {
+            lines.append("ショットは見つかりませんでした。撮った動画を残したので、解析で 1 球ずつに分けます")
+        } else {
+            lines.append("\(summary.shotCount) 球を保存しました")
+            if summary.keptTake { lines.append("全体の動画も残しました") }
+        }
+        return lines.joined(separator: "。")
     }
 
     private func endEditing() {
@@ -228,16 +255,8 @@ private struct SwingRow: View {
             }
             Spacer(minLength: 4)
             if !isEditing {
-                Button {
-                    store.setFavorite(clip.id, !clip.isFavorite)
-                } label: {
-                    Image(systemName: clip.isFavorite ? "star.fill" : "star")
-                        .foregroundStyle(clip.isFavorite ? .yellow : .secondary)
-                        .frame(width: 44, height: 44)
-                }
-                .disabled(!clip.isAnalyzed)
-                .accessibilityLabel("★ お気に入り")
-                .accessibilityValue(clip.isFavorite ? "オン" : "オフ")
+                FavoriteButton(clip: clip, dimsWhenOff: true)
+                    .frame(width: 44, height: 44)
                 Menu {
                     if case .failed = clip.analysis {
                         Button("もう一度解析", systemImage: "arrow.clockwise") { store.retryAnalysis(clip.id) }
@@ -277,73 +296,13 @@ private struct SwingRow: View {
                         .controlSize(.mini)
                     Text("解析中…")
                 } else {
-                    Text("待機中")
+                    Text("解析待ち")
                 }
             }
             .foregroundStyle(.secondary)
         case .failed:
             Label("解析できませんでした", systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
-        }
-    }
-}
-
-/// 撮影を止めた直後の「42 球を保存しました」。自動で止めたときはその理由、1 球も切り出せなかったときは長回しを残したことを出す。8 秒で消える
-private struct CaptureSummaryBanner: View {
-    let summary: CaptureController.Summary
-    let onDismiss: () -> Void
-
-    private var text: String {
-        var lines: [String] = []
-        if let reason = summary.reason { lines.append(reason) }
-        if summary.savedTake {
-            lines.append("ショットは見つかりませんでした。撮った動画を残したので、解析で 1 球ずつに分けます")
-        } else {
-            lines.append("\(summary.shotCount) 球を保存しました")
-            if summary.keptTake { lines.append("全体の動画も残しました") }
-        }
-        return lines.joined(separator: "。")
-    }
-
-    var body: some View {
-        HStack {
-            Text(text)
-                .font(.subheadline)
-            Spacer()
-            Button("OK", action: onDismiss)
-                .bold()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
-        .accessibilityIdentifier("list.captureSummary")
-        .task(id: summary) {
-            try? await Task.sleep(for: .seconds(8))
-            if !Task.isCancelled { onDismiss() }
-        }
-    }
-}
-
-/// 「N 本を削除しました　元に戻す」。出てから 6 秒で消える（その間に別の削除があれば数え直す）
-private struct UndoBanner: View {
-    @EnvironmentObject private var store: ClipStore
-
-    var body: some View {
-        HStack {
-            Text("\(store.lastDeleted.count) 本を削除しました")
-                .font(.subheadline)
-            Spacer()
-            Button("元に戻す") { store.restoreDeleted() }
-                .bold()
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal, 16)
-        .task(id: store.lastDeleted.map(\.id)) {
-            try? await Task.sleep(for: .seconds(6))
-            if !Task.isCancelled { store.clearDeleted() }
         }
     }
 }

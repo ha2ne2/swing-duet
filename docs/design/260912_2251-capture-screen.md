@@ -6,7 +6,7 @@
   （同じ内容の HTML が [260912_2251-capture-screen.html](./260912_2251-capture-screen.html)。撮影画面の 7 つの状態を iPhone のモックで並べ、
   ショットが出来るまでの時間と仕組みを図にしたもの）
 - 対象：新規 `Views/Capture/`（撮影画面）、新規 `Services/Capture*`（撮影・書き込み・ライブ検出・判定・切り出し）、
-  `Views/Home/SwingListView.swift`（下端の入口）、`Services/ClipStore.swift`（ショットの追加・仮のフェーズ・解析し直し）、
+  `Views/Home/SwingListView.swift`（下端の入口）、`Services/Library/ClipStore.swift`（ショットの追加・仮のフェーズ・解析し直し）、
   `SwingDuet.xcodeproj/project.pbxproj`（`INFOPLIST_KEY_NSCameraUsageDescription`）
 - 前提：[design/260912_1951](./260912_1951-in-app-slowmo-capture-and-shot-split.md) の案 B（区切りのあるファイル ＋ ライブ検出）。
   第 1 段（分割エンジン `ShotSplitter`・長い動画の取り込みでの自動分割）と保存の方式（写真ライブラリの参照。[design/260912_2011](./260912_2011-photo-library-reference-storage.md)）は実装済み。

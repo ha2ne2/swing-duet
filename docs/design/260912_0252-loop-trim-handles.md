@@ -4,7 +4,7 @@
 - 種別：設計 → 実装（2026-09-12、案 A → 同日に案 B へ。§8・§9）
 - モック：https://claude.ai/code/artifact/fdd2ac99-9f01-42dd-bd3f-35dcdc7568c6
   （同じ内容の HTML が [260912_0252-loop-trim-handles.html](./260912_0252-loop-trim-handles.html)。つまみを動かせるデモ付き）
-- 対象：`Views/Stage/SeekBarView.swift`、`Views/Stage/TransportControlsView.swift`（`loopMenu`）、`Services/PlaybackController.swift`（`LoopMode`）、`Models/SyncEngine.swift`
+- 対象：`Views/Stage/SeekBarView.swift`、`Views/Stage/TransportControlsView.swift`（`loopMenu`）、`Services/Playback/PlaybackController.swift`（`LoopMode`）、`Models/SyncEngine.swift`
 - 前提：ジョグホイール（[260911_0741](./260911_0741-jog-wheel-frame-stepping.md)）が入った後の操作パネル。触覚の語彙もそれに合わせる
 
 ## 1. 何を解きたいか

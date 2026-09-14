@@ -83,4 +83,30 @@ struct JointTrailOverlayTests {
         }
         #expect(visited == [CGPoint(x: 1, y: 1)])
     }
+
+    // MARK: - 再生位置までの線
+
+    /// 通ったところだけを描き、間引きで消えた分の先はいまの位置につなぐ
+    @Test func playedStopsAtTheCurrentTimeAndReachesIt() {
+        let points = (0...10).map { TrailPoint(time: Double($0) / 10, point: CGPoint(x: Double($0) / 10, y: 0.5)) }
+        let played = JointTrailOverlay.played(points, until: 0.45, tip: CGPoint(x: 0.45, y: 0.5))
+        #expect(played.count == 6)                             // 0.0〜0.4 の 5 点 ＋ いまの位置
+        #expect(played.last == TrailPoint(time: 0.45, point: CGPoint(x: 0.45, y: 0.5)))
+        #expect(played.dropLast().allSatisfy { $0.time <= 0.45 })
+    }
+
+    /// 線を全部通り過ぎていれば、いまの位置は足さない（線の先は最後の点のまま）
+    @Test func playedDoesNotExtendPastTheEndOfTheStroke() {
+        let points = (0...10).map { TrailPoint(time: Double($0) / 10, point: CGPoint(x: Double($0) / 10, y: 0.5)) }
+        let played = JointTrailOverlay.played(points, until: 5, tip: CGPoint(x: 0.9, y: 0.9))
+        #expect(played.count == points.count)
+        #expect(played.last == points.last)
+    }
+
+    /// まだ 1 点しか通っていない線は描かない（線が引けず、丸だけが浮くのを避ける）
+    @Test func playedIsEmptyUntilTheStrokeHasTwoPoints() {
+        let points = (0...10).map { TrailPoint(time: Double($0) / 10, point: CGPoint(x: Double($0) / 10, y: 0.5)) }
+        #expect(JointTrailOverlay.played(points, until: 0.05, tip: nil).isEmpty)
+        #expect(JointTrailOverlay.played(points, until: -1, tip: CGPoint(x: 0, y: 0)).isEmpty)
+    }
 }

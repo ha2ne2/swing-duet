@@ -42,15 +42,19 @@ final class SegmentWriter {
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
     private var current: (id: UUID, url: URL, start: Double, last: Double)?
-    /// エンコーダが追い付かず書けなかったフレームの数（実機で確かめる指標）
-    private(set) var droppedFrames = 0
+    /// エンコーダが追い付かず書けなかったフレームの数（閉じた `Segment` に写して実機で確かめる）
+    private var droppedFrames = 0
+
+    /// 調査用のログ（`Documents/CaptureLogs`）。実機では print が読めないので、失敗はここに残す
+    private let log: CaptureLog?
 
     /// - settings: `AVAssetWriterInput` の映像の設定（`CaptureSession.recommendedVideoSettings`）
     /// - transform: 動画の向き（開始時の端末の向き。`preferredTransform` になる）
-    init(directory: URL, settings: [String: Any], transform: CGAffineTransform) {
+    init(directory: URL, settings: [String: Any], transform: CGAffineTransform, log: CaptureLog?) {
         self.directory = directory
         self.settings = settings
         self.transform = transform
+        self.log = log
     }
 
     /// フレームを書く。区切りの最初のフレームなら新しいファイルを始める
@@ -58,10 +62,16 @@ final class SegmentWriter {
         if writer == nil {
             try start(at: CMSampleBufferGetPresentationTimeStamp(sample), time: time)
         }
-        guard let input, let writer, writer.status == .writing else { return }
+        guard let input, let writer else { return }
+        guard writer.status == .writing else {
+            throw Error.cannotStart(writer.error?.localizedDescription ?? "書き込みが中断されました")
+        }
         if input.isReadyForMoreMediaData, input.append(sample) {
             current?.last = time
         } else {
+            guard writer.status == .writing else {
+                throw Error.cannotStart(writer.error?.localizedDescription ?? "フレームを書き込めません")
+            }
             droppedFrames += 1
         }
     }
@@ -81,7 +91,7 @@ final class SegmentWriter {
             if writer.status == .completed {
                 completion(segment)
             } else {
-                print("区切りファイルを閉じられませんでした: \(writer.error?.localizedDescription ?? "")")
+                self.log?.line("segment close failed: \(writer.error?.localizedDescription ?? "")")
                 try? FileManager.default.removeItem(at: segment.url)
                 completion(nil)
             }

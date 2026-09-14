@@ -1,6 +1,13 @@
 import Foundation
 import CoreGraphics
 
+/// 撮影中に見つかった 1 球：切り出す範囲（`shot`）と、その範囲のライブ追跡から付けた仮の解析。
+/// 撮影を止めた後に 30fps で解析し直すまでの間、この仮のフェーズでクリップを開ける
+struct LiveShot {
+    let shot: Shot
+    let provisional: SwingAnalysisResult
+}
+
 /// 撮影中の追跡結果（15fps の `PoseFrame`）を 1 枚ずつ受け取り、スイング候補・構え・手の静かさを読む（Vision は含まない純粋計算）。
 ///
 /// 直近 `windowLength` 秒の窓に `detectInterval` ごとに `SwingDetector.detect` を掛け、窓の中で形が安定した候補を `LiveShotJudge` に渡す。
@@ -28,8 +35,7 @@ struct LiveDetector {
     static let edgeMargin: CGFloat = 0.04
     /// 人物がこの時間見えなければ「いなくなった」（構えの判定をやり直す）
     static let personLostAfter = 3.0
-    /// 手が動いている（スイングの途中かもしれない）とみなす手の高さ（`SwingDetector` の「高い」と同じ）と、その判定に使う直近の時間
-    static let motionHeight = 0.5
+    /// 「手が動いている（スイングの途中かもしれない）」とみなす直近の時間。高さは `SwingDetector.highHeight` と同じ
     static let motionLookback = 1.0
     /// 静かさの判定に使う直近の時間と、手首の移動の上限（正規化座標）
     static let quietLookback = 0.5
@@ -60,7 +66,7 @@ struct LiveDetector {
     /// 最後に候補として観測したスイングのフィニッシュ（区切りファイルを閉じる時刻の基準）
     private(set) var lastFinish: Double?
     /// 最後に人物が見えた時刻
-    private(set) var lastPersonSeenAt: Double?
+    private var lastPersonSeenAt: Double?
     private var stanceJudged = false
     private var stillSince: Double?
     private var stillAnchor: CGPoint?
@@ -94,11 +100,6 @@ struct LiveDetector {
         return (registered, judge.flush(at: now))
     }
 
-    /// 候補の切り出す範囲（`ShotSplitter` と同じ余白）。判定が出る前に仮に保存するときに使う
-    static func range(of candidate: SwingCandidate) -> ClosedRange<Double> {
-        max(candidate.phases.address - ShotSplitter.leadIn, 0)...(candidate.phases.finish + ShotSplitter.leadOut)
-    }
-
     /// 体に対する手の高さ（腰 0・首 1）のいまの値。ログ用（腰・首・手首のどれかが無ければ nil）
     func currentHandHeight() -> Double? {
         frames.last.flatMap(handHeight)
@@ -112,17 +113,12 @@ struct LiveDetector {
 
     /// 範囲の分のフレームを、先頭を 0 にして 1 本の動画として見た追跡結果（仮の解析用）
     func track(in range: ClosedRange<Double>) -> PoseTrack {
-        let sliced = frames.filter { range.contains($0.time) }.map { frame in
-            var shifted = frame
-            shifted.time -= range.lowerBound
-            return shifted
-        }
-        return PoseTrack(frames: PoseTracker.medianFilteredWrists(sliced))
+        PoseTrack(frames: frames).sliced(to: range).medianFilteredWrists()
     }
 
     /// 直近 `motionLookback` 秒に手が高い（スイングの途中かもしれない）
     func inMotion(at now: Double) -> Bool {
-        frames.contains { $0.time >= now - Self.motionLookback && (handHeight(of: $0) ?? 0) >= Self.motionHeight }
+        frames.contains { $0.time >= now - Self.motionLookback && (handHeight(of: $0) ?? 0) >= SwingDetector.highHeight }
     }
 
     /// 直近 `quietLookback` 秒、手が低く動いていない（手首が見えなければ静か）。区切りファイルを閉じてよいかの判定に使う
@@ -131,7 +127,7 @@ struct LiveDetector {
         var previous: CGPoint?
         for frame in recent {
             guard let wrist = frame.wrist else { previous = nil; continue }
-            if (handHeight(of: frame) ?? 0) >= Self.motionHeight { return false }
+            if (handHeight(of: frame) ?? 0) >= SwingDetector.highHeight { return false }
             if let previous, wrist.distance(to: previous) > Self.quietDisplacement { return false }
             previous = wrist
         }
@@ -143,9 +139,8 @@ struct LiveDetector {
     /// 窓の中で検出し、形が安定した候補を登録する。見つかった候補すべてと、そのうち新しく登録したものを返す
     private mutating func observeCandidates(at now: Double) -> (observed: [SwingCandidate], registered: [SwingCandidate]) {
         let windowStart = now - Self.windowLength
-        let window = frames.filter { $0.time >= windowStart }
-        guard window.count >= 8 else { return ([], []) }
-        let track = PoseTrack(frames: PoseTracker.medianFilteredWrists(window))
+        // コマ数が足りなければ `SwingDetector.detect` が空を返すので、ここでは数えない（同じしきい値を 2 か所に置かない）
+        let track = PoseTrack(frames: frames.filter { $0.time >= windowStart }).medianFilteredWrists()
         var observed: [SwingCandidate] = []
         var registered: [SwingCandidate] = []
         for candidate in SwingDetector.detect(track: track, duration: now) {
@@ -177,15 +172,19 @@ struct LiveDetector {
         }
         guard !stanceJudged, let since = stillSince, now - since >= Self.stanceStillDuration else { return nil }
         stanceJudged = true
-        // 静止の間に見えていた関節すべての外接矩形で判定する（1 フレームの欠測に揺れない）
-        let rects = frames.filter { $0.time >= since }.compactMap(\.bodyBounds) + [bounds]
-        let union = rects.dropFirst().reduce(rects[0]) { $0.union($1) }
+        // 静止の間に見えていた関節すべての外接矩形で判定する（1 フレームの欠測に揺れない）。
+        // このコマは `add` が既に `frames` に足しているので、たたみ込みの初期値に使えば必ず 1 つ以上ある
+        let union = frames.filter { $0.time >= since }.compactMap(\.bodyBounds).reduce(bounds) { $0.union($1) }
         let margin = Self.edgeMargin
         let cutOff = union.minX < margin || union.maxX > 1 - margin || union.minY < margin || union.maxY > 1 - margin
         return cutOff ? .cutOff : .seen
     }
 
-    /// 体に対する手の高さ（腰 0・首 1）。腰・首・手首のどれかが無ければ nil
+    /// 体に対する手の高さ（腰 0・首 1）。腰・首・手首のどれかが無ければ nil。
+    /// NOTE: 後解析（`SwingDetector.handSamples`）は体の大きさに動画全体の中央値を使うが、撮影中は先がまだ無いので
+    ///       そのフレームの首〜腰を使う。しきい値（`SwingDetector.highHeight`）は同じなので、1 フレームだけ姿勢が崩れて
+    ///       首〜腰が縮むと撮影中の判定だけが揺れうる。区切りを閉じる判断（`isQuiet`）に効くが、閉じ損ねても
+    ///       次の静かな時点で閉じるだけなので害は小さい
     private func handHeight(of frame: PoseFrame) -> Double? {
         guard let wrist = frame.wrist, let root = frame.root, let neck = frame.neck else { return nil }
         let torso = abs(Double(neck.y - root.y))
@@ -204,7 +203,7 @@ struct SegmentPlanner {
     static let hardMaxLength = 75.0
 
     /// いまの区切りの先頭（セッション秒）
-    private(set) var segmentStart = 0.0
+    private var segmentStart = 0.0
 
     init() {}
 

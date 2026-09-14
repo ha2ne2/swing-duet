@@ -3,7 +3,7 @@
 - 日付：2026-09-12
 - 種別：案出し → 設計 → 実動画での検証（試作 CLI）。アプリのコード変更なし（試作は設計書の隣に置く）
 - 試作：[260912_1635-club-head-tracking-prototype/main.swift](./260912_1635-club-head-tracking-prototype/main.swift)（macOS の CLI。§4.1 のビルド手順）
-- 対象（実装時）：`Services/ClubTracker.swift`（新規）、`Services/SwingAnalyzer.swift`、`Models/VideoConfig.swift`、`Views/Stage/VideoPaneView.swift`
+- 対象（実装時）：`Services/ClubTracker.swift`（新規）、`Services/Analysis/SwingAnalyzer.swift`、`Models/VideoConfig.swift`、`Views/Stage/VideoPaneView.swift`
 - 前提：正面（face-on）と後方（down-the-line）の両方に対応する。外部依存ゼロ（Vision / Core Image / Accelerate まで）。
   シミュレータでは Vision が動かないので、検証は Mac の CLI と実機で行う
 - 参考：Gehrig, Lepetit, Fua「Visual Golf Club Tracking for Enhanced Swing Analysis」（BMVC 2003、[PDF](https://www.commsp.ee.ic.ac.uk/~ng1/pdf/gehrig-et-al-bmvc03.pdf)）。
@@ -105,7 +105,7 @@ struct ClubPoint: Codable, Equatable {
 
 ```bash
 # アプリの解析コードと一緒にビルドする（analyze-swing と同じ）
-swiftc -O -o build/clubtrack SwingDuet/Services/{SwingAnalyzer,PoseTracker,SwingDetector}.swift SwingDuet/Models/*.swift \
+swiftc -O -o build/clubtrack SwingDuet/Services/{SwingAnalyzer,PoseTracker,SwingDetector}.swift SwingDuet/Models/*.swift SwingDuet/Support/*.swift \
   docs/design/260912_1635-club-head-tracking-prototype/main.swift
 build/clubtrack docs/data/macroy_behind.mp4 build/clubtrack-out/macroy   # heads.csv、フェーズ 8 コマの重ね描き、sheet.png、trajectory*.png
 build/clubtrack docs/data/macroy_behind.mp4 build/clubtrack-out/dbg --debug 5.68   # その時刻のグレー・マスク・リッジ・候補の画像

@@ -105,12 +105,10 @@ struct TrailPoint: Equatable {
 /// 動画に対する事実なので、フェーズを手で直しても変わらない（どの範囲を描くかは描くときのフェーズで決める）
 struct JointTrails: Codable, Equatable {
     /// 軌跡を作るやり方の版。増やすと、古い版で作った軌跡は比較画面が軌跡を出すときに作り直される（`ClipStore.requestTrails`）。
-    /// **軌跡の中身が変わる直し（部位の組・平滑化・人物追跡）を入れたら必ず 1 つ増やす。**
+    /// **保存する点が変わる直し（部位の組・平滑化・人物追跡）を入れたら必ず 1 つ増やす。**
     /// 増やし忘れると、古いやり方で作った軌跡が端末に残ったままになり、見ているものが最新かどうか分からなくなる。
-    /// 描き方（曲線の引き方や色）だけの変更では増やさなくてよい（保存した点は変わらないため）。
-    /// 版 1: 首と腰の中心 → 両肩と両股関節。版 2: 観客の写る映像で人物を取り違えなくなった（追跡の直し）。
-    /// 版 3: 頭・肩・股関節（ほとんど動かない部位）を強く均すようにした
-    static let currentVersion = 3
+    /// 描き方（曲線の引き方や色）だけの変更では増やさなくてよい
+    static let currentVersion = 4
 
     var version = JointTrails.currentVersion
     var samples: [JointTrailSample]
@@ -123,6 +121,8 @@ struct JointTrails: Codable, Equatable {
     static let margin = 1.0
     /// 保存する範囲の上限（秒）。長回しの動画で他の候補まで含めると JSON が肥大するので、収まるときだけ候補全体を含める
     static let maxSpan = 20.0
+    /// いまの位置の丸を打つとき、この時刻（動画秒）以内にコマが無ければ打たない
+    static let pointTolerance = 0.1
 
     /// 保存する範囲：採用スイングの前後 `margin` 秒。フェーズ調整で選び直せる他の候補も含めて `maxSpan` に収まるならそこまで広げる
     static func sampleRange(chosen: PhaseSet, candidates: [PhaseSet]) -> ClosedRange<Double> {
@@ -153,13 +153,13 @@ struct JointTrails: Codable, Equatable {
         return result
     }
 
-    /// 時刻に最も近いコマの部位の位置（`tolerance` 秒以内に無ければ nil）
-    func point(of part: BodyPart, at time: Double, tolerance: Double = 0.1) -> CGPoint? {
+    /// 時刻に最も近いコマの部位の位置（`pointTolerance` 秒以内に無ければ nil）
+    func point(of part: BodyPart, at time: Double) -> CGPoint? {
         var best: (distance: Double, point: CGPoint)?
         for sample in samples {
             guard let point = sample.point(of: part) else { continue }
             let distance = abs(sample.time - time)
-            if distance <= tolerance, distance < (best?.distance ?? .infinity) { best = (distance, point) }
+            if distance <= Self.pointTolerance, distance < (best?.distance ?? .infinity) { best = (distance, point) }
         }
         return best?.point
     }
@@ -169,12 +169,13 @@ struct JointTrails: Codable, Equatable {
     /// 手はスイングの弧そのものなので、形を残す 5 点の Savitzky–Golay（2 次多項式の当てはめ。移動平均と違って
     /// トップの折り返しを丸めない）を掛ける。肩と股関節はほとんど動かず、線に占めるブレの割合が大きいので、
     /// 形を残す必要がなく、より強い移動平均を掛ける（実測は docs/research/260914_0311-joint-trail-smoothing.md §12）
-    func smoothed() -> JointTrails {
+    /// - swingSamples: 採用スイング（アドレス〜フィニッシュ）の中のコマ数。均す窓の広さを決める
+    func smoothed(swingSamples: Int) -> JointTrails {
         var result = samples
         for part in BodyPart.allCases {
             let weights: [Double] = part.movesAlongTheSwing
                 ? [-3, 12, 17, 12, -3]
-                : Array(repeating: 1, count: Self.bodyWindow(samples: samples.count))
+                : Array(repeating: 1, count: Self.bodyWindow(samples: swingSamples))
             let points = Self.convolved(samples.map { $0.point(of: part) }, weights: weights)
             for i in result.indices { result[i].set(points[i], of: part) }
         }
@@ -182,8 +183,9 @@ struct JointTrails: Codable, Equatable {
     }
 
     /// ほとんど動かない部位に掛ける移動平均の窓（コマ数・奇数）。
-    /// スイングのコマ数に比例させて、動画の速さによらず実時間で同じくらい均す
-    /// （1/8 スローは実速の 8 倍のコマ数になる。5 コマ固定では実時間で 8 分の 1 しか均せない）
+    /// **採用スイングの**コマ数に比例させて、動画の速さによらず実時間で同じくらい均す
+    /// （1/8 スローは実速の 8 倍のコマ数になる。5 コマ固定では実時間で 8 分の 1 しか均せない）。
+    /// 保存範囲（他の候補も含めて最大 20 秒）のコマ数で決めると、同じスイングでも前に素振りがあるかどうかで窓が倍以上変わる
     static func bodyWindow(samples: Int) -> Int {
         let width = min(max(samples / 15, 5), 21)
         return width % 2 == 0 ? width + 1 : width
@@ -193,7 +195,7 @@ struct JointTrails: Codable, Equatable {
     private static func convolved(_ points: [CGPoint?], weights: [Double]) -> [CGPoint?] {
         let half = weights.count / 2, total = weights.reduce(0, +)
         var result = points
-        guard points.count > weights.count, total > 0 else { return result }
+        guard points.count >= weights.count, total > 0 else { return result }
         for i in half..<(points.count - half) {
             let window = points[(i - half)...(i + half)].compactMap { $0 }
             guard window.count == weights.count else { continue }

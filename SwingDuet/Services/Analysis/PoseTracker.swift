@@ -7,7 +7,7 @@ import CoreGraphics
 struct PoseFrame {
     var time: Double
     /// 手首（両手首の中点相当）。検出できなければ nil
-    var wrist: CGPoint?
+    var wrist: CGPoint? = nil
     /// 頭（鼻。後方視点で顔が見えないときは目・耳で代用）。軌跡の表示に使う
     var head: CGPoint? = nil
     /// 肩と股関節（左右。被写体から見た左右）。軌跡の表示に使う
@@ -16,16 +16,39 @@ struct PoseFrame {
     var leftHip: CGPoint? = nil
     var rightHip: CGPoint? = nil
     /// 腰（root）。手の高さの基準（0）
-    var root: CGPoint?
+    var root: CGPoint? = nil
     /// 首（neck）。腰からの距離が体の大きさの単位
-    var neck: CGPoint?
+    var neck: CGPoint? = nil
     /// 見えていた関節すべてを囲む矩形。人物を検出できなければ nil
-    var bodyBounds: CGRect?
+    var bodyBounds: CGRect? = nil
 }
 
 /// 人物の追跡結果
 struct PoseTrack {
     var frames: [PoseFrame]
+
+    /// 範囲の分だけを、先頭を 0 にずらして 1 本の動画として見た追跡結果。
+    /// 長い動画から 1 球を切り出すとき（`SwingAnalysisResult.sliced`）と、撮影中に候補の範囲を仮の解析に掛けるとき（`LiveDetector.track`）に使う
+    func sliced(to range: ClosedRange<Double>) -> PoseTrack {
+        PoseTrack(frames: frames.filter { range.contains($0.time) }.map { frame in
+            var shifted = frame
+            shifted.time -= range.lowerBound
+            return shifted
+        })
+    }
+
+    /// 手首の単発の外れ値（誤検出の瞬間的な飛びなど）を 3 点メディアンで抑えたもの。
+    /// 動画の追跡（`PoseTracker.track`）と撮影中の窓（`LiveDetector`）の両方で、検出に掛ける前に通す
+    func medianFilteredWrists() -> PoseTrack {
+        guard frames.count >= 3 else { return self }
+        var filtered = frames
+        let wrists = frames.map(\.wrist)
+        for i in 1..<(wrists.count - 1) {
+            guard let a = wrists[i - 1], let b = wrists[i], let c = wrists[i + 1] else { continue }
+            filtered[i].wrist = CGPoint(x: [a.x, b.x, c.x].sorted()[1], y: [a.y, b.y, c.y].sorted()[1])
+        }
+        return PoseTrack(frames: filtered)
+    }
 
     /// 手首を検出できたフレームの割合
     var coverage: Double {
@@ -69,7 +92,7 @@ enum PoseTracker {
             let person = tracker.person(in: pixelBuffer, orientation: orientation)
             frames.append(tracker.frame(at: time, person: person))
         }
-        return PoseTrack(frames: medianFilteredWrists(frames))
+        return PoseTrack(frames: frames).medianFilteredWrists()
     }
 
     /// 動画の回転メタデータ（preferredTransform）を Vision に渡す向きに直す。
@@ -296,29 +319,19 @@ enum PoseTracker {
         }
         return point.location
     }
-
-    /// 手首の単発の外れ値（誤検出の瞬間的な飛びなど）を抑える 3 点メディアン。撮影中の窓（`LiveDetector`）にも掛ける
-    static func medianFilteredWrists(_ frames: [PoseFrame]) -> [PoseFrame] {
-        guard frames.count >= 3 else { return frames }
-        var filtered = frames
-        let wrists = frames.map(\.wrist)
-        for i in 1..<(wrists.count - 1) {
-            guard let a = wrists[i - 1], let b = wrists[i], let c = wrists[i + 1] else { continue }
-            filtered[i].wrist = CGPoint(x: [a.x, b.x, c.x].sorted()[1], y: [a.y, b.y, c.y].sorted()[1])
-        }
-        return filtered
-    }
 }
 
 extension PoseTrack {
     /// 範囲内のコマから部位（手・頭・左右の肩・左右の股関節）の軌跡を作る（平滑化まで）。
     /// 解析時（`SwingAnalysisResult.jointTrails`）と、後から軌跡だけを作るとき（`ClipStore.requestTrails`）で共通
-    func jointTrails(in range: ClosedRange<Double>) -> JointTrails {
+    /// - range: 保存する範囲（採用スイングの周り）
+    /// - swing: 採用スイング（アドレス〜フィニッシュ）。均す窓の広さを決める
+    func jointTrails(in range: ClosedRange<Double>, swing: ClosedRange<Double>) -> JointTrails {
         let samples = frames.filter { range.contains($0.time) }.map {
             JointTrailSample(time: $0.time, hands: $0.wrist, head: $0.head,
                              leftShoulder: $0.leftShoulder, rightShoulder: $0.rightShoulder,
                              leftHip: $0.leftHip, rightHip: $0.rightHip)
         }
-        return JointTrails(samples: samples).smoothed()
+        return JointTrails(samples: samples).smoothed(swingSamples: samples.filter { swing.contains($0.time) }.count)
     }
 }

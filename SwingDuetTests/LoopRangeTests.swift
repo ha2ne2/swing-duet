@@ -106,4 +106,19 @@ struct LoopRangeTests {
         #expect(LoopEdge(phase: .top, frames: -3).label == "トップ −3 コマ")
         #expect(LoopEdge(phase: .impact, frames: 6).label == "インパクト +6 コマ")
     }
+    @Test func aRangeRestoredBeyondTheEndStillFitsTheTimeline() {
+        let range = LoopRange(start: LoopEdge(phase: .finish, frames: 100), end: LoopEdge(phase: .top, frames: -100))
+        let actual = sync.commonRange(of: range)
+        #expect(actual.lowerBound >= 0)
+        #expect(actual.upperBound <= sync.commonDuration)
+        #expect(near(actual.upperBound - actual.lowerBound, frame))
+    }
+
+    @Test func aTimelineShorterThanOneFrameDoesNotGrow() {
+        var short = mine
+        short.phases = PhaseSet(address: 0, top: 0.002, impact: 0.004, finish: 0.006)
+        let engine = SyncEngine(mine: short, model: short, basis: .mine)
+        #expect(engine.commonRange(of: .all) == 0...engine.commonDuration)
+    }
+
 }

@@ -83,9 +83,6 @@ struct PhaseSet: Codable, Equatable {
         max(time(of: segment.end) - time(of: segment.start), 0)
     }
 
-    /// アドレス〜フィニッシュの長さ
-    var swingDuration: Double { max(finish - address, 0) }
-
     /// テンポ比（バックスイング : ダウンスイング = N : 1）
     var tempoRatio: Double {
         let downswing = duration(of: .downswing)
@@ -100,38 +97,40 @@ struct PhaseSet: Codable, Equatable {
     /// マーカードラッグ用：順序（address < top < impact < finish）を保ったまま 1 つのフェーズを動かす。
     /// 隣のフェーズとの間は最低 0.02 秒（約 1 コマ）空ける
     mutating func assign(_ phase: SwingPhase, to t: Double, duration: Double) {
-        let minGap = 0.02
-        let clamped = min(max(t, 0), duration)
+        guard duration.isFinite, duration > 0, t.isFinite else { return }
+        let minGap = min(0.02, duration / 3)
+        let lower: Double
+        let upper: Double
         switch phase {
-        case .address:
-            address = max(min(clamped, top - minGap), 0)
-        case .top:
-            top = min(max(clamped, address + minGap), impact - minGap)
-        case .impact:
-            impact = min(max(clamped, top + minGap), finish - minGap)
-        case .finish:
-            finish = min(max(clamped, impact + minGap), duration)
+        case .address: (lower, upper) = (0, top - minGap)
+        case .top: (lower, upper) = (address + minGap, impact - minGap)
+        case .impact: (lower, upper) = (top + minGap, finish - minGap)
+        case .finish: (lower, upper) = (impact + minGap, duration)
+        }
+        // 極端に短い区間では最小間隔を取れない。隣を追い越す値を作らず、現在のフェーズを保つ
+        guard lower <= upper else { return }
+        let value = min(max(t, lower), upper)
+        switch phase {
+        case .address: address = value
+        case .top: top = value
+        case .impact: impact = value
+        case .finish: finish = value
         }
     }
 
-    /// 検出結果の整合性を強制する（順序・範囲）。隣のフェーズとの間は最低 0.05 秒空ける
+    /// 検出結果の整合性を強制する（順序・範囲）。隣のフェーズとの間は 0.05 秒空け、短い動画では長さの 1/3 まで縮める
     mutating func sanitize(duration: Double) {
-        let minGap = 0.05
-        address = min(max(address, 0), duration)
-        top = max(top, address + minGap)
-        impact = max(impact, top + minGap)
-        finish = max(finish, impact + minGap)
-        if finish > duration {
-            finish = duration
-            impact = min(impact, finish - minGap)
-            top = min(top, impact - minGap)
-            address = max(min(address, top - minGap), 0)
-        }
+        let end = duration.isFinite ? max(duration, 0) : 0
+        let minGap = min(0.05, end / 3)
+        address = min(max(address, 0), max(0, end - 3 * minGap))
+        top = min(max(top, address + minGap), max(0, end - 2 * minGap))
+        impact = min(max(impact, top + minGap), max(0, end - minGap))
+        finish = min(max(finish, impact + minGap), end)
     }
 
-    /// 検出失敗時のフォールバック（動画長に対する割合で置く）。極端に短い動画でもフェーズが重ならないように長さの下限を設ける
+    /// 検出失敗時のフォールバック（動画長に対する割合で置く）。短い動画も実際の長さに収める（長さ 0 の仮設定では全フェーズが 0）
     static func fallback(duration: Double) -> PhaseSet {
-        let d = max(duration, 0.4)
+        let d = duration.isFinite ? max(duration, 0) : 0
         return PhaseSet(address: 0.15 * d, top: 0.45 * d, impact: 0.55 * d, finish: 0.85 * d)
     }
 }

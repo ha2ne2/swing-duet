@@ -2,8 +2,8 @@
 
 - 日付：2026-09-12
 - 種別：設計（実装はまだ。案の比較と推し、段階、決めてほしいこと）
-- 対象：新規 `Services/Capture*`（撮影・書き込み・ライブ検出・切り出し）、`Views/Capture/`（撮影画面）、`Services/ClipStore.swift`（取り込みの入口）、
-  `Services/PoseTracker.swift`（フレーム 1 枚の追跡を切り出す）、`Views/Home/SwingListView.swift`（＋ の入口）。
+- 対象：新規 `Services/Capture*`（撮影・書き込み・ライブ検出・切り出し）、`Views/Capture/`（撮影画面）、`Services/Library/ClipStore.swift`（取り込みの入口）、
+  `Services/Analysis/PoseTracker.swift`（フレーム 1 枚の追跡を切り出す）、`Views/Home/SwingListView.swift`（＋ の入口）。
   保存の方式を変えるなら（§9）`Models/Clip.swift` と動画を読むすべての箇所
 - 前提：現行の取り込み（[design/260911_0530](./260911_0530-diary-screen-flow.md)）と検出（[ARCHITECTURE.md](../ARCHITECTURE.md) §5）。
   検出の複数スイング対応は [research/260906_1641](../research/260906_1641-multi-swing-detection.md)。iPhone 15（iOS 26）で使う

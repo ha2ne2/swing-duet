@@ -15,9 +15,7 @@ private struct ImportedMovie: Transferable {
         FileRepresentation(contentType: .movie) { movie in
             SentTransferredFile(movie.url)
         } importing: { received in
-            let ext = received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension
-            let dest = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString + "." + ext)
+            let dest = URL.temporary(extension: received.file.movieExtension)
             try FileManager.default.copyItem(at: received.file, to: dest)
             return ImportedMovie(url: dest)
         }
@@ -92,12 +90,11 @@ enum VideoImporter {
         return try await exportPassthrough(asset, fileType: .mov, timeRange: CMTimeRange(start: start, end: end))
     }
 
-    /// 同じ設定で書いた動画ファイルを順につないで 1 本の一時ファイルにする（サンプルをコピーするだけで再エンコードは無い）。
+    /// 同じ設定で書いた動画ファイルを順につないで指定先に書く（サンプルをコピーするだけで再エンコードは無い）。
     /// 撮影の区切りファイルから、録画を始めてから止めるまでの動画を作る。
     /// NOTE: `AVMutableComposition` に 2 本目を `insertTimeRange` すると -11800（-12780）で失敗する（Mac でも実機でも）ので、
     ///       ムービーの編集 API `AVMutableMovie` でサンプルごとコピーする
-    static func concatenate(_ urls: [URL]) throws -> URL {
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mov")
+    static func concatenate(_ urls: [URL], output: URL) throws -> URL {
         let movie = AVMutableMovie()
         movie.defaultMediaDataStorage = AVMediaDataStorage(url: output, options: nil)
         for url in urls {
@@ -115,8 +112,7 @@ enum VideoImporter {
               session.supportedFileTypes.contains(fileType) else {
             throw VideoError.unreadable
         }
-        let ext = fileType == .mp4 ? "mp4" : "mov"
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "." + ext)
+        let output = URL.temporary(extension: fileType == .mp4 ? "mp4" : "mov")
         session.outputURL = output
         session.outputFileType = fileType
         if let timeRange { session.timeRange = timeRange }

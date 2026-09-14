@@ -14,6 +14,31 @@ struct ShotSplitterTests {
 
     private func near(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 1e-9 }
 
+    // MARK: - 切り出す範囲
+
+    @Test func rangePutsTheLeadInAndOutAroundTheSwing() throws {
+        let range = try #require(ShotSplitter.range(of: candidate(at: 6.5)))
+        #expect(near(range.lowerBound, 6.5 - ShotSplitter.leadIn))
+        #expect(near(range.upperBound, 8.0 + ShotSplitter.leadOut))
+    }
+
+    /// 前のショットと重ねず、動画の頭と末尾からも出ない
+    @Test func rangeIsHeldInsideTheVideoAndAfterThePreviousShot() throws {
+        #expect(try #require(ShotSplitter.range(of: candidate(at: 0.5))).lowerBound == 0)   // 頭の余白が足りない
+        let after = try #require(ShotSplitter.range(of: candidate(at: 6.5), after: 6.0))
+        #expect(after.lowerBound == 6.0)                                                    // 前のショットの終わりから
+        let clipped = try #require(ShotSplitter.range(of: candidate(at: 6.5), duration: 8.5))
+        #expect(clipped.upperBound == 8.5)                                                  // 動画の末尾で切る
+    }
+
+    /// 余白を詰めた結果 1 コマも残らない候補は切り出さない（撮影中は素振り扱い、後解析ではショットにしない）
+    @Test func rangeIsNilWhenTheTrimmingLeavesNothing() {
+        #expect(ShotSplitter.range(of: candidate(at: 6.5), after: 20) == nil)
+        #expect(ShotSplitter.range(of: candidate(at: 6.5), duration: 1) == nil)
+    }
+
+    // MARK: - 1 球ずつに分ける
+
     /// 素振り（小さい）の 3 秒後に本番（大きい）：1 つのショットになり、範囲は本番の前後だけ
     @Test func practiceSwingBeforeTheRealOneIsNotCutOut() {
         let practice = candidate(at: 2, rise: 0.8, peak: 2, score: 0.5)

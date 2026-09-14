@@ -27,12 +27,14 @@ struct VideoThumbnail: View {
             }
         }
         .task(id: Key(asset: asset, time: time)) {
+            image = nil
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
             generator.maximumSize = CGSize(width: maxSize, height: maxSize)
             let cmTime = CMTime(seconds: time, preferredTimescale: 600)
             // NOTE: サムネイルは無くても機能に影響しないので、失敗は黒表示にとどめる
             guard let cgImage = try? await generator.image(at: cmTime).image else { return }
+            guard !Task.isCancelled else { return }
             image = UIImage(cgImage: Self.crop(cgImage, to: aspect))
         }
     }
@@ -78,9 +80,13 @@ struct ClipThumbnail: View {
                 VideoThumbnail(asset: asset, time: clip.thumbnailTime(of: phase), aspect: aspect, maxSize: maxSize)
             }
         }
-        .task(id: clip.id) {
-            // NOTE: サムネイルは無くても機能に影響しないので、解けない（写真アプリで消された等）ときは黒のまま。理由はステージで出す
-            asset = try? await store.videoAsset(of: clip)
+        .task(id: clip.videoIdentity) {
+            // NOTE: サムネイルは無くても機能に影響しないので、解けない（写真アプリで消された等）ときは黒のまま。理由はステージで出す。
+            //       iCloud にしか無い動画も落とさない（一覧をスクロールしただけで本体のダウンロードが始まってしまう）
+            asset = nil
+            let loaded = try? await store.videoAsset(of: clip, networkAccess: false)
+            guard !Task.isCancelled else { return }
+            asset = loaded
         }
     }
 }

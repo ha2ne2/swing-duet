@@ -6,9 +6,11 @@ import PhotosUI
 /// 権限の状態で見え方が変わる：許可ならグリッド、限定アクセスなら許可した動画だけ ＋「さらに選ぶ」、
 /// 拒否なら設定への案内と OS のピッカー（`PhotosPicker`。権限不要だがスローモーション動画は 30fps 版）
 struct LibraryGridView: View {
+    /// 写真ライブラリ（持ち主は `VideoPickerSheet`。タブを行き来しても取り直さない）
+    @ObservedObject var library: PhotoLibrary
     let onSelect: (LibrarySource) -> Void
 
-    @StateObject private var library = PhotoLibrary()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var fallbackItem: PhotosPickerItem?
     @State private var loadingFallback = false
     @State private var errorMessage: String?
@@ -33,6 +35,10 @@ struct LibraryGridView: View {
             }
         }
         .task { await library.load() }
+        .onChange(of: scenePhase) { _, phase in
+            // 設定で許可して戻ってきたときに拒否の画面のままにしない（権限の変化で写真ライブラリの通知が来るとは限らない）
+            if phase == .active { library.refresh() }
+        }
         .onChange(of: fallbackItem) { _, item in
             loadFallback(item)
         }
@@ -133,16 +139,8 @@ struct LibraryGridView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            } label: {
-                Text("設定を開く")
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 44)
-            }
-            .buttonStyle(.borderedProminent)
+            OpenSettingsButton(fillsWidth: true)
+                .buttonStyle(.borderedProminent)
             PhotosPicker(selection: $fallbackItem, matching: .videos) {
                 HStack(spacing: 8) {
                     if loadingFallback {
@@ -157,14 +155,10 @@ struct LibraryGridView: View {
             }
             .buttonStyle(.bordered)
             .disabled(loadingFallback)
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-            }
             Spacer()
         }
         .padding(.horizontal, 24)
+        .errorAlert($errorMessage)
     }
 
     /// OS のピッカーで選んだ動画を一時ファイルとして受け取り、ライブラリの動画と同じ流れ（プレビュー）へ
@@ -173,7 +167,11 @@ struct LibraryGridView: View {
         loadingFallback = true
         errorMessage = nil
         Task { @MainActor in
-            defer { loadingFallback = false }
+            // 選んだ項目は戻す。同じ動画をもう一度選んだとき、値が同じだと onChange が来ない（プレビューから戻った後に無反応になる）
+            defer {
+                loadingFallback = false
+                fallbackItem = nil
+            }
             do {
                 onSelect(.file(try await item.loadMovieURL()))
             } catch {

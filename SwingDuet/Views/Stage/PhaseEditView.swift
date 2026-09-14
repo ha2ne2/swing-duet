@@ -7,7 +7,8 @@ import AVFoundation
 /// 動画に複数のスイングが検出されていれば、どのスイングを使うかも切り替えられる。動画の速さ（焼き込みスローの倍率）もここで直す。
 /// プレビューは常に「選択中のフェーズの時刻」を映す（その値が変わるたびにシークする）ので、操作側はフェーズと時刻を変えるだけでよい
 struct PhaseEditView: View {
-    @Binding var config: VideoConfig
+    let config: VideoConfig
+    let onSave: (PhaseSet, Double?) -> Void
     let asset: AVAsset
     let side: VideoSide
 
@@ -17,22 +18,25 @@ struct PhaseEditView: View {
     /// ユーザーが選んだ動画の速さ。nil なら推定に従う（セグメントは推定値を示し、フェーズを直すと追従する）
     @State private var manualSlowFactor: Double?
     @State private var selectedPhase: SwingPhase = .impact
-    @State private var player = AVPlayer()
+    @State private var player: AVPlayer?
 
-    init(config: Binding<VideoConfig>, asset: AVAsset, side: VideoSide) {
-        self._config = config
+    init(config: VideoConfig, asset: AVAsset, side: VideoSide, onSave: @escaping (PhaseSet, Double?) -> Void) {
+        self.config = config
+        self.onSave = onSave
         self.asset = asset
         self.side = side
-        self._phases = State(initialValue: config.wrappedValue.phases)
-        self._manualSlowFactor = State(initialValue: config.wrappedValue.slowFactor)
+        self._phases = State(initialValue: config.phases)
+        self._manualSlowFactor = State(initialValue: config.slowFactor)
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 12) {
-                PlayerLayerView(player: player)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black)
+                ZStack {
+                    Color.black
+                    if let player { PlayerLayerView(player: player) }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 VStack(spacing: 6) {
                     timeline
@@ -83,9 +87,8 @@ struct PhaseEditView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        config.phases = phases
-                        // 推定と同じ値を選んだなら「推定に従う」に戻す（フェーズを直したときに追従する）
-                        config.slowFactor = manualSlowFactor == estimatedSlowFactor ? nil : manualSlowFactor
+                        // 推定と同じ値を選んだら、フェーズの変更に追従する自動推定へ戻す
+                        onSave(phases, manualSlowFactor == estimatedSlowFactor ? nil : manualSlowFactor)
                         dismiss()
                     }
                     .bold()
@@ -93,17 +96,17 @@ struct PhaseEditView: View {
             }
             .task {
                 // NOTE: 映像だけの合成が作れなければプレビューは黒のまま（動画は比較画面で既に読めている）。フェーズの操作はできる
-                if let item = try? await VideoImporter.playerItem(for: asset) {
-                    player.replaceCurrentItem(with: item)
-                }
+                let player = AVPlayer(playerItem: try? await VideoImporter.playerItem(for: asset))
+                guard !Task.isCancelled else { return }
                 player.isMuted = true
+                self.player = player
                 seek(to: phases.time(of: selectedPhase))
             }
             .onChange(of: phases.time(of: selectedPhase)) { _, time in
                 seek(to: time)
             }
             .onDisappear {
-                player.pause()
+                player?.pause()
             }
         }
     }
@@ -112,7 +115,7 @@ struct PhaseEditView: View {
 
     private var timeline: some View {
         GeometryReader { geo in
-            let width = geo.size.width
+            let scale = TimeScale(duration: config.duration, width: geo.size.width)
             ZStack(alignment: .leading) {
                 // 背景：スイング区間の色分け（動画全体に対する位置）
                 RoundedRectangle(cornerRadius: 5)
@@ -121,12 +124,12 @@ struct PhaseEditView: View {
                     .frame(maxHeight: .infinity, alignment: .center)
 
                 ForEach(SwingSegment.allCases) { segment in
-                    segmentBar(segment, width: width)
+                    segmentBar(segment, scale: scale)
                 }
 
                 // マーカー
                 ForEach(SwingPhase.allCases) { phase in
-                    marker(for: phase, width: width)
+                    marker(for: phase, scale: scale)
                 }
             }
             .coordinateSpace(name: "timeline")
@@ -134,14 +137,14 @@ struct PhaseEditView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        phases.assign(selectedPhase, to: time(atX: value.location.x, width: width), duration: config.duration)
+                        phases.assign(selectedPhase, to: scale.time(atX: value.location.x), duration: config.duration)
                     })
         }
     }
 
-    private func segmentBar(_ segment: SwingSegment, width: CGFloat) -> some View {
-        let x0 = x(for: phases.time(of: segment.start), width: width)
-        let x1 = x(for: phases.time(of: segment.end), width: width)
+    private func segmentBar(_ segment: SwingSegment, scale: TimeScale) -> some View {
+        let x0 = scale.x(of: phases.time(of: segment.start))
+        let x1 = scale.x(of: phases.time(of: segment.end))
         return Rectangle()
             .fill(segment.color.opacity(0.8))
             .frame(width: max(x1 - x0, 0), height: 10)
@@ -149,7 +152,7 @@ struct PhaseEditView: View {
             .offset(x: x0)
     }
 
-    private func marker(for phase: SwingPhase, width: CGFloat) -> some View {
+    private func marker(for phase: SwingPhase, scale: TimeScale) -> some View {
         let isSelected = phase == selectedPhase
         return VStack(spacing: 1) {
             Text(phase.shortLabel)
@@ -162,7 +165,7 @@ struct PhaseEditView: View {
                 .fill(isSelected ? Color.accentColor : Color(.systemGray2))
                 .frame(width: 2, height: 26)
         }
-        .offset(x: x(for: phases.time(of: phase), width: width) - 9)
+        .offset(x: scale.x(of: phases.time(of: phase)) - 9)
         .onTapGesture {
             selectedPhase = phase
         }
@@ -170,17 +173,8 @@ struct PhaseEditView: View {
             DragGesture(minimumDistance: 1, coordinateSpace: .named("timeline"))
                 .onChanged { value in
                     selectedPhase = phase
-                    phases.assign(phase, to: time(atX: value.location.x, width: width), duration: config.duration)
+                    phases.assign(phase, to: scale.time(atX: value.location.x), duration: config.duration)
                 })
-    }
-
-    private func x(for time: Double, width: CGFloat) -> CGFloat {
-        guard config.duration > 0 else { return 0 }
-        return width * CGFloat(min(max(time / config.duration, 0), 1))
-    }
-
-    private func time(atX x: CGFloat, width: CGFloat) -> Double {
-        Double(min(max(x / max(width, 1), 0), 1)) * config.duration
     }
 
     // MARK: - スイング候補
@@ -198,12 +192,8 @@ struct PhaseEditView: View {
                     phases = candidate
                 } label: {
                     Text(String(format: "%d (%.1f秒)", index + 1, candidate.impact))
-                        .font(.caption.monospacedDigit())
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .background(
-                            isCurrent ? AnyShapeStyle(Color.accentColor.opacity(0.4)) : AnyShapeStyle(.quaternary),
-                            in: Capsule())
+                        .capsuleChip(font: .caption.monospacedDigit(), selected: isCurrent,
+                                     selectedStyle: AnyShapeStyle(Color.accentColor.opacity(0.4)))
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("candidate.\(index)")
@@ -247,15 +237,13 @@ struct PhaseEditView: View {
             phases.assign(selectedPhase, to: t, duration: config.duration)
         } label: {
             Text(String(format: "%+dコマ", frames))
-                .font(.caption)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(.quaternary, in: Capsule())
+                .capsuleChip()
         }
         .buttonStyle(.plain)
     }
 
     private func seek(to time: Double) {
+        guard let player else { return }
         player.pause()
         player.seek(
             to: CMTime(seconds: time, preferredTimescale: 6000),

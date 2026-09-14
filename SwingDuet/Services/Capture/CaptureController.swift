@@ -3,16 +3,14 @@ import AVFoundation
 import Combine
 import UIKit
 
-/// 撮影画面の中身：カメラ（`CaptureSession`）・書き込み（`SegmentWriter`）・ライブ検出（`LiveDetector`）・ショットの切り出しと保存・合図の音をつなぐ。
-///
-/// フレームは撮影のキュー（`FrameWorker`）で区切りファイルに書き、15fps に間引いたものを追跡のキュー（`VisionWorker`）で Vision に掛ける。
-/// スイングの候補が見つかった時点（フィニッシュの 1 秒後）で合図を鳴らし、区切りファイルが閉じたらすぐパススルーで切り出して
-/// アプリ内のファイルのクリップにする（仮のフェーズ付き）。本番か素振りかの判定は後から来て、本番なら写真ライブラリに移し、素振りなら消す。
-/// 打席に届く合図は音（見えた / 切れている / 取れた / 止まった）。設計は docs/design/260912_2251-capture-screen.md
+/// カメラの準備・録画・停止を管理し、フレーム書き込み、姿勢追跡、ショット保存をつなぐ。
+/// UI はメインアクター、書き込みは capture.queue、姿勢追跡は visionQueue が所有する。
+/// 停止はすべての書き込みと切り出しを待ってから後片付けする。
 @MainActor
 final class CaptureController: ObservableObject {
 
-    enum Phase: Equatable {
+    /// 撮影画面の進み方。NOTE: スイングの 4 フェーズ（`SwingPhase`）とは別物なので `Phase` と呼ばない
+    enum RecordingState: Equatable {
         case preparing
         case ready
         case recording
@@ -20,7 +18,7 @@ final class CaptureController: ObservableObject {
         case finished
     }
 
-    /// 画面の縁の色（近づいたときに一目で分かる）
+    /// 画面の縁の色（近づいたときに一目で分かる）。3 つの事実（構え・熱・＋1 の点滅）から決まる
     enum Edge: Equatable {
         case idle
         case seen
@@ -29,27 +27,13 @@ final class CaptureController: ObservableObject {
         case warning
     }
 
-    /// 帯に出すショット（切り出し中は `clipID` が nil）
-    struct ShotItem: Identifiable, Equatable {
-        let id: UUID
-        var clipID: UUID?
-    }
-
-    /// ライブ検出が見つけたスイングの候補（切り出す範囲付き）と、その範囲のライブ追跡から付けた仮の解析
-    struct LiveShot {
-        let shot: Shot
-        let provisional: SwingAnalysisResult
-    }
-
-    /// 帯の 1 つのショットの仕事：区切りファイルが閉じたら切り出してアプリ内のクリップにし（`export` → `clipID`）、
-    /// 判定（`verdict`）が来たら本番なら写真ライブラリに移し、素振りなら消す（`settle`）。両方済んだら列から外れる
-    private struct Cut {
-        let item: ShotItem
-        let live: LiveShot
-        var export: Task<Void, Never>?
-        var clipID: UUID?
-        var verdict: LiveShotJudge.Verdict?
-        var settle: Task<Void, Never>?
+    /// 打席の人物の写り方
+    enum Stance: Equatable {
+        /// まだ構えていない（人物が見えていない・構えの判定が出ていない）
+        case unseen
+        case seen
+        /// 頭か足が枠の外
+        case cutOff
     }
 
     /// 止めた結果（ホームの帯に出す）
@@ -63,11 +47,15 @@ final class CaptureController: ObservableObject {
         var reason: String?
     }
 
-    @Published private(set) var phase: Phase = .preparing
-    @Published private(set) var edge: Edge = .idle
-    @Published private(set) var statusText = ""
+    @Published private(set) var state: RecordingState = .preparing
+    @Published private(set) var stance: Stance = .unseen
+    /// 熱で追跡かフレームレートを落としている
+    @Published private(set) var isOverheated = false
+    /// 1 球取れた合図（1.2 秒だけ）
+    @Published private(set) var showsPlusOne = false
     @Published private(set) var banner: String?
-    @Published private(set) var shots: [ShotItem] = []
+    /// 帯に出すショット（`pipeline` が持つ列の写し。画面へ配るためだけに `@Published` にする）
+    @Published private(set) var shots: [ShotPipeline.Item] = []
     @Published private(set) var elapsed: TimeInterval = 0
     @Published private(set) var frameRate = 0
     @Published private(set) var setupError: String?
@@ -77,19 +65,43 @@ final class CaptureController: ObservableObject {
     let store: ClipStore
     let capture = CaptureSession()
 
-    /// 大きな球数の代わりに「＋1」を出す間（縁が白く光っている間と同じ）
-    var showsPlusOne: Bool { edge == .hit }
+    /// 画面の縁の色。＋1 の点滅 → 熱 → 構え の順に強い
+    var edge: Edge {
+        if showsPlusOne { return .hit }
+        if isOverheated { return .warning }
+        switch stance {
+        case .unseen: return .idle
+        case .seen: return .seen
+        case .cutOff: return .cutOff
+        }
+    }
+
+    /// 画面に出す一言。状態から決まるので、場面ごとに書き換えない
+    var statusText: String {
+        switch state {
+        case .preparing: return ""
+        case .ready: return "録画を押して打席へ。構えると音で知らせます"
+        case .recording:
+            switch stance {
+            case .unseen: return "打席で構えてください"
+            case .seen: return "見えています"
+            case .cutOff: return "頭か足が切れています。三脚を直してください"
+            }
+        case .stopping, .finished: return "保存しています…"
+        }
+    }
 
     private let sounds = CaptureSounds()
-    private let frameWorker = FrameWorker()
+    private let frameWriter = CaptureFrameWriter()
     private let visionQueue = DispatchQueue(label: "com.ha2ne2.SwingDuet.capture.vision", qos: .userInitiated)
-    private var visionWorker: VisionWorker?
+    private var poseProcessor: CapturePoseProcessor?
     private let directory: URL
 
     private var startedAt: Date?
-    private var closedSegments: [SegmentWriter.Segment] = []
-    /// 切り出しと判定の反映が済んでいないショット
-    private var cuts: [Cut] = []
+    /// 閉じた区切りファイル
+    private var segments = SegmentStore()
+    /// 1 球ずつの切り出しと判定の反映（録画 1 回ぶん）
+    private var pipeline: ShotPipeline?
     private var lastPersonSeenAt = Date()
     private var ticker: Task<Void, Never>?
     private var reducedFrameRate = false
@@ -100,6 +112,12 @@ final class CaptureController: ObservableObject {
     private var log: CaptureLog?
     /// 録画を始めた日時の印（ログと全体の動画のファイル名）
     private var stamp = ""
+    /// 背景で止めている最中に持ち時間が切れた（全体の動画をつながずに切り上げる）
+    private var isBackgroundTimeUp = false
+    private var isTornDown = false
+    private var configurationID = UUID()
+    /// 保存できなかった全体の動画は、再起動や次の撮影でも作業領域ごと残す
+    private var preservesWorkingFiles = false
 
     /// 始めるのに要る空き容量（区切り 1 本 ＋ 切り出しの余裕）と、撮影中に止める空き容量
     static let requiredFreeSpace: Int64 = 2_000_000_000
@@ -108,32 +126,36 @@ final class CaptureController: ObservableObject {
     static let autoStopAfter: TimeInterval = 5 * 60
     /// 1 球も切り出せなかったとき、これ以上撮れていれば長い動画として残す
     static let minimumTakeDuration = 10.0
-    /// 決まったショットが来る余地（フィニッシュから待つ 6 秒 ＋ 余白）。閉じた区切りはこれを過ぎてから消す
-    static let segmentRetention = 10.0
     /// 全体の動画を残す置き場（Documents/CaptureTakes。Mac から取り出せる）
     static var takesDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("CaptureTakes", isDirectory: true)
+        URL.documents.appendingPathComponent("CaptureTakes", isDirectory: true)
     }
 
     init(store: ClipStore) {
         self.store = store
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("Capture", isDirectory: true)
-        let frameWorker = frameWorker
-        capture.frameHandler = { sample in frameWorker.handle(sample) }
+        directory = Self.takesDirectory.appendingPathComponent("Pending-\(UUID().uuidString)", isDirectory: true)
+        let frameWriter = frameWriter
+        capture.frameHandler = { sample in frameWriter.handle(sample) }
     }
 
     // MARK: - 準備
 
     /// カメラの権限を取り、セッションを組んでプレビューを始める
     func prepare() async {
-        phase = .preparing
-        try? FileManager.default.removeItem(at: directory)   // 前回の残り（途中で落ちたとき）
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        guard !isTornDown else { return }
+        state = .preparing
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        } catch {
+            setupError = "動画の保存先を作れません。空き容量を確認してください。"
+            return
+        }
         var status = AVCaptureDevice.authorizationStatus(for: .video)
         if status == .notDetermined {
             _ = await AVCaptureDevice.requestAccess(for: .video)
             status = AVCaptureDevice.authorizationStatus(for: .video)
         }
+        guard !isTornDown, !Task.isCancelled else { return }
         guard status == .authorized else {
             isPermissionDenied = true
             setupError = "カメラの使用が許可されていません。設定 → SwingDuet → カメラ で許可してください。"
@@ -141,7 +163,7 @@ final class CaptureController: ObservableObject {
         }
         capture.pressureHandler = { [weak self] level in self?.systemPressureChanged(level) }
         capture.interruptionHandler = { [weak self] reason in
-            guard let self, phase == .recording else { return }
+            guard let self, state == .recording else { return }
             Task { await self.stop(reason: reason) }
         }
         await configure()
@@ -149,7 +171,10 @@ final class CaptureController: ObservableObject {
 
     /// 設定（カメラ・フレームレート）どおりにセッションを組み直す。録画中は呼ばない
     func configure() async {
-        guard phase != .recording, phase != .stopping else { return }
+        guard !isTornDown, state != .recording, state != .stopping, state != .finished else { return }
+        state = .preparing
+        let requestID = UUID()
+        configurationID = requestID
         let settings = store.capture
         let capture = capture
         do {
@@ -163,13 +188,14 @@ final class CaptureController: ObservableObject {
                     }
                 }
             }
+            guard !isTornDown, !Task.isCancelled, configurationID == requestID else { return }
             frameRate = format.frameRate
             capture.queue.async { capture.startRunning() }
             attachRotation()
             setupError = nil
-            phase = .ready
-            statusText = "録画を押して打席へ。構えると音で知らせます"
+            state = .ready
         } catch {
+            guard !isTornDown, configurationID == requestID else { return }
             #if targetEnvironment(simulator)
             setupError = "シミュレータでは撮影できません。実機で使ってください。"
             #else
@@ -201,6 +227,14 @@ final class CaptureController: ObservableObject {
 
     /// 撮影画面を閉じるとき
     func teardown() {
+        isTornDown = true
+        configurationID = UUID()
+        // 画面の破棄が録画・保存に重なっても、入力ファイルは停止処理が使い切るまで残す
+        if state == .recording {
+            Task { await stop() }
+            return
+        }
+        guard state != .stopping else { return }
         ticker?.cancel()
         log?.close()
         log = nil
@@ -209,13 +243,13 @@ final class CaptureController: ObservableObject {
         sounds.deactivate()
         UIApplication.shared.isIdleTimerDisabled = false
         store.analysisPaused = false
-        try? FileManager.default.removeItem(at: directory)
+        if !preservesWorkingFiles { try? FileManager.default.removeItem(at: directory) }
     }
 
     // MARK: - 録画
 
     func record() {
-        guard phase == .ready, let format = capture.format else { return }
+        guard state == .ready, let format = capture.format else { return }
         if let free = Self.freeSpace(), free < Self.requiredFreeSpace {
             banner = "空き容量が 2 GB を切っているので始められません"
             return
@@ -223,33 +257,46 @@ final class CaptureController: ObservableObject {
         // 動画の向きは始めた時点の端末の向きで固定する（背面カメラを縦に置けば 90°）。Vision にも同じ向きで渡す
         let angle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture ?? 90
         let transform = CGAffineTransform.rotation(degrees: angle)
-        let rotated = Int(angle.rounded()) % 180 == 90
-        let aspect = rotated ? Double(format.height) / Double(format.width) : Double(format.width) / Double(format.height)
+        let orientation = PoseTracker.orientation(from: transform)
+        let aspect = Double(PoseTracker.shownAspect(width: format.width, height: format.height, orientation: orientation))
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmmss"
         stamp = formatter.string(from: Date())
         let log = CaptureLog(stamp: stamp)
         self.log = log
-        let orientation = PoseTracker.orientation(from: transform)
         log.line("start camera=\(store.capture.camera.rawValue) fps=\(format.frameRate) size=\(format.width)x\(format.height) angle=\(angle) orientation=\(orientation.rawValue) keepsFullTake=\(store.capture.keepsFullTake) keyFrameInterval=\(CaptureSession.keyFrameInterval)")
-        let writer = SegmentWriter(directory: directory, settings: capture.recommendedVideoSettings(frameRate: format.frameRate), transform: transform)
-        let vision = VisionWorker(orientation: orientation, frameRate: Double(format.frameRate), videoAspect: aspect, log: log)
-        visionWorker = vision
+        let writer = SegmentWriter(directory: directory, settings: capture.recommendedVideoSettings(frameRate: format.frameRate),
+                                   transform: transform, log: log)
+        let vision = CapturePoseProcessor(orientation: orientation, frameRate: Double(format.frameRate), videoAspect: aspect, log: log)
+        poseProcessor = vision
         wire(vision)
-        let frameWorker = frameWorker
-        capture.queue.async { frameWorker.begin(with: writer) }
+        // 受け口は撮影のキューが動き出す前に繋ぐ（`begin` の後だと、キューが読む最中に main から書くことになる）
+        frameWriter.onWriteFailed = { [weak self] in
+            Task { @MainActor in
+                guard let self, self.state == .recording else { return }
+                await self.stop(reason: "動画を書き込めなくなったので止めました")
+            }
+        }
+        let frameWriter = frameWriter
+        capture.queue.async {
+            frameWriter.log = log
+            frameWriter.begin(with: writer)
+        }
 
-        startedAt = Date()
-        lastPersonSeenAt = Date()
-        closedSegments = []
-        cuts = []
+        let startedAt = Date()
+        self.startedAt = startedAt
+        lastPersonSeenAt = startedAt
+        segments = SegmentStore()
+        pipeline = makePipeline(startedAt: startedAt, log: log)
+        isBackgroundTimeUp = false
         shots = []
         elapsed = 0
-        edge = .idle
+        stance = .unseen
+        isOverheated = false
+        showsPlusOne = false
         banner = nil
         summary = nil
-        phase = .recording
-        statusText = "打席で構えてください"
+        state = .recording
         UIApplication.shared.isIdleTimerDisabled = true
         UIDevice.current.isBatteryMonitoringEnabled = true
         store.analysisPaused = true
@@ -262,256 +309,122 @@ final class CaptureController: ObservableObject {
         }
     }
 
+    /// 録画 1 回ぶんの切り出しの列。帯（`shots`）はここが持つ列の写しで、更新はこの 1 か所だけ
+    private func makePipeline(startedAt: Date, log: CaptureLog) -> ShotPipeline {
+        let pipeline = ShotPipeline(store: store, exporter: SegmentExporter(), startedAt: startedAt, log: log)
+        pipeline.onItemsChanged = { [weak self] items in self?.shots = items }
+        pipeline.onCutFailed = { [weak self] in self?.banner = "ショットを切り出せませんでした" }
+        return pipeline
+    }
+
     /// 追跡のキューと撮影のキューの間の配線。撮影のキューは 15fps に間引いたフレームを追跡のキューに渡し、
     /// 追跡のキューは結果を main に戻し、区切りを閉じる合図を撮影のキューに送る
-    private func wire(_ vision: VisionWorker) {
-        let frameWorker = frameWorker
+    private func wire(_ vision: CapturePoseProcessor) {
+        let frameWriter = frameWriter
         let visionQueue = visionQueue
         let captureQueue = capture.queue
-        frameWorker.onVision = { pixelBuffer, time in
+        frameWriter.onVision = { pixelBuffer, time in
             visionQueue.async {
                 let result = vision.process(pixelBuffer, at: time)
                 captureQueue.async {
-                    frameWorker.visionFinished()
-                    if result.closeSegment { frameWorker.requestClose() }
+                    frameWriter.visionFinished()
+                    if result.closeSegment { frameWriter.requestClose() }
                 }
-                Task { @MainActor [weak self] in self?.apply(result) }
+                DispatchQueue.main.async { [weak self] in self?.apply(result) }
             }
         }
-        frameWorker.onSegmentClosed = { [weak self] segment in
-            Task { @MainActor in self?.segmentClosed(segment) }
+        frameWriter.onSegmentClosed = { [weak self] segment in
+            self?.segmentClosed(segment)
         }
     }
 
     /// 追跡の結果を画面と音に反映する
-    private func apply(_ result: VisionWorker.Result) {
-        guard phase == .recording || phase == .stopping else { return }
+    private func apply(_ result: CapturePoseProcessor.Result) {
+        guard state == .recording || state == .stopping else { return }
         if result.personVisible {
             lastPersonSeenAt = Date()
-        } else if edge == .seen || edge == .cutOff {
-            edge = .idle
-            statusText = "打席で構えてください"
+        } else if stance != .unseen {
+            stance = .unseen
         }
         switch result.stance {
         case .seen:
-            edge = .seen
-            statusText = "見えています"
+            stance = .seen
             play(.seen)
             log?.line("stance seen")
         case .cutOff:
-            edge = .cutOff
-            statusText = "頭か足が切れています。三脚を直してください"
+            stance = .cutOff
             play(.cutOff)
             log?.line("stance cutOff")
         case nil:
             break
         }
-        register(result.registered)
-        judge(result.verdicts)
-    }
-
-    /// 見つかった候補を帯に出し、合図を鳴らし、切り出しの列に足す（判定はまだ）
-    private func register(_ liveShots: [LiveShot]) {
-        for live in liveShots {
-            let item = ShotItem(id: UUID(), clipID: nil)
-            shots.append(item)
-            cuts.append(Cut(item: item, live: live))
+        for live in result.registered {
+            pipeline?.register(live)
             play(.captured)
             flashPlusOne()
-            log?.line(String(format: "registered range=[%.2f, %.2f] impact=%.2f", live.shot.range.lowerBound, live.shot.range.upperBound, live.shot.swing.phases.impact))
         }
-        startCuts()
-    }
-
-    /// 判定を対応するショットに付け、切り出しが済んでいれば反映する
-    private func judge(_ verdicts: [LiveShotJudge.Verdict]) {
-        for verdict in verdicts {
-            guard let index = cuts.firstIndex(where: { LiveShotJudge.isSameSwing($0.live.shot.swing, verdict.candidate) }) else {
-                log?.line(String(format: "verdict without shot impact=%.2f", verdict.candidate.phases.impact))
-                continue
-            }
-            cuts[index].verdict = verdict
-            log?.line(String(format: "verdict %@ impact=%.2f", verdict.shot == nil ? "practice" : "shot", verdict.candidate.phases.impact))
-            settleIfReady(cuts[index].item.id)
-        }
-    }
-
-    /// 切り出しと判定の両方がそろったショットを片付ける：本番は写真ライブラリに移し、素振りはクリップごと消す
-    private func settleIfReady(_ itemID: UUID) {
-        guard let index = cuts.firstIndex(where: { $0.item.id == itemID }),
-              let clipID = cuts[index].clipID, let verdict = cuts[index].verdict, cuts[index].settle == nil else { return }
-        if verdict.shot != nil {
-            cuts[index].settle = Task { [store] in
-                await store.promoteCapturedShot(clipID)
-                await MainActor.run { self.cuts.removeAll { $0.item.id == itemID } }
-            }
-        } else {
-            store.discardCapturedShot(clipID)
-            shots.removeAll { $0.id == itemID }
-            cuts.removeAll { $0.item.id == itemID }
-        }
+        pipeline?.startCuts(from: segments)
+        pipeline?.apply(result.verdicts)
     }
 
     private func segmentClosed(_ segment: SegmentWriter.Segment) {
-        closedSegments.append(segment)
+        segments.append(segment)
         log?.line(String(format: "segment closed start=%.2f end=%.2f dropped=%d", segment.start, segment.end, segment.droppedFrames))
-        startCuts()
+        pipeline?.startCuts(from: segments)
         pruneSegments()
     }
 
-    /// まだ切り出していないショットのうち、インパクトを含む区切りファイルが閉じたものを切り出す
-    private func startCuts() {
-        for index in cuts.indices where cuts[index].export == nil {
-            let cut = cuts[index]
-            guard let segment = closedSegments.first(where: { $0.contains(cut.live.shot.swing.phases.impact) }) else { continue }
-            cuts[index].export = Task { await self.export(cut, from: segment) }
-        }
-    }
-
-    /// 区切りファイルからショットを切り出し、アプリ内のファイルの仮のクリップにする。判定が既に来ていれば続けて反映する
-    private func export(_ cut: Cut, from segment: SegmentWriter.Segment) async {
-        defer { pruneSegments() }
-        let shot = cut.live.shot
-        guard let local = segment.localRange(of: shot.range), let startedAt else {
-            drop(cut.item.id)
-            return
-        }
-        do {
-            let url = try await VideoImporter.exportSegment(of: AVURLAsset(url: segment.url), range: local)
-            let shotAt = startedAt.addingTimeInterval(segment.start + local.lowerBound)
-            // 区切りの端で範囲が切り詰められていれば、仮の解析もその分にずらす
-            let offset = segment.start + local.lowerBound - shot.range.lowerBound
-            let provisional = cut.live.provisional.sliced(to: offset...(offset + local.upperBound - local.lowerBound))
-            let clip = try store.keepCapturedShot(at: url, shotAt: shotAt, provisional: provisional)
-            log?.line(String(format: "shot kept range=[%.2f, %.2f] clip=%@", shot.range.lowerBound, shot.range.upperBound, clip.id.uuidString))
-            guard let index = cuts.firstIndex(where: { $0.item.id == cut.item.id }),
-                  let shotIndex = shots.firstIndex(where: { $0.id == cut.item.id }) else {   // 帯で消された
-                store.discardCapturedShot(clip.id)
-                return
-            }
-            cuts[index].clipID = clip.id
-            shots[shotIndex].clipID = clip.id
-            settleIfReady(cut.item.id)
-        } catch {
-            print("ショットの切り出しに失敗: \(error.localizedDescription)")
-            log?.line("shot failed: \(error.localizedDescription)")
-            drop(cut.item.id)
-            banner = "ショットを切り出せませんでした"
-        }
-    }
-
-    /// 帯とショットの列から外す（切り出せなかったとき）
-    private func drop(_ itemID: UUID) {
-        shots.removeAll { $0.id == itemID }
-        cuts.removeAll { $0.item.id == itemID }
-    }
-
-    /// 縁を白く光らせて「＋1」を出す（1.2 秒）。その間に縁が別の色になっていれば（構えの判定・熱）そちらを優先して戻さない
+    /// 「＋1」を 1.2 秒出す（その間は縁も白く光る）
     private func flashPlusOne() {
-        let before = edge
-        edge = .hit
+        showsPlusOne = true
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(1.2))
-            guard let self, edge == .hit else { return }
-            edge = before == .hit ? .seen : before
+            self?.showsPlusOne = false
         }
     }
 
-    /// 切り出しに使わず、決まったショットが来る余地も無くなった区切りファイルを消す。全体の動画を残す設定なら止めるまで消さない
+    /// 要らなくなった区切りファイルを消す。
+    /// NOTE: 録画中だけ。止めている間は全体の動画をつなぐのに要るので、消すのは片付けが済んでから（`stop`）
     private func pruneSegments() {
-        let now = sessionTime
-        let finished = phase == .finished || phase == .stopping
-        guard finished || !store.capture.keepsFullTake else { return }
-        for segment in closedSegments {
-            let referenced = cuts.contains { segment.contains($0.live.shot.swing.phases.impact) }
-            guard !referenced, finished || segment.end + Self.segmentRetention < now else { continue }
-            try? FileManager.default.removeItem(at: segment.url)
-            closedSegments.removeAll { $0.id == segment.id }
-        }
+        guard state == .recording else { return }
+        segments.prune(now: sessionTime,
+                       waitingFor: pipeline?.impactsWaitingForCut ?? [],
+                       keepsAll: store.capture.keepsFullTake)
     }
 
     /// 帯のショットを消す（誤検出をその場で捨てる）。判定を待っていた分は待たない
-    func delete(_ item: ShotItem) {
-        if let clipID = item.clipID {
-            store.delete([clipID])
-        }
-        drop(item.id)
+    func delete(_ item: ShotPipeline.Item) {
+        pipeline?.remove(item.id)
     }
 
     // MARK: - 止める
 
     /// 録画を止め、残りのショットを切り出して保存する。`reason` は自動で止めたときの理由（音でも知らせる）
     func stop(reason: String? = nil) async {
-        guard phase == .recording else { return }
-        phase = .stopping
-        statusText = "保存しています…"
+        guard state == .recording else { return }
+        state = .stopping
         ticker?.cancel()
-        let background = UIApplication.shared.beginBackgroundTask()
-        defer { UIApplication.shared.endBackgroundTask(background) }
+        // NOTE: 背景に回ってから止めるときのために、満了ハンドラで「つなぐのをやめる」に切り替える。
+        //       持ち時間（〜30 秒）を超えると、ハンドラが無ければアプリごと落とされて後始末が途中で切れる
+        var background = UIBackgroundTaskIdentifier.invalid
+        background = UIApplication.shared.beginBackgroundTask { [weak self] in
+            self?.isBackgroundTimeUp = true
+            UIApplication.shared.endBackgroundTask(background)
+            background = .invalid
+        }
+        defer {
+            if background != .invalid { UIApplication.shared.endBackgroundTask(background) }
+        }
 
-        let frameWorker = frameWorker
+        let frameWriter = frameWriter
         let capture = capture
-        let last: SegmentWriter.Segment? = await withCheckedContinuation { continuation in
-            capture.queue.async { frameWorker.finish { continuation.resume(returning: $0) } }
+        await withCheckedContinuation { continuation in
+            capture.queue.async { frameWriter.finish { continuation.resume() } }
         }
-        if let last { closedSegments.append(last) }
-        let time = sessionTime
-        if let vision = visionWorker {
-            let visionQueue = visionQueue
-            let flushed: VisionWorker.Result = await withCheckedContinuation { continuation in
-                visionQueue.async { continuation.resume(returning: vision.flush(at: time)) }
-            }
-            register(flushed.registered)
-            judge(flushed.verdicts)
-        }
-        for cut in cuts { await cut.export?.value }
-        for cut in cuts { settleIfReady(cut.item.id) }   // 切り出しより先に来ていた判定を反映する
-        for cut in cuts { await cut.settle?.value }
-        // 閉じたファイルにインパクトが入らなかった分（無いはず）は諦める。以後 `shots` は保存できたショットだけ
-        for cut in cuts where cut.clipID == nil { shots.removeAll { $0.id == cut.item.id } }
-        cuts = []
-
-        // 全体の動画：区切りファイルを 1 本につなぐ。残す設定（調査用）なら写真ライブラリと Documents/CaptureTakes に。
-        // 1 球も切り出せなかったときは、設定に関わらず長い動画（解析待ちのスイング）として足し、既存の分割に任せる（検出が外れたときの保険）。
-        // つなげなければ区切りごとに同じ扱いをする
-        var savedTake = false
-        var keptTake = false
-        let keeps = store.capture.keepsFullTake
-        let ordered = closedSegments.sorted { $0.start < $1.start }
-        if let startedAt, let first = ordered.first, keeps || shots.isEmpty {
-            let takes: [(url: URL, start: Double, duration: Double)]
-            do {
-                let merged = try VideoImporter.concatenate(ordered.map(\.url))
-                takes = [(merged, first.start, ordered.last.map { $0.end - first.start } ?? 0)]
-                log?.line("take merged segments=\(ordered.count)")
-            } catch {
-                log?.line("take merge failed: \(error.localizedDescription). keeping segments separately")
-                takes = ordered.map { ($0.url, $0.start, $0.end - $0.start) }
-            }
-            try? FileManager.default.createDirectory(at: Self.takesDirectory, withIntermediateDirectories: true)
-            for (index, take) in takes.enumerated() {
-                let shotAt = startedAt.addingTimeInterval(take.start)
-                let asSwing = shots.isEmpty && take.duration >= Self.minimumTakeDuration
-                guard keeps || asSwing else { continue }
-                if keeps {
-                    let kept = Self.takesDirectory.appendingPathComponent(takes.count == 1 ? "\(stamp).mov" : "\(stamp)-\(index + 1).mov")
-                    let copied = (try? FileManager.default.copyItem(at: take.url, to: kept)) != nil
-                    keptTake = keptTake || copied
-                    log?.line("take kept=\(copied) path=\(kept.lastPathComponent)")
-                }
-                if let source = try? await store.persistVideo(at: take.url, shotAt: shotAt) {
-                    if asSwing {
-                        store.addCapturedTake(source: source, shotAt: shotAt)
-                        savedTake = true
-                    }
-                    log?.line("take saved index=\(index + 1) asSwing=\(asSwing)")
-                } else {
-                    log?.line("take save failed index=\(index + 1)")
-                }
-            }
-        }
-        phase = .finished
-        pruneSegments()
+        await finishCuts()
+        let take = await saveTake()
+        state = .finished
+        if !preservesWorkingFiles { segments.removeAll() }
         capture.queue.async { capture.stopRunning() }
         UIApplication.shared.isIdleTimerDisabled = false
         store.analysisPaused = false
@@ -522,18 +435,100 @@ final class CaptureController: ObservableObject {
         log?.line("stop shots=\(shots.count) reason=\(reason ?? "user")")
         log?.close()
         log = nil
-        summary = Summary(shotCount: shots.count, savedTake: savedTake, keptTake: keptTake, reason: reason)
+        let summaryReason = preservesWorkingFiles
+            ? [reason, "保存できなかった動画をアプリ内に残しました"].compactMap { $0 }.joined(separator: "。")
+            : reason
+        summary = Summary(shotCount: shots.count, savedTake: take.savedAsSwing, keptTake: take.kept, reason: summaryReason)
+        if isTornDown { teardown() }
+    }
+
+    /// 残っているショットを最後まで片付ける：追跡に残った候補を出し切り、切り出しと判定の反映を待つ
+    private func finishCuts() async {
+        let time = sessionTime
+        if let vision = poseProcessor {
+            let visionQueue = visionQueue
+            let flushed: CapturePoseProcessor.Result = await withCheckedContinuation { continuation in
+                visionQueue.async {
+                    let result = vision.flush(at: time)
+                    // 先行する検出結果と同じ main キューへ並べ、反映し終えてから残りを処理する
+                    DispatchQueue.main.async { continuation.resume(returning: result) }
+                }
+            }
+            for live in flushed.registered { pipeline?.register(live) }
+            pipeline?.startCuts(from: segments)
+            pipeline?.apply(flushed.verdicts)
+        }
+        await pipeline?.finish()
+    }
+
+    /// 録画を始めてから止めるまでの動画（区切りファイルを 1 本につないだもの）の後始末。
+    /// 残す設定（調査用）なら写真ライブラリと `Documents/CaptureTakes/` に置き、1 球も切り出せなかったときは
+    /// 設定に関わらず長い動画（解析待ちのスイング）として足して既存の分割に任せる（検出が外れたときの保険）。
+    /// つなげなかったときは区切りごとに同じ扱いをする
+    private func saveTake() async -> (savedAsSwing: Bool, kept: Bool) {
+        let keeps = store.capture.keepsFullTake
+        let ordered = segments.ordered
+        guard let startedAt, let first = ordered.first, keeps || shots.isEmpty else { return (false, false) }
+
+        // 1 本につなぐと同じ大きさの複製ができる。空きが足りないときと背景の持ち時間が切れたときは、区切りのまま残す
+        let needed = ordered.reduce(Int64(0)) { $0 + (Self.fileSize(of: $1.url) ?? 0) }
+        let canMerge = !isBackgroundTimeUp && (Self.freeSpace() ?? 0) > needed + Self.minimumFreeSpace
+        let takes: [(url: URL, start: Double, duration: Double)]
+        do {
+            guard canMerge else { throw VideoError.unreadable }
+            let urls = ordered.map(\.url)
+            let output = directory.appendingPathComponent("take.mov")
+            let merged = try await Task.detached(priority: .utility) {
+                try VideoImporter.concatenate(urls, output: output)
+            }.value
+            takes = [(merged, first.start, ordered.last.map { $0.end - first.start } ?? 0)]
+            log?.line("take merged segments=\(ordered.count)")
+        } catch {
+            log?.line("take merge skipped or failed (canMerge=\(canMerge)): keeping \(ordered.count) segments separately")
+            takes = ordered.map { ($0.url, $0.start, $0.end - $0.start) }
+        }
+        try? FileManager.default.createDirectory(at: Self.takesDirectory, withIntermediateDirectories: true)
+
+        var savedAsSwing = false
+        var kept = false
+        for (index, take) in takes.enumerated() {
+            let shotAt = startedAt.addingTimeInterval(take.start)
+            let asSwing = shots.isEmpty && take.duration >= Self.minimumTakeDuration
+            guard keeps || asSwing else { continue }
+            if keeps {
+                let path = Self.takesDirectory.appendingPathComponent(takes.count == 1 ? "\(stamp).mov" : "\(stamp)-\(index + 1).mov")
+                let copied = (try? FileManager.default.copyItem(at: take.url, to: path)) != nil
+                kept = kept || copied
+                log?.line("take kept=\(copied) path=\(path.lastPathComponent)")
+                // 退避できないまま原本を移すと、一覧に登録しない全体動画の参照が失われる
+                if !copied {
+                    preservesWorkingFiles = true
+                    continue
+                }
+            }
+            if let source = try? await store.persistVideo(at: take.url, shotAt: shotAt) {
+                if asSwing {
+                    store.addCapturedTake(source: source, shotAt: shotAt)
+                    savedAsSwing = true
+                }
+                log?.line("take saved index=\(index + 1) asSwing=\(asSwing)")
+            } else {
+                preservesWorkingFiles = true
+                log?.line("take save failed index=\(index + 1): keeping working files")
+            }
+        }
+        return (savedAsSwing, kept)
     }
 
     /// アプリが背景に回った：カメラは使えなくなるので止める（書きかけのファイルを閉じる）
     func appDidEnterBackground() {
-        guard phase == .recording else { return }
+        guard state == .recording else { return }
         Task { await stop(reason: "アプリが背景に回ったので止めました") }
     }
 
     /// 1 秒ごと：経過時間、電池・容量・人物の不在で止める
     private func tick() async {
-        guard phase == .recording, let startedAt else { return }
+        guard state == .recording, let startedAt else { return }
         elapsed = Date().timeIntervalSince(startedAt)
         if UIDevice.current.batteryState != .charging, UIDevice.current.batteryLevel >= 0, UIDevice.current.batteryLevel < 0.1 {
             await stop(reason: "電池が 10% を切ったので止めました")
@@ -546,20 +541,20 @@ final class CaptureController: ObservableObject {
 
     /// 熱（システム圧）：serious で追跡を 10fps に、critical で 120fps に落として縁を橙、shutdown は止める。戻れば元に
     private func systemPressureChanged(_ level: AVCaptureDevice.SystemPressureState.Level) {
-        guard phase == .recording else { return }
-        let frameWorker = frameWorker
+        guard state == .recording else { return }
+        let frameWriter = frameWriter
         let capture = capture
         switch level {
         case .nominal, .fair:
-            capture.queue.async { frameWorker.visionInterval = 1 / LiveDetector.sampleRate }
+            capture.queue.async { frameWriter.visionInterval = 1 / LiveDetector.sampleRate }
             banner = nil
+            isOverheated = false
             if reducedFrameRate {
                 reducedFrameRate = false
                 switchFrameRate(to: store.capture.effectiveFrameRate)
-                if edge == .warning { edge = .seen }
             }
         case .serious:
-            capture.queue.async { frameWorker.visionInterval = 1 / 10 }
+            capture.queue.async { frameWriter.visionInterval = 1 / 10 }
             banner = "本体が熱くなっています。追跡を減らしました"
         case .critical:
             if !reducedFrameRate, frameRate > 120 {
@@ -567,7 +562,7 @@ final class CaptureController: ObservableObject {
                 switchFrameRate(to: 120)
             }
             banner = "本体が熱いので 120fps に落としました。冷えれば 240fps に戻ります"
-            edge = .warning
+            isOverheated = true
         case .shutdown:
             Task { await stop(reason: "本体が熱くなったので止めました") }
         default:
@@ -579,12 +574,12 @@ final class CaptureController: ObservableObject {
     /// 録画中にフレームレートを変える。区切りを閉じて、以後のファイルとショットは新しいレートになる
     private func switchFrameRate(to frameRate: Int) {
         let capture = capture
-        let frameWorker = frameWorker
-        let vision = visionWorker
+        let frameWriter = frameWriter
+        let vision = poseProcessor
         let visionQueue = visionQueue
         capture.queue.async {
             capture.setFrameRate(frameRate)
-            frameWorker.requestClose()
+            frameWriter.requestClose()
         }
         visionQueue.async { vision?.frameRate = Double(frameRate) }
         self.frameRate = frameRate
@@ -601,151 +596,13 @@ final class CaptureController: ObservableObject {
         sounds.play(cue)
     }
 
+    /// ファイルの大きさ（取れなければ nil）
+    private static func fileSize(of url: URL) -> Int64? {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).flatMap { $0.map(Int64.init) }
+    }
+
     private static func freeSpace() -> Int64? {
         let values = try? URL(fileURLWithPath: NSHomeDirectory()).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         return values?.volumeAvailableCapacityForImportantUsage
-    }
-}
-
-// MARK: - 撮影のキューの仕事
-
-/// 撮影のキュー（`CaptureSession.queue`）だけが触る状態：区切りファイルへの書き込みと、追跡へ渡すフレームの間引き
-private final class FrameWorker {
-    private var writer: SegmentWriter?
-    private var startPTS: Double?
-    private var nextVisionAt = 0.0
-    private var visionBusy = false
-    private var closeRequested = false
-    /// 追跡に渡す間隔（秒）。熱で下げる
-    var visionInterval = 1 / LiveDetector.sampleRate
-    /// 追跡へ渡す（受け手は自分のキューで処理し、終わったら `visionFinished` を撮影のキューで呼ぶ）
-    var onVision: ((CVPixelBuffer, Double) -> Void)?
-    /// 区切りファイルが閉じた（任意のスレッド）
-    var onSegmentClosed: ((SegmentWriter.Segment) -> Void)?
-
-    func begin(with writer: SegmentWriter) {
-        self.writer = writer
-        startPTS = nil
-        nextVisionAt = 0
-        visionBusy = false
-        closeRequested = false
-    }
-
-    func handle(_ sample: CMSampleBuffer) {
-        guard let writer else { return }
-        let pts = CMSampleBufferGetPresentationTimeStamp(sample).seconds
-        let start = startPTS ?? pts
-        startPTS = start
-        let time = pts - start
-        if closeRequested {
-            closeRequested = false
-            let closed = onSegmentClosed
-            writer.rotate { segment in segment.map { closed?($0) } }
-        }
-        do {
-            try writer.append(sample, at: time)
-        } catch {
-            print("区切りファイルを始められません: \(error)")
-        }
-        if time >= nextVisionAt, !visionBusy, let pixelBuffer = CMSampleBufferGetImageBuffer(sample) {
-            nextVisionAt = time + visionInterval
-            visionBusy = true
-            onVision?(pixelBuffer, time)
-        }
-    }
-
-    func visionFinished() {
-        visionBusy = false
-    }
-
-    func requestClose() {
-        closeRequested = true
-    }
-
-    /// 最後の区切りを閉じて書き込みを終える
-    func finish(completion: @escaping (SegmentWriter.Segment?) -> Void) {
-        guard let writer else {
-            completion(nil)
-            return
-        }
-        self.writer = nil
-        writer.rotate(completion: completion)
-    }
-}
-
-// MARK: - 追跡のキューの仕事
-
-/// 追跡のキューだけが触る状態：Vision の追跡（`FrameTracker`）、ライブ検出（`LiveDetector`）、区切りの計画（`SegmentPlanner`）
-private final class VisionWorker {
-    struct Result {
-        var stance: LiveDetector.StanceEvent? = nil
-        /// 新しく見つかった候補（切り出して仮に保存する）
-        var registered: [CaptureController.LiveShot] = []
-        /// 本番か素振りかの判定
-        var verdicts: [LiveShotJudge.Verdict] = []
-        var closeSegment = false
-        var personVisible = false
-    }
-
-    private var tracker = PoseTracker.FrameTracker()
-    private var detector = LiveDetector()
-    private var planner = SegmentPlanner()
-    private let orientation: CGImagePropertyOrientation
-    /// 撮影のフレームレート（仮の解析のクリップに書く。熱で変わる）
-    var frameRate: Double
-    private let videoAspect: Double
-    private let log: CaptureLog?
-    private var nextLogAt = 0.0
-
-    init(orientation: CGImagePropertyOrientation, frameRate: Double, videoAspect: Double, log: CaptureLog?) {
-        self.orientation = orientation
-        self.frameRate = frameRate
-        self.videoAspect = videoAspect
-        self.log = log
-    }
-
-    func process(_ pixelBuffer: CVPixelBuffer, at time: Double) -> Result {
-        let person = tracker.person(in: pixelBuffer, orientation: orientation)
-        let frame = tracker.frame(at: time, person: person)
-        let update = detector.add(frame)
-        let quiet = detector.isQuiet(at: time)
-        var close = false
-        if planner.shouldClose(at: time, lastFinish: detector.lastFinish, quiet: quiet) {
-            planner.didClose(at: time)
-            close = true
-            log?.line(String(format: "close segment t=%.2f lastFinish=%@ quiet=%d", time, detector.lastFinish.map { String(format: "%.2f", $0) } ?? "-", quiet ? 1 : 0))
-        }
-        for candidate in update.observed {
-            let p = candidate.phases
-            log?.line(String(format: "candidate A=%.2f T=%.2f I=%.2f F=%.2f rise=%.2f peak=%.2f estimated=%d pending=%d",
-                             p.address, p.top, p.impact, p.finish, candidate.rise, candidate.peakSpeed, candidate.estimated.count, detector.judge.pending.count))
-        }
-        if time >= nextLogAt {
-            nextLogAt = time + 1
-            let hand = detector.currentHandHeight().map { String(format: "%.2f", $0) } ?? "-"
-            let bounds = frame.bodyBounds.map { String(format: "[%.2f %.2f %.2f %.2f]", $0.minX, $0.minY, $0.maxX, $0.maxY) } ?? "-"
-            log?.line(String(format: "t=%.2f person=%d wrist=%.0f%% hand=%@ bounds=%@ quiet=%d motion=%d pending=%d",
-                             time, frame.bodyBounds == nil ? 0 : 1, detector.recentWristCoverage(at: time) * 100, hand, bounds,
-                             quiet ? 1 : 0, detector.inMotion(at: time) ? 1 : 0, detector.judge.pending.count))
-        }
-        return Result(stance: update.stance, registered: update.registered.map(liveShot), verdicts: update.verdicts,
-                      closeSegment: close, personVisible: detector.isPersonVisible(at: time))
-    }
-
-    /// 止めるとき：待たずに全部決める
-    func flush(at time: Double) -> Result {
-        let flushed = detector.flush(at: time)
-        log?.line(String(format: "flush t=%.2f registered=%d verdicts=%d frames=%d", time, flushed.registered.count, flushed.verdicts.count, detector.frames.count))
-        return Result(registered: flushed.registered.map(liveShot), verdicts: flushed.verdicts)
-    }
-
-    /// 候補に、切り出す範囲と、その範囲のライブ追跡を 1 本の動画として見た仮の解析（切り出したクリップにすぐ付けるフェーズ）を添える
-    private func liveShot(_ candidate: SwingCandidate) -> CaptureController.LiveShot {
-        let range = LiveDetector.range(of: candidate)
-        let track = detector.track(in: range)
-        let duration = range.upperBound - range.lowerBound
-        let provisional = SwingAnalysisResult(duration: duration, frameRate: frameRate, videoAspect: videoAspect, pose: track,
-                                              candidates: SwingDetector.detect(track: track, duration: duration))
-        return CaptureController.LiveShot(shot: Shot(range: range, swing: candidate), provisional: provisional)
     }
 }

@@ -1,11 +1,7 @@
 import SwiftUI
 
-/// 渡された部位の軌跡を動画に重ねて描く（どれを渡すかはステージ右上の「…」で決まる）。
-/// 再生位置までに**通ったところだけ**を描き、いまの位置に丸を打つ（まだ通っていない先を薄く出すと、
-/// 何本もの線が重なって形が読めなくなる）。
-/// 色は部位ごとに色相を変え、トップより前は淡く、トップ以降は同じ色相の濃い色にする（`BodyPart.color`）。
-/// 点は通らず、近くを通る曲線（B スプライン）でつなぐ。スイングは連続した運動なので、測定点を必ず通す必要はない。
-/// 座標は正規化座標のまま持ち、描くときにペインの表示変換を掛ける（拡大しても線の太さは変わらない）
+/// 再生位置までの軌跡を、動画と同じ変換で重ねる。線の太さは拡大率に依存しない。
+/// 姿勢推定の揺れを強調しないよう測定点の近くを通る B スプラインで結び、先端だけを現在位置に合わせる。
 struct JointTrailOverlay: View {
     /// 軌跡の表示のオン・オフ（`UserDefaults` のキー。ステージ右上のボタンで切り替え、アプリ全体で 1 つ）
     static let isEnabledKey = "showJointTrails"
@@ -48,13 +44,7 @@ struct JointTrailOverlay: View {
                 let current = swing.contains(now) ? trails.point(of: part, at: now) : nil   // 線の先と丸に使う
                 for stroke in trails.strokes(of: part, in: swing) {
                     for (points, afterTop) in Self.split(stroke, atTop: phases.top) {
-                        // 間引きは線の全体に対して行う（再生位置までに掛けると、進むたびに採る点が入れ替わって線が揺れる）
-                        let shown = Self.thinned(points)
-                        var played = shown.filter { $0.time <= now }
-                        // 間引きで消えた分は、いまの点を足して線の先を現在位置に合わせる
-                        if !played.isEmpty, played.count < shown.count, let current {
-                            played.append(TrailPoint(time: now, point: current))
-                        }
+                        let played = Self.played(points, until: now, tip: current)
                         guard played.count >= 2 else { continue }
                         context.stroke(
                             Self.curve(through: played.map { place($0.point) }),
@@ -79,6 +69,19 @@ struct JointTrailOverlay: View {
         if !before.isEmpty { parts.append((before + after.prefix(1), false)) }
         if !after.isEmpty { parts.append((after, true)) }
         return parts.filter { $0.points.count >= 2 }
+    }
+
+    /// 線のうち再生位置までに通った分（間引き済み）。
+    /// 間引きは線の全体に対して行う（再生位置までに掛けると、進むたびに採る点が入れ替わって線が揺れる）。
+    /// 間引きで消えた分があるときは、いまの位置（`tip`）を足して線の先を再生位置に合わせる。
+    /// 点が 1 つしか無ければ空を返す（線が引けないので、丸だけが浮くのを避ける）
+    static func played(_ points: [TrailPoint], until now: Double, tip: CGPoint?) -> [TrailPoint] {
+        let shown = thinned(points)
+        var played = Array(shown.prefix { $0.time <= now })   // 点は時刻順
+        if !played.isEmpty, played.count < shown.count, let tip {
+            played.append(TrailPoint(time: now, point: tip))
+        }
+        return played.count >= 2 ? played : []
     }
 
     /// 点が多すぎる線を等間隔に間引く（最後の点は必ず残す）
@@ -106,7 +109,7 @@ struct JointTrailOverlay: View {
         }
         let control = [first, first] + points + [last, last]
         for i in 0..<(control.count - 3) {
-            let (a, b, c, d) = (control[i], control[i + 1], control[i + 2], control[i + 3])
+            let (b, c, d) = (control[i + 1], control[i + 2], control[i + 3])
             path.addCurve(
                 to: CGPoint(x: (b.x + 4 * c.x + d.x) / 6, y: (b.y + 4 * c.y + d.y) / 6),
                 control1: CGPoint(x: (2 * b.x + c.x) / 3, y: (2 * b.y + c.y) / 3),

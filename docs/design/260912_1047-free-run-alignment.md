@@ -2,7 +2,7 @@
 
 - 日付：2026-09-12
 - 種別：設計 → 実装（同日）
-- 対象：`Models/SyncEngine.swift`（`SyncBasis`、`SyncEngine.basis` / `anchor`）、`Models/LoopRange.swift`、`Services/PlaybackController.swift`、
+- 対象：`Models/SyncEngine.swift`（`SyncBasis`、`SyncEngine.basis` / `anchor`）、`Models/LoopRange.swift`、`Services/Playback/PlaybackController.swift`、
   `Views/Stage/ControlPanelView.swift`、`Views/Stage/SeekBarView.swift`、`Views/Stage/TransportControlsView.swift`、`Models/Clip.swift`（`Library.syncBasis`）
 - 前提：ループ範囲のつまみ（[260912_0252](./260912_0252-loop-trim-handles.md)）が入った後の操作パネル
 

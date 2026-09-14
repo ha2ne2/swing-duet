@@ -13,6 +13,13 @@ struct JointTrailsTests {
         })
     }
 
+    /// 肩（ほとんど動かない部位）の点列だけを持つサンプル
+    private func trails(shoulder: [CGPoint?]) -> JointTrails {
+        JointTrails(samples: shoulder.enumerated().map { i, point in
+            JointTrailSample(time: Double(i) / 30, leftShoulder: point)
+        })
+    }
+
     private func phases(_ address: Double) -> PhaseSet {
         PhaseSet(address: address, top: address + 1, impact: address + 1.3, finish: address + 2)
     }
@@ -34,7 +41,7 @@ struct JointTrailsTests {
         // 直線に ±0.02 のジグザグを乗せる。5 点目は欠け
         var points: [CGPoint?] = (0..<12).map { i in CGPoint(x: 0.05 * Double(i), y: 0.5 + (i % 2 == 0 ? 0.02 : -0.02)) }
         points[8] = nil
-        let smoothed = trails(hands: points).smoothed()
+        let smoothed = trails(hands: points).smoothed(swingSamples: points.count)
         let ys = smoothed.samples.map { $0.hands?.y }
         #expect(ys[0] == 0.52 && ys[1] == 0.48)              // 端の 2 点はそのまま
         #expect(abs(ys[3]! - 0.5) < 0.01)                    // 中の点は揺れが 0.02 → 0.01 未満
@@ -45,10 +52,36 @@ struct JointTrailsTests {
 
     @Test func smoothingKeepsAStraightLineStraight() {
         let points: [CGPoint?] = (0..<9).map { i in CGPoint(x: 0.1 * Double(i), y: 0.2 + 0.05 * Double(i)) }
-        let smoothed = trails(hands: points).smoothed()
+        let smoothed = trails(hands: points).smoothed(swingSamples: points.count)
         for (before, after) in zip(points, smoothed.samples.map(\.hands)) {
             #expect(abs(before!.x - after!.x) < 1e-9 && abs(before!.y - after!.y) < 1e-9)
         }
+    }
+
+    /// ほとんど動かない部位（肩・股関節・頭）は、手より強く均す。
+    /// 手はスイングの弧そのものなので形を残す 5 点で、肩はコマ数に比例した窓の移動平均になる
+    @Test func bodyPartsAreSmoothedHarderThanTheHands() {
+        // 150 コマ（5 秒）の直線に ±0.02 のジグザグ。窓はコマ数に比例するので 11 点になる
+        let zigzag: [CGPoint?] = (0..<150).map { i in CGPoint(x: 0.003 * Double(i), y: 0.5 + (i % 2 == 0 ? 0.02 : -0.02)) }
+        #expect(JointTrails.bodyWindow(samples: 150) == 11)
+        let shoulder = trails(shoulder: zigzag).smoothed(swingSamples: zigzag.count).samples[75].leftShoulder
+        let hand = trails(hands: zigzag).smoothed(swingSamples: zigzag.count).samples[75].hands
+        let shoulderResidual = abs((shoulder?.y ?? 0) - 0.5)
+        let handResidual = abs((hand?.y ?? 0) - 0.5)
+        #expect(shoulderResidual < 0.004)              // 11 点の移動平均でほぼ消える
+        #expect(handResidual > shoulderResidual * 3)   // 手は形を残すので揺れも残る
+        #expect(trails(shoulder: zigzag).smoothed(swingSamples: zigzag.count).samples[0].leftShoulder?.y == 0.52)   // 端はそのまま
+    }
+
+    /// 均す窓は保存範囲のコマ数ではなく、**採用スイングのコマ数**で決まる
+    /// （同じスイングでも、前に素振りがあって保存範囲が広いだけで平滑化の強さが変わってはいけない）
+    @Test func theWindowFollowsTheSwingNotTheSavedRange() {
+        // 300 コマ（10 秒）ぶん保存するが、スイングは真ん中の 60 コマ（2 秒）だけ
+        let zigzag: [CGPoint?] = (0..<300).map { i in CGPoint(x: 0.001 * Double(i), y: 0.5 + (i % 2 == 0 ? 0.02 : -0.02)) }
+        let wide = trails(shoulder: zigzag).smoothed(swingSamples: 300).samples[150].leftShoulder
+        let narrow = trails(shoulder: zigzag).smoothed(swingSamples: 60).samples[150].leftShoulder
+        #expect(JointTrails.bodyWindow(samples: 300) == 21 && JointTrails.bodyWindow(samples: 60) == 5)
+        #expect(abs((wide?.y ?? 0) - 0.5) < abs((narrow?.y ?? 0) - 0.5))   // 窓が広いほど残る揺れが小さい
     }
 
     // MARK: - 線の切れ目
@@ -134,7 +167,7 @@ struct JointTrailsTests {
                 neck: CGPoint(x: 0.5, y: 0.7),
                 bodyBounds: nil)
         }
-        let trails = PoseTrack(frames: frames).jointTrails(in: 0.2...0.5)
+        let trails = PoseTrack(frames: frames).jointTrails(in: 0.2...0.5, swing: 0.2...0.5)
         #expect(trails.samples.map(\.time) == [0.2, 0.3, 0.4, 0.5])   // 範囲の中のコマだけ
         let first = trails.samples[0]
         #expect(first.hands == CGPoint(x: 0.4, y: 0.3))                 // 手首の中点 → 手

@@ -1,6 +1,13 @@
 import Foundation
 import CoreGraphics
 
+extension Comparable {
+    /// 範囲に収める（`min(max(…))` の読みやすい形）
+    func clamped(to range: ClosedRange<Self>) -> Self {
+        min(max(self, range.lowerBound), range.upperBound)
+    }
+}
+
 extension CGPoint {
     func distance(to other: CGPoint) -> CGFloat {
         hypot(x - other.x, y - other.y)

@@ -45,10 +45,11 @@ struct LoopRange: Hashable, Codable {
 
     /// 端を共通タイムライン上の time へ動かす。最も近いフェーズから整数コマの位置に丸め、反対側の端とは 1 コマ以上離す
     mutating func move(_ bound: Bound, to time: Double, in sync: SyncEngine) {
-        let frame = sync.frameStep
+        let frame = min(sync.frameStep, sync.commonDuration)
         // 開始は終了の 1 コマ手前まで、終了は開始の 1 コマ後から
         let otherBound: Bound = bound == .start ? .end : .start
-        let other = sync.commonTime(of: self[otherBound], as: otherBound)
+        let resolved = sync.commonRange(of: self)
+        let other = otherBound == .start ? resolved.lowerBound : resolved.upperBound
         let limit = bound == .start ? other - frame : other + frame
         var edge = sync.loopEdge(nearest: bound == .start ? min(time, limit) : max(time, limit), as: bound)
         // 丸めの起点（最も近いフェーズ）が反対側の端と違うと、丸めで半コマまで食い込むことがある。そのときは 1 コマ退く
@@ -76,8 +77,10 @@ extension SyncEngine {
 
     /// ループ範囲の共通タイムライン上の範囲（終了は開始の 1 コマ以上後）
     func commonRange(of loop: LoopRange) -> ClosedRange<Double> {
-        let lower = commonTime(of: loop.start, as: .start)
-        return lower...max(commonTime(of: loop.end, as: .end), lower + frameStep)
+        let gap = min(frameStep, commonDuration)
+        let lower = min(commonTime(of: loop.start, as: .start), max(0, commonDuration - gap))
+        let upper = min(commonDuration, max(commonTime(of: loop.end, as: .end), lower + gap))
+        return lower...upper
     }
 
     /// 端の起点になるフェーズの位置（開始の端は早い方、終了の端は遅い方）

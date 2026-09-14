@@ -12,3 +12,21 @@ struct PlaybackSettings: Codable, Equatable {
     /// ループ範囲。nil ならループしない（JSON ではキーごと省かれる）
     var loop: LoopRange? = .all
 }
+
+extension PlaybackSettings {
+    private enum CodingKeys: String, CodingKey {
+        case syncBasis, anchor, speed, loop
+    }
+
+    /// 後から足したキーが無い保存データも読めるようにする。
+    /// NOTE: ここで例外を投げると `Library` 全体が読めなくなり、クリップが全部消える（再生の設定 1 つのために失うものが大きすぎる）。
+    ///       `loop` のキーが無いのは「ループしない」を保存した状態なので、既定の `.all` に戻さず nil のままにする
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = PlaybackSettings()
+        syncBasis = (try? c.decodeIfPresent(SyncBasis.self, forKey: .syncBasis)) ?? fallback.syncBasis
+        anchor = (try? c.decodeIfPresent(SwingPhase.self, forKey: .anchor)) ?? fallback.anchor
+        speed = (try? c.decodeIfPresent(Double.self, forKey: .speed)) ?? fallback.speed
+        loop = try? c.decodeIfPresent(LoopRange.self, forKey: .loop)
+    }
+}

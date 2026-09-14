@@ -9,8 +9,9 @@ struct JogRotation {
     let degreesPerDetent: Double
     /// ギアが 1 段上がるのに要する回転（1 周）
     private static let degreesPerGear = 360.0
-    /// これ以上ギアは上がらない（×8 は速すぎて狙った場所を通り過ぎる）
+    /// これ以上ギアは上がらない（×8 は速すぎて狙った場所を通り過ぎる）。周回ごとに倍にするので 2 段まで
     private static let maxGear = 4
+    private static let maxGearShift = 2
     /// この時間（秒）指が止まったら別の回しとみなし、ギアを 1 に戻す
     private static let pauseInterval = 0.3
 
@@ -33,7 +34,9 @@ struct JogRotation {
     /// 1 目盛りあたりのコマ数。1 周目 1、2 周目 2、3 周目以降 4
     var framesPerDetent: Int {
         let laps = Int(abs(runDegrees) / Self.degreesPerGear)
-        return min(1 << laps, Self.maxGear)
+        // NOTE: 周回数でシフトするので、頭打ちの段に届く分だけに抑える（Swift の << は 64 以上で 0 になり、
+        //       止めずに回し続けるとギアが 0 = コマが進まない、という壊れ方をする）
+        return min(1 << min(laps, Self.maxGearShift), Self.maxGear)
     }
 
     /// 指の角度（ラジアン、時計回りが正）と時刻を更新し、越えた目盛りの数を返す（時計回りが正。1 回の更新で複数越えることもある）

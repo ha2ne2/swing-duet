@@ -22,17 +22,3 @@ struct PaneSwapButton: View {
         .padding(.horizontal, 6)
     }
 }
-
-extension View {
-    /// 動画の上に重ねる小さな表示の見た目：枠付きの半透明のカプセル
-    /// - Parameter touchTarget: 押せるものは高さ 44pt でタッチ領域を確保する。押せない表示（進捗など）は文字の高さのまま
-    func paneChip(touchTarget: Bool = true) -> some View {
-        font(.caption.bold())
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.black.opacity(0.55), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.35)))
-            .foregroundStyle(.white)
-            .frame(minHeight: touchTarget ? 44 : nil)
-    }
-}

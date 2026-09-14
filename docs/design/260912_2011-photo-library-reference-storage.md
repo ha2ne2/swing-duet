@@ -2,8 +2,8 @@
 
 - 日付：2026-09-12
 - 種別：設計 → 実装（[design/260912_1951](./260912_1951-in-app-slowmo-capture-and-shot-split.md) §8 の 7 で決定）
-- 対象：`Models/Clip.swift`、`Services/ClipStore.swift`（取り込み・読み出しの窓口・削除）、`Services/SwingAnalyzer.swift`（`analyze(asset:)`）、
-  動画を読む View（`VideoThumbnail`、`ComparisonView` / `PlaybackController`、`PhaseEditView`、`StageView` の `SlotPane`）、`Services/PhotoLibrary.swift`
+- 対象：`Models/Clip.swift`、`Services/Library/ClipStore.swift`（取り込み・読み出しの窓口・削除）、`Services/Analysis/SwingAnalyzer.swift`（`analyze(asset:)`）、
+  動画を読む View（`VideoThumbnail`、`ComparisonView` / `PlaybackController`、`PhaseEditView`、`StageView` の `SlotPane`）、`Services/Media/PhotoLibrary.swift`
 - 前提：コピーを選んだ調査 [research/260907_0316](../research/260907_0316-copy-vs-reference-video-storage.md)。その「参照へ行く判断になる条件」
   （写真ライブラリを一覧して選ぶギャラリー型で、フル権限が前提）が 2026-09-11 の「動画」タブでそろい、撮ったショットを写真ライブラリに残す決定で二重の容量が問題になった
 

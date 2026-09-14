@@ -25,11 +25,13 @@ struct VideoPickerSheet: View {
     /// 選んだ動画を入れる側
     let destination: VideoSide
     /// 右ペインにいま入っているクリップ（「お手本」タブで「いま右に」と示す）
-    var currentPartnerID: UUID? = nil
+    let currentPartnerID: UUID?
     let onPick: (PickedVideo) -> Void
 
     @State private var tab: Tab
     @State private var steps: [Step] = []
+    /// 写真ライブラリはシートが持つ（タブを行き来するたびに作り直すと、全動画の取り直しとスクロール位置の戻りが起きる）
+    @StateObject private var library = PhotoLibrary()
 
     /// 「動画」タブの中の段階（プレビュー → 名前付け）
     private enum Step: Hashable {
@@ -63,11 +65,11 @@ struct VideoPickerSheet: View {
 
                 switch tab {
                 case .library:
-                    LibraryGridView { source in
+                    LibraryGridView(library: library) { source in
                         steps.append(.preview(source))
                     }
                 case .models:
-                    ModelShelfView(currentPartnerID: currentPartnerID) { clip in
+                    ModelShelfView(destination: destination, currentPartnerID: currentPartnerID) { clip in
                         finish(.existing(clip))
                     }
                 }

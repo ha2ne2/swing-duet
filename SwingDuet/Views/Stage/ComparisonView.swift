@@ -1,12 +1,8 @@
 import SwiftUI
 import AVFoundation
 
-/// 比較画面：左（スイング）と右（お手本）の 2 本を共通タイムラインで同時再生する。
-///
-/// 動画（`ClipStore.videoAsset(of:)`。写真ライブラリの参照は iCloud からのダウンロードを含む）を解いてから PlaybackController を 1 度だけ作り、
-/// 本体（ComparisonContent）に渡す。解けなければ（写真アプリで消された等）理由を出す。
-/// NOTE: `@State` の初期値は View が作り直されるたびに評価されるので、init で作ると親（StageView）の再描画（保存時）ごとに
-///       AVPlayer 2 つを持つ使い捨ての PlaybackController ができる。`State` のドキュメントが勧めるとおり `task` で遅延生成する
+/// 動画を読み込み、2 本を再生するコントローラを作って比較画面へ渡す。
+/// NOTE: View の再生成で AVPlayer が増えないよう、コントローラは init ではなく task で作る。
 struct ComparisonView: View {
     @EnvironmentObject private var store: ClipStore
     let left: Clip
@@ -39,10 +35,12 @@ struct ComparisonView: View {
                         let controller = PlaybackController(
                             mineItem: try await VideoImporter.playerItem(for: mine),
                             modelItem: try await VideoImporter.playerItem(for: model),
-                            mine: left.video, model: left.pairedConfig(of: right),
+                            mine: left.video, model: right.video,
                             settings: store.playback)
+                        guard !Task.isCancelled else { return }
                         loaded = (mine, model, controller)
                     } catch {
+                        guard !Task.isCancelled else { return }
                         loadError = error.localizedDescription
                     }
                 }
@@ -51,78 +49,60 @@ struct ComparisonView: View {
     }
 }
 
-/// 比較画面の本体。左右の編集（フェーズ・表示変換）と再生の設定を保存し、フェーズの変更を controller に反映する。
-/// 左の編集はスイングに、右のフェーズと速さはお手本そのもの（そのお手本を使うすべてのスイングに効く）に、右の位置合わせはスイングの `pairing` に書く
+/// 位置合わせは各ペインの保存先へ、フェーズは動画の持ち主へ書く。
+/// 設定全体のコピーを保存せず、表示中に更新された解析結果を保つ。
 private struct ComparisonContent: View {
     @EnvironmentObject private var store: ClipStore
-    private let left: Clip
-    private let right: Clip
+    let left: Clip
+    let right: Clip
     /// 解いた動画（フェーズ調整のプレビューに渡す）
-    private let mineAsset: AVAsset
-    private let modelAsset: AVAsset
-    private let controller: PlaybackController
-    private let onSelectVideo: (VideoSide) -> Void
+    let mineAsset: AVAsset
+    let modelAsset: AVAsset
+    let controller: PlaybackController
+    let onSelectVideo: (VideoSide) -> Void
 
-    @State private var mine: VideoConfig
-    @State private var model: VideoConfig
     @State private var editingSide: VideoSide?
     /// 部位の軌跡を動画に重ねるか（ステージ右上のボタンで切り替える）。オンにしたとき、軌跡がまだ無いクリップには作らせる
     @AppStorage(JointTrailOverlay.isEnabledKey) private var showTrails = false
 
-    init(left: Clip, right: Clip, mineAsset: AVAsset, modelAsset: AVAsset, controller: PlaybackController,
-         onSelectVideo: @escaping (VideoSide) -> Void) {
-        self.left = left
-        self.right = right
-        self.mineAsset = mineAsset
-        self.modelAsset = modelAsset
-        self.controller = controller
-        self.onSelectVideo = onSelectVideo
-        _mine = State(initialValue: left.video)
-        _model = State(initialValue: left.pairedConfig(of: right))
+    private func clip(for side: VideoSide) -> Clip {
+        let original = side == .mine ? left : right
+        return store.clip(id: original.id) ?? original
+    }
+
+    private func transform(for side: VideoSide) -> Binding<PaneTransform> {
+        Binding(
+            get: {
+                side == .mine ? clip(for: .mine).video.transform : clip(for: .mine).partnerTransform(for: right.id)
+            },
+            set: { value in
+                if side == .mine {
+                    store.setTransform(value, of: left.id)
+                } else {
+                    store.setPartnerTransform(value, of: left.id, partnerID: right.id)
+                }
+            })
     }
 
     var body: some View {
         VStack(spacing: 8) {
             // 動画ペイン（左右並び）
             HStack(spacing: 2) {
-                VideoPaneView(
-                    controller: controller,
-                    config: $mine,
-                    side: .mine,
-                    title: left.paneTitle,
-                    onSwap: { onSelectVideo(.mine) },
-                    onEditPhases: { editPhases(.mine) })
-                VideoPaneView(
-                    controller: controller,
-                    config: $model,
-                    side: .model,
-                    title: right.paneTitle,
-                    onSwap: { onSelectVideo(.model) },
-                    onEditPhases: { editPhases(.model) })
+                ForEach(VideoSide.allCases) { side in
+                    VideoPaneView(
+                        controller: controller, config: clip(for: side).video, transform: transform(for: side),
+                        side: side, title: clip(for: side).paneTitle,
+                        onSwap: { onSelectVideo(side) }, onEditPhases: { editPhases(side) })
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.black)
 
             ControlPanelView(controller: controller)
         }
-        .onChange(of: mine) { _, newValue in
-            var clip = left
-            clip.video = newValue
-            store.update(clip)
-            updateVideos()
-        }
-        .onChange(of: model) { _, newValue in
-            // 相手には解析結果だけを写し、位置合わせは pairing に持つ（相手が ★ お気に入りのスイングなら、そのスイング自身の位置合わせを壊さない）
-            var partner = right
-            partner.video.phases = newValue.phases
-            partner.video.candidates = newValue.candidates
-            partner.video.lowConfidence = newValue.lowConfidence
-            partner.video.slowFactor = newValue.slowFactor
-            store.update(partner)
-            var clip = left
-            clip.pairing = Pairing(partnerID: right.id, transformOf: newValue, pairedAt: left.pairing?.pairedAt ?? Date())
-            store.update(clip)
-            updateVideos()
+        // 同期の写像はフェーズと動画の速さだけで決まる。この画面での修正でも、撮影した球の解析し直しでも、変わったら作り直す
+        .onChange(of: VideoSide.allCases.map { SyncEngine.Timing(clip(for: $0).video) }) { _, _ in
+            controller.updateVideos(mine: clip(for: .mine).video, model: clip(for: .model).video)
         }
         .onChange(of: controller.settings) { _, settings in
             store.playback = settings   // 次に開く比較も同じ設定から始める
@@ -132,13 +112,6 @@ private struct ComparisonContent: View {
             store.requestTrails(of: left.id)
             store.requestTrails(of: right.id)
         }
-        // 後から付いた軌跡を手元の設定にも写す。写さないと、拡大などで設定を保存し直したときに付いたばかりの軌跡を消してしまう
-        .onChange(of: left.video.jointTrails) { _, trails in
-            mine.jointTrails = trails
-        }
-        .onChange(of: right.video.jointTrails) { _, trails in
-            model.jointTrails = trails
-        }
         .task {
             await controller.playWhenReady()   // 開いたら自動で再生
         }
@@ -147,14 +120,12 @@ private struct ComparisonContent: View {
         }
         .sheet(item: $editingSide) { side in
             PhaseEditView(
-                config: side == .mine ? $mine : $model,
+                config: clip(for: side).video,
                 asset: side == .mine ? mineAsset : modelAsset,
-                side: side)
+                side: side) { phases, slowFactor in
+                    store.setPhases(phases, slowFactor: slowFactor, of: clip(for: side).id)
+                }
         }
-    }
-
-    private func updateVideos() {
-        controller.updateVideos(mine: mine, model: model)
     }
 
     private func editPhases(_ side: VideoSide) {
