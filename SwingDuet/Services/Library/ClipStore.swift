@@ -79,12 +79,15 @@ final class ClipStore: ObservableObject {
         processQueue()
     }
 
-    /// 棚に並べないお手本（「今回だけ使う」で入れたもの）は、相手にしているスイングが無くなれば消す
+    /// 棚に並べないお手本（「今回だけ使う」で入れたもの）は、相手にしているスイングが無くなれば消す。
+    /// 戻り値は**保存データがいまのクリップと一致しているか**。起動時の孤児の片付けは、これが true のときだけ行ってよい
+    /// （消しただけで保存に失敗した状態で片付けると、参照が残っている動画まで孤児に見える）
     private func removeUnreferencedModels() -> Bool {
         let referenced = Set(clips.compactMap { $0.pairing?.partnerID })
         let before = clips.count
         clips.removeAll { $0.role == .model && !$0.isRegistered && !referenced.contains($0.id) }
-        return clips.count == before || persist()
+        guard clips.count != before else { return true }
+        return persist()
     }
 
     /// 全項目を復元してから版を移行する。途中の設定代入では JSON を保存しない。
@@ -117,9 +120,12 @@ final class ClipStore: ObservableObject {
         clips.filter { $0.role == .model && $0.isRegistered }.sorted { $0.createdAt > $1.createdAt }
     }
 
-    /// ★ お気に入り（★ の付いたスイング。お手本の棚にも並ぶ）
+    /// ★ お気に入り（★ の付いたスイング。お手本の棚にも並ぶ）。
+    /// **最後に ★ を付けたものが先頭**。付けた日時を持たない古い保存データは `.distantPast` に落ちて後ろに回り、
+    /// その中では撮影日の新しい順になる
     var favorites: [Clip] {
         swings.filter(\.isFavorite)
+            .sorted { ($0.favoritedAt ?? .distantPast, $0.sortDate) > ($1.favoritedAt ?? .distantPast, $1.sortDate) }
     }
 
     /// この写真ライブラリの動画は、1 球ずつに分けて取り込み済みか（もう一度分けない）
@@ -323,7 +329,7 @@ final class ClipStore: ObservableObject {
     }
 
     func setFavorite(_ id: UUID, _ isFavorite: Bool) {
-        mutate(id) { $0.isFavorite = isFavorite }
+        mutate(id) { $0.setFavorite(isFavorite) }
     }
 
     /// フェーズ画面の編集だけを最新の解析結果に重ねる。軌跡や候補、位置合わせは触らない。
@@ -529,9 +535,7 @@ final class ClipStore: ObservableObject {
         // 最後の切り出しが失敗しても、最後に成功した球が元の ID を引き継いでステージと相手の参照を保つ
         let last = result.count - 1
         result[last].id = takeID
-        result[last].name = take.name
-        result[last].isFavorite = take.isFavorite
-        result[last].video.slowFactor = take.video.slowFactor
+        result[last].inheritUserEdits(from: take)
         clips.remove(at: index)
         clips.append(contentsOf: result)
         if let assetID = take.assetID { splitTakes.append(assetID) }

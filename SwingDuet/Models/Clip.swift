@@ -32,6 +32,9 @@ struct Clip: Codable, Identifiable, Equatable {
     var cloudID: String? = nil
     /// ★ お気に入り（スイングだけ。お手本の棚にも「★ お気に入り」として並ぶ）
     var isFavorite: Bool = false
+    /// ★ を付けた日時（外すと nil）。一覧の ★ の節は**最後に付けたものが一番上**。これより前の保存データには無い。
+    /// `isFavorite` と 2 つで 1 つの状態なので、`setFavorite` / `inheritUserEdits` の外で片方だけ動かさない
+    var favoritedAt: Date? = nil
     /// お手本の棚（「お手本」タブ）に並べるか。「今回だけ使う」で右に入れた動画は false で、
     /// 相手にしているスイングが無くなれば次回起動時に消える（スイングでは常に true）
     var isRegistered: Bool = true
@@ -77,7 +80,7 @@ struct Clip: Codable, Identifiable, Equatable {
     var isAnalyzed: Bool { analysis == .done }
 
     /// 左（自分）に置けるか。スイングの一覧に出るもの。
-    /// お手本を左に入れると、一覧に出ない・★ が効かない行になってしまうので入れさせない
+    /// お手本を左に入れると、一覧に出ない・★ が効かないクリップになってしまうので入れさせない
     var isMine: Bool { role == .swing }
 
     /// 右（お手本）に置ける種類か。登録済みのお手本と、★ お気に入りのスイング。
@@ -90,6 +93,23 @@ struct Clip: Codable, Identifiable, Equatable {
     /// サムネイルに出すコマの時刻。解析が済んでいなければ先頭
     func thumbnailTime(of phase: SwingPhase) -> Double {
         isAnalyzed ? video.phases.time(of: phase) : 0
+    }
+
+    /// ★ を付ける・外す（日時も一緒に動かす）。既に同じ状態なら日時を打ち直さない：
+    /// まとめて ★ を付けたときに、元から ★ だったものの並びを動かさないため
+    mutating func setFavorite(_ on: Bool, at date: Date = Date()) {
+        guard isFavorite != on else { return }
+        isFavorite = on
+        favoritedAt = on ? date : nil
+    }
+
+    /// 切り出しや解析し直しの間に付いた手入れ（名前・★・動画の速さ）を引き継ぐ。
+    /// ★ は付いているかと付けた日時の 2 つで 1 つなので、まとめてここで写す
+    mutating func inheritUserEdits(from source: Clip) {
+        name = source.name
+        isFavorite = source.isFavorite
+        favoritedAt = source.favoritedAt
+        video.slowFactor = source.video.slowFactor
     }
 
     /// このスイングとの比較で使う相手の位置合わせ。相手を替えた直後は自動フィットに戻る
@@ -111,10 +131,10 @@ extension Clip {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, name, createdAt, shotAt, assetID, cloudID, isFavorite, isRegistered, video, analysis, needsReanalysis, pairing
+        case id, role, name, createdAt, shotAt, assetID, cloudID, isFavorite, favoritedAt, isRegistered, video, analysis, needsReanalysis, pairing
     }
 
-    /// 後から追加したキー（isRegistered / cloudID / needsReanalysis）が無い保存データも読めるようにする
+    /// 後から追加したキー（isRegistered / cloudID / needsReanalysis / favoritedAt）が無い保存データも読めるようにする
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -125,6 +145,7 @@ extension Clip {
         assetID = try c.decodeIfPresent(String.self, forKey: .assetID)
         cloudID = try c.decodeIfPresent(String.self, forKey: .cloudID)
         isFavorite = try c.decode(Bool.self, forKey: .isFavorite)
+        favoritedAt = try c.decodeIfPresent(Date.self, forKey: .favoritedAt)
         isRegistered = try c.decodeIfPresent(Bool.self, forKey: .isRegistered) ?? true
         video = try c.decode(VideoConfig.self, forKey: .video)
         analysis = try c.decode(AnalysisState.self, forKey: .analysis)

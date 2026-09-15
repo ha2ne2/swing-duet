@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// 起動画面：自分のスイングの一覧（★ お気に入りの節と、撮影日ごとの節）。行をタップするとステージ（`StageView`）。
+/// 起動画面：自分のスイングの一覧（★ お気に入りの節と、撮影日ごとの節）。インパクトのコマを並べた格子で、
+/// セルをタップするとステージ（`StageView`）。名前・削除は長押しのメニュー。
 /// 下端の「撮影」で撮影画面（`CaptureView`。打つだけで 1 球ずつ残る）、「ライブラリから」で写真ライブラリから 1 本選ぶ（同じ見た目のカプセル 2 つ）。
 /// 「選択」でまとめて ★ / 削除。削除は即時で、下端の「元に戻す」で戻せる
 struct SwingListView: View {
@@ -11,12 +12,14 @@ struct SwingListView: View {
     @State private var showingCapture = false
     /// 撮影を止めた結果（下端の帯に数秒出す）
     @State private var captureSummary: CaptureController.Summary?
-    @State private var editMode: EditMode = .inactive
+    @State private var isSelecting = false
     @State private var selection = Set<UUID>()
     @State private var renaming: Clip?
     @State private var errorMessage: String?
 
-    private var isEditing: Bool { editMode.isEditing }
+    /// 格子は 1 行 3 枚、縦長のスイング動画に合わせて 3 : 4
+    private static let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
+    private static let cellAspect: CGFloat = 3.0 / 4.0
 
     /// 撮影日ごとの節（★ お気に入りは別の節に出すので除く）。新しい日から
     private var days: [(day: Date, items: [Clip])] {
@@ -33,7 +36,7 @@ struct SwingListView: View {
                         Text("下の「撮影」で撮るか、「ライブラリから」追加します。")
                     }
                 } else {
-                    list
+                    grid
                 }
             }
             .navigationTitle("スイング")
@@ -41,7 +44,7 @@ struct SwingListView: View {
                 StageView(swingID: id)
             }
             .toolbar {
-                if isEditing {
+                if isSelecting {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("すべて選択") { selection = Set(store.swings.map(\.id)) }
                     }
@@ -51,12 +54,11 @@ struct SwingListView: View {
                     }
                 } else {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("選択") { editMode = .active }
+                        Button("選択") { isSelecting = true }
                             .disabled(store.swings.isEmpty)
                     }
                 }
             }
-            .environment(\.editMode, $editMode)
             .safeAreaInset(edge: .bottom) {
                 bottomBar
             }
@@ -77,40 +79,56 @@ struct SwingListView: View {
         }
     }
 
-    private var list: some View {
-        // NOTE: 複数選択の binding を常に渡すと、iPhone では行のタップが選択に取られて NavigationLink が押せなくなる。選択モードのときだけ渡す
-        List(selection: isEditing ? $selection : nil) {
-            if !store.favorites.isEmpty {
-                Section("★ お気に入り") {
-                    ForEach(store.favorites) { clip in
-                        row(clip, showsDate: true)
-                    }
+    private var grid: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 4) {
+                // clips からの絞り込みと並べ替えなので、1 回の描画で何度も引かない
+                let favorites = store.favorites
+                if !favorites.isEmpty {
+                    section("★ お気に入り", favorites, showsDate: true)
+                }
+                ForEach(days, id: \.day) { group in
+                    section(group.day.dayLabel, group.items, showsDate: false)
+                }
+                Text("★ 以外は \(ClipStore.swingLimit) 本まで残ります（今日の分は数えません）")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 12)
+            }
+            .padding(.bottom, 20)
+        }
+        .accessibilityIdentifier("list.grid")
+    }
+
+    private func section(_ title: String, _ clips: [Clip], showsDate: Bool) -> some View {
+        Group {
+            Text(title)
+                .font(.subheadline.bold())
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+            LazyVGrid(columns: Self.columns, spacing: 2) {
+                ForEach(clips) { clip in
+                    SwingCell(clip: clip, showsDate: showsDate, aspect: Self.cellAspect,
+                              isSelecting: isSelecting, isSelected: selection.contains(clip.id),
+                              onTap: { tap(clip) }, onRename: { renaming = clip })
                 }
             }
-            let sections = days
-            ForEach(sections, id: \.day) { group in
-                Section {
-                    ForEach(group.items) { clip in
-                        row(clip, showsDate: false)
-                    }
-                } header: {
-                    Text(group.day.dayLabel)
-                } footer: {
-                    if group.day == sections.last?.day {
-                        Text("★ 以外は \(ClipStore.swingLimit) 本まで残ります（今日の分は数えません）")
-                    }
-                }
-            }
+            .padding(.horizontal, 2)
         }
     }
 
-    private func row(_ clip: Clip, showsDate: Bool) -> some View {
-        SwingRow(clip: clip, showsDate: showsDate, isEditing: isEditing) {
-            renaming = clip
+    /// セルのタップ。選択モードでは選び、そうでなければステージを開く
+    private func tap(_ clip: Clip) {
+        guard isSelecting else {
+            path.append(clip.id)
+            return
         }
-        // NOTE: NavigationLink を行の中身にすると右端に > が付く。透明な NavigationLink を背景に敷けば、行全体のタップで遷移しつつ > は出ない
-        .background(NavigationLink(value: clip.id) { EmptyView() }.opacity(0))
-        .accessibilityIdentifier("swing.\(clip.id.uuidString)")
+        if selection.contains(clip.id) {
+            selection.remove(clip.id)
+        } else {
+            selection.insert(clip.id)
+        }
     }
 
     /// 下端：通常は「撮影」「ライブラリから」（同じ見た目のカプセル 2 つ）、選択中はまとめて ★ / 削除。削除の直後は「元に戻す」、撮影の直後は結果の帯
@@ -136,7 +154,7 @@ struct SwingListView: View {
                 }
                 .accessibilityIdentifier("list.captureSummary")
             }
-            if isEditing {
+            if isSelecting {
                 selectionBar
             } else {
                 HStack(spacing: 10) {
@@ -195,7 +213,7 @@ struct SwingListView: View {
 
     private func endEditing() {
         selection = []
-        editMode = .inactive
+        isSelecting = false
     }
 
     /// ピッカーで選んだ動画を開く。ライブラリの動画は取り込んでスイングにし（同じ動画のスイングがあればそれ）、ステージへ
@@ -216,13 +234,17 @@ struct SwingListView: View {
     }
 }
 
-/// 一覧の行：自分と相手のインパクトのサムネイル、名前（無ければ時刻）、テンポ比と最後に比べたお手本、☆、「…」
-private struct SwingRow: View {
+/// 一覧の格子のセル：インパクトのコマ 1 枚に、題（名前か時刻）・★・解析の状態を重ねる。
+/// 名前・削除・再解析は長押しのメニュー（格子には置く場所が無い）
+private struct SwingCell: View {
     @EnvironmentObject private var store: ClipStore
     let clip: Clip
     /// ★ お気に入りの節では日付も出す（日付の節では時刻だけ）
     let showsDate: Bool
-    let isEditing: Bool
+    let aspect: CGFloat
+    let isSelecting: Bool
+    let isSelected: Bool
+    let onTap: () -> Void
     let onRename: () -> Void
 
     private var title: String {
@@ -230,79 +252,106 @@ private struct SwingRow: View {
         return showsDate ? clip.sortDate.compactLabel : clip.sortDate.timeLabel
     }
 
-    private var partner: Clip? { store.partner(of: clip) }
-
     var body: some View {
-        HStack(spacing: 12) {
-            // 左が自分、右が相手（無ければ空の枠）。どちらもインパクトのコマ
-            HStack(spacing: 2) {
-                thumbnail(of: clip)
-                    .opacity(clip.isAnalyzed ? 1 : 0.4)
-                if let partner {
-                    thumbnail(of: partner)
-                } else {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(.quaternary)
-                        .frame(width: 44, height: 60)
+        Button(action: onTap) {
+            // 1 行 3 枚のセルは iPhone で 130pt 前後。44pt の行より大きいので、既定の 256px では粗い
+            ClipThumbnail(clip: clip, phase: .impact, aspect: aspect, maxSize: 512)
+                .aspectRatio(aspect, contentMode: .fit)
+                .opacity(clip.isAnalyzed ? 1 : 0.4)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(alignment: .bottomLeading) {
+                    Text(title)
+                        .font(.caption2.bold())
+                        .lineLimit(1)
+                        .shadow(radius: 2)
+                        .padding(4)
                 }
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(clip.isAnalyzed ? .primary : .secondary)
-                subtitle
-                    .font(.caption)
-            }
-            Spacer(minLength: 4)
-            if !isEditing {
-                FavoriteButton(clip: clip, dimsWhenOff: true)
-                    .frame(width: 44, height: 44)
-                Menu {
-                    if case .failed = clip.analysis {
-                        Button("もう一度解析", systemImage: "arrow.clockwise") { store.retryAnalysis(clip.id) }
-                    } else {
-                        Button("名前を付ける", systemImage: "pencil", action: onRename)
+                .overlay(alignment: .topTrailing) {
+                    if clip.isFavorite {
+                        Image(systemName: "star.fill")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                            .shadow(radius: 2)
+                            .padding(4)
                     }
-                    Button("削除", systemImage: "trash", role: .destructive) { store.delete([clip.id]) }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 44, height: 44)
                 }
-                .accessibilityLabel("\(title) のメニュー")
-            }
+                .overlay(alignment: .topLeading) { analysisBadge }
+                .overlay {
+                    if isSelecting { selectionMark }
+                }
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.borderless)
-        .padding(.vertical, 2)
+        .buttonStyle(.plain)
+        .contextMenu { if !isSelecting { menu } }
+        .accessibilityIdentifier("swing.\(clip.id.uuidString)")
+        .accessibilityLabel(accessibilityText)
     }
 
-    private func thumbnail(of clip: Clip) -> some View {
-        ClipThumbnail(clip: clip, phase: .impact, aspect: 44 / 60)
-            .frame(width: 44, height: 60)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+    /// 解析の状態（済んでいれば何も出さない）
+    @ViewBuilder
+    private var analysisBadge: some View {
+        switch clip.analysis {
+        case .done:
+            EmptyView()
+        case .pending:
+            Group {
+                if store.analyzingID == clip.id {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "clock")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.white)
+            .shadow(radius: 2)
+            .padding(4)
+        case .failed:
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .shadow(radius: 2)
+                .padding(4)
+        }
+    }
+
+    /// 選択モードの印（選んだセルは枠も付ける）
+    private var selectionMark: some View {
+        RoundedRectangle(cornerRadius: 6)
+            .strokeBorder(isSelected ? Color.accentColor : .clear, lineWidth: 3)
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.black.opacity(0.35)))
+                    .padding(4)
+            }
     }
 
     @ViewBuilder
-    private var subtitle: some View {
-        switch clip.analysis {
-        case .done:
-            Text("\(clip.video.phases.tempoText) · vs \(partner?.displayName ?? "お手本なし")")
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        case .pending:
-            HStack(spacing: 6) {
-                if store.analyzingID == clip.id {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text("解析中…")
-                } else {
-                    Text("解析待ち")
-                }
+    private var menu: some View {
+        if case .failed = clip.analysis {
+            Button("もう一度解析", systemImage: "arrow.clockwise") { store.retryAnalysis(clip.id) }
+        } else {
+            Button("名前を付ける", systemImage: "pencil", action: onRename)
+            Button(clip.isFavorite ? "★ お気に入りから外す" : "★ お気に入りに追加",
+                   systemImage: clip.isFavorite ? "star.slash" : "star") {
+                store.setFavorite(clip.id, !clip.isFavorite)
             }
-            .foregroundStyle(.secondary)
-        case .failed:
-            Label("解析できませんでした", systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.orange)
+            .disabled(!clip.isAnalyzed)
         }
+        Button("削除", systemImage: "trash", role: .destructive) { store.delete([clip.id]) }
+    }
+
+    /// 「9/10 14:32, ★, 解析中」。格子では文字が 1 行しか置けないので、状態は読み上げで補う
+    private var accessibilityText: String {
+        var parts = [title]
+        if clip.isFavorite { parts.append("★ お気に入り") }
+        switch clip.analysis {
+        case .done: break
+        case .pending: parts.append(store.analyzingID == clip.id ? "解析中" : "解析待ち")
+        case .failed: parts.append("解析できませんでした")
+        }
+        if isSelecting { parts.append(isSelected ? "選択中" : "未選択") }
+        return parts.joined(separator: ", ")
     }
 }

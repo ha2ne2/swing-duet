@@ -243,10 +243,13 @@ struct ClipStoreTests {
         store.rename(take.id, to: "練習")
         store.setFavorite(take.id, true)
         store.setPartner(of: take.id, to: model.id)
+        let favoritedAt = try #require(store.clip(id: take.id)?.favoritedAt)
         store.completeSplit(takeID: take.id, shots: [shot])
         let result = try #require(store.clip(id: take.id))
         #expect(result.fileName == "cut.mov")
         #expect(result.name == "練習" && result.isFavorite)
+        // ★ は付けた日時も一緒に引き継ぐ（片方だけだと ★ の節の並びから外れる）
+        #expect(result.favoritedAt == favoritedAt)
         #expect(result.pairing?.partnerID == model.id)
         #expect(store.isAlreadySplit("take"))
     }
@@ -317,6 +320,44 @@ struct ClipStoreTests {
         #expect(store.clip(id: uncertainID)?.video.slowFactor == nil)          // 信頼度が低くても、手で置いたフェーズからは推定する
         #expect(store.clip(id: uncertainID)?.video.effectiveSlowFactor == 4)
         #expect(makeStore().clip(id: estimatedID)?.video.slowFactor == nil)    // 版が上がって保存される
+    }
+
+    // MARK: - ★ お気に入り
+
+    /// ★ の節は「最後に付けたものが先頭」。付けた日時を持たない古い保存データは後ろに撮影日順で続く
+    @Test func favoritesAreOrderedByWhenTheStarWasPut() {
+        let store = makeStore()
+        let base = Date(timeIntervalSince1970: 1_700_000_000)
+        // 撮影は old → new の順。★ を付ける順はその逆にする
+        let old = store.add(role: .swing, fileName: "old.mov", shotAt: base, assetID: nil)
+        let new = store.add(role: .swing, fileName: "new.mov", shotAt: base.addingTimeInterval(60), assetID: nil)
+        let legacy = store.add(role: .swing, fileName: "legacy.mov", shotAt: base.addingTimeInterval(120), assetID: nil)
+        store.mutate(new.id) {
+            $0.isFavorite = true
+            $0.favoritedAt = base.addingTimeInterval(1000)
+        }
+        store.mutate(old.id) {
+            $0.isFavorite = true
+            $0.favoritedAt = base.addingTimeInterval(2000)
+        }
+        store.mutate(legacy.id) { $0.isFavorite = true }   // 古い保存データ（日時なし）
+
+        #expect(store.favorites.map(\.id) == [old.id, new.id, legacy.id])
+    }
+
+    /// ★ を付けた日時は付けたときだけ打ち直す（まとめて ★ にしても、元から ★ だったものの並びは動かない）
+    @Test func puttingTheStarStampsTheDateAndRemovingItClears() throws {
+        let store = makeStore()
+        let clip = store.add(role: .swing, fileName: "s.mov", shotAt: nil, assetID: nil)
+        store.setFavorite(clip.id, true)
+        let first = try #require(store.clip(id: clip.id)?.favoritedAt)
+
+        store.setFavorite(clip.id, true)                        // 既に ★ なら日時はそのまま
+        #expect(store.clip(id: clip.id)?.favoritedAt == first)
+
+        store.setFavorite(clip.id, false)
+        #expect(store.clip(id: clip.id)?.isFavorite == false)
+        #expect(store.clip(id: clip.id)?.favoritedAt == nil)    // 外したら日時も消す（付け直せば先頭に来る）
     }
 
     // MARK: - 追加と上限
